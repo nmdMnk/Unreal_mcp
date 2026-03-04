@@ -260,8 +260,10 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     Payload->TryGetStringField(TEXT("nodeType"), NodeType);
     float X = 0.0f;
     float Y = 0.0f;
-    Payload->TryGetNumberField(TEXT("x"), X);
-    Payload->TryGetNumberField(TEXT("y"), Y);
+    if (!Payload->TryGetNumberField(TEXT("x"), X))
+      Payload->TryGetNumberField(TEXT("posX"), X);
+    if (!Payload->TryGetNumberField(TEXT("y"), Y))
+      Payload->TryGetNumberField(TEXT("posY"), Y);
 
     // Helper to finalize and report
     auto FinalizeAndReport = [&](auto &NodeCreator, UEdGraphNode *NewNode) {
@@ -914,8 +916,10 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
 
     float X = 0.0f;
     float Y = 0.0f;
-    Payload->TryGetNumberField(TEXT("x"), X);
-    Payload->TryGetNumberField(TEXT("y"), Y);
+    if (!Payload->TryGetNumberField(TEXT("x"), X))
+      Payload->TryGetNumberField(TEXT("posX"), X);
+    if (!Payload->TryGetNumberField(TEXT("y"), Y))
+      Payload->TryGetNumberField(TEXT("posY"), Y);
 
     FGraphNodeCreator<UK2Node_Knot> NodeCreator(*TargetGraph);
     UK2Node_Knot *RerouteNode = NodeCreator.CreateNode(false);
