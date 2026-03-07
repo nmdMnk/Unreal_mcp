@@ -479,6 +479,14 @@ void UMcpAutomationBridgeSubsystem::InitializeHandlers() {
     return HandleSetClear(R, A, P, S);
   });
 
+  // DataTable
+  RegisterHandler(TEXT("get_datatable_rows"),
+                  [this](const FString &R, const FString &A,
+                         const TSharedPtr<FJsonObject> &P,
+                         TSharedPtr<FMcpBridgeWebSocket> S) {
+                    return HandleGetDataTableRows(R, A, P, S);
+                  });
+
   // Asset Dependency
   RegisterHandler(TEXT("get_asset_references"),
                   [this](const FString &R, const FString &A,

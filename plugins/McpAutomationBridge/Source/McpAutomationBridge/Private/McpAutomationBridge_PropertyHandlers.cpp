@@ -1,5 +1,6 @@
 #include "McpAutomationBridgeGlobals.h"
 #include "Dom/JsonObject.h"
+#include "Engine/DataTable.h"
 #include "McpAutomationBridgeHelpers.h"
 #include "McpAutomationBridgeSubsystem.h"
 
@@ -80,18 +81,8 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
       ObjectPath = FoundActor->GetPathName();
     }
   }
-  if (!RootObject && ObjectPath.StartsWith(TEXT("/Game/"))) {
-    FString PackagePath = ObjectPath;
-    if (PackagePath.Contains(TEXT("."))) {
-      PackagePath = PackagePath.Left(PackagePath.Find(TEXT(".")));
-    }
-    UPackage* LoadedPackage = LoadPackage(nullptr, *PackagePath, LOAD_None);
-    if (LoadedPackage) {
-      RootObject = FindObject<UObject>(LoadedPackage, *ObjectPath);
-      if (!RootObject) {
-        RootObject = LoadedPackage;
-      }
-    }
+  if (!RootObject && ObjectPath.StartsWith(TEXT("/"))) {
+    RootObject = LoadObject<UObject>(nullptr, *ObjectPath);
   }
 #else
   RootObject = FindObject<UObject>(nullptr, *ObjectPath);
@@ -385,18 +376,8 @@ bool UMcpAutomationBridgeSubsystem::HandleGetObjectProperty(
       ObjectPath = FoundActor->GetPathName();
     }
   }
-  if (!RootObject && ObjectPath.StartsWith(TEXT("/Game/"))) {
-    FString PackagePath = ObjectPath;
-    if (PackagePath.Contains(TEXT("."))) {
-      PackagePath = PackagePath.Left(PackagePath.Find(TEXT(".")));
-    }
-    UPackage* LoadedPackage = LoadPackage(nullptr, *PackagePath, LOAD_None);
-    if (LoadedPackage) {
-      RootObject = FindObject<UObject>(LoadedPackage, *ObjectPath);
-      if (!RootObject) {
-        RootObject = LoadedPackage;
-      }
-    }
+  if (!RootObject && ObjectPath.StartsWith(TEXT("/"))) {
+    RootObject = LoadObject<UObject>(nullptr, *ObjectPath);
   }
 #else
   RootObject = FindObject<UObject>(nullptr, *ObjectPath);
@@ -2746,4 +2727,95 @@ bool UMcpAutomationBridgeSubsystem::HandleGetAssetDependencies(
                       TEXT("NOT_IMPLEMENTED"));
   return true;
 #endif
+}
+
+// ---------------------------------------------------------------------------
+// DataTable row reading
+// ---------------------------------------------------------------------------
+
+bool UMcpAutomationBridgeSubsystem::HandleGetDataTableRows(
+    const FString &RequestId, const FString &Action,
+    const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+  if (!Action.Equals(TEXT("get_datatable_rows"), ESearchCase::IgnoreCase))
+    return false;
+
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("get_datatable_rows payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString DataTablePath;
+  if (!Payload->TryGetStringField(TEXT("dataTablePath"), DataTablePath) ||
+      DataTablePath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("get_datatable_rows requires dataTablePath."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  UDataTable *DataTable = LoadObject<UDataTable>(nullptr, *DataTablePath);
+  if (!DataTable) {
+    SendAutomationError(
+        RequestingSocket, RequestId,
+        FString::Printf(TEXT("DataTable not found: %s"), *DataTablePath),
+        TEXT("OBJECT_NOT_FOUND"));
+    return true;
+  }
+
+  const UScriptStruct *RowStruct = DataTable->GetRowStruct();
+  if (!RowStruct) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("DataTable has no row struct."),
+                        TEXT("INVALID_DATATABLE"));
+    return true;
+  }
+
+  // Optional: filter by row name
+  FString RowNameFilter;
+  Payload->TryGetStringField(TEXT("rowName"), RowNameFilter);
+
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetStringField(TEXT("dataTablePath"), DataTablePath);
+  ResultPayload->SetStringField(TEXT("rowStruct"), RowStruct->GetName());
+
+  TArray<TSharedPtr<FJsonValue>> RowsArray;
+  const TMap<FName, uint8 *> &RowMap = DataTable->GetRowMap();
+
+  for (const auto &Pair : RowMap) {
+    if (!RowNameFilter.IsEmpty() &&
+        !Pair.Key.ToString().Equals(RowNameFilter, ESearchCase::IgnoreCase))
+      continue;
+
+    const uint8 *RowData = Pair.Value;
+    if (!RowData)
+      continue;
+
+    TSharedPtr<FJsonObject> RowObj = MakeShared<FJsonObject>();
+    RowObj->SetStringField(TEXT("rowName"), Pair.Key.ToString());
+
+    TSharedPtr<FJsonObject> FieldsObj = MakeShared<FJsonObject>();
+    for (TFieldIterator<FProperty> It(RowStruct); It; ++It) {
+      FProperty *Prop = *It;
+      if (!Prop)
+        continue;
+
+      const TSharedPtr<FJsonValue> Val =
+          ExportPropertyToJsonValue(const_cast<uint8 *>(RowData), Prop);
+      if (Val.IsValid())
+        FieldsObj->SetField(Prop->GetName(), Val);
+    }
+    RowObj->SetObjectField(TEXT("fields"), FieldsObj);
+    RowsArray.Add(MakeShared<FJsonValueObject>(RowObj));
+  }
+
+  ResultPayload->SetArrayField(TEXT("rows"), RowsArray);
+  ResultPayload->SetNumberField(TEXT("rowCount"), RowsArray.Num());
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         TEXT("DataTable rows retrieved."), ResultPayload,
+                         FString());
+  return true;
 }

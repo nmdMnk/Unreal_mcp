@@ -1025,8 +1025,22 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     LowerSubAction.Equals(TEXT("find_by_tag")) ||
     LowerSubAction.Equals(TEXT("inspect_class"));
 
+  // Property get/set — route to the dedicated object property handlers
+  // which support actors, components (dot notation), AND /Game/ asset paths.
+  const bool bIsPropertyAction =
+    LowerSubAction.Equals(TEXT("get_property")) ||
+    LowerSubAction.Equals(TEXT("set_property"));
+
+  if (bIsPropertyAction)
+  {
+    if (LowerSubAction.Equals(TEXT("get_property")))
+      return HandleGetObjectProperty(RequestId, TEXT("get_object_property"), Payload, RequestingSocket);
+    else
+      return HandleSetObjectProperty(RequestId, TEXT("set_object_property"), Payload, RequestingSocket);
+  }
+
   // Actions that require actorName instead of objectPath
-  const bool bIsActorAction = 
+  const bool bIsActorAction =
     LowerSubAction.Equals(TEXT("get_components")) ||
     LowerSubAction.Equals(TEXT("get_component_property")) ||
     LowerSubAction.Equals(TEXT("set_component_property")) ||
@@ -1036,9 +1050,7 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     LowerSubAction.Equals(TEXT("restore_snapshot")) ||
     LowerSubAction.Equals(TEXT("export")) ||
     LowerSubAction.Equals(TEXT("delete_object")) ||
-    LowerSubAction.Equals(TEXT("get_bounding_box")) ||
-    LowerSubAction.Equals(TEXT("set_property")) ||
-    LowerSubAction.Equals(TEXT("get_property"));
+    LowerSubAction.Equals(TEXT("get_bounding_box"));
 
   // Delegate actor-related actions to the control_actor handler
   if (bIsActorAction) {

@@ -256,6 +256,10 @@ private:
   bool HandleSetClear(const FString &RequestId, const FString &Action,
                       const TSharedPtr<FJsonObject> &Payload,
                       TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
+  // DataTable operations
+  bool HandleGetDataTableRows(const FString &RequestId, const FString &Action,
+                              const TSharedPtr<FJsonObject> &Payload,
+                              TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
   // Asset-related automation actions implemented by the plugin (editor-only
   // operations)
   bool HandleAssetAction(const FString &RequestId, const FString &Action,

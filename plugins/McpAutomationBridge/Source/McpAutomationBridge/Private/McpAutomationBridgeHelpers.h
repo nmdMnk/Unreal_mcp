@@ -1559,6 +1559,12 @@ ExportPropertyToJsonValue(void *TargetContainer, FProperty *Property) {
         NP->GetPropertyValue_InContainer(TargetContainer).ToString());
   }
 
+  // Text (FText)
+  if (FTextProperty *TP = CastField<FTextProperty>(Property)) {
+    const FText& TextVal = TP->GetPropertyValue_InContainer(TargetContainer);
+    return MakeShared<FJsonValueString>(TextVal.ToString());
+  }
+
   // Booleans
   if (FBoolProperty *BP = CastField<FBoolProperty>(Property)) {
     return MakeShared<FJsonValueBoolean>(
@@ -1990,6 +1996,15 @@ ApplyJsonValueToProperty(void *TargetContainer, FProperty *Property,
     OutError = TEXT("Expected string for name property");
     return false;
   }
+  if (FTextProperty *TP = CastField<FTextProperty>(Property)) {
+    if (ValueField->Type == EJson::String) {
+      TP->SetPropertyValue_InContainer(TargetContainer,
+                                       FText::FromString(ValueField->AsString()));
+      return true;
+    }
+    OutError = TEXT("Expected string for text property");
+    return false;
+  }
 
   // Numeric: handle concrete numeric property types explicitly
   if (FFloatProperty *FP = CastField<FFloatProperty>(Property)) {
@@ -2240,6 +2255,20 @@ ApplyJsonValueToProperty(void *TargetContainer, FProperty *Property,
         SP->Struct->CopyScriptStruct(
             SP->ContainerPtrToValuePtr<void>(TargetContainer), &R);
         return true;
+      }
+    }
+
+    // JSON object → struct via FJsonObjectConverter (most reliable path)
+    if (ValueField->Type == EJson::Object) {
+      const TSharedPtr<FJsonObject>& Obj = ValueField->AsObject();
+      if (Obj.IsValid() && SP->Struct) {
+        if (FJsonObjectConverter::JsonObjectToUStruct(
+                Obj.ToSharedRef(), SP->Struct,
+                SP->ContainerPtrToValuePtr<void>(TargetContainer), 0, 0)) {
+          return true;
+        }
+        OutError = FString::Printf(TEXT("JsonObjectToUStruct failed for struct '%s'"), *TypeName);
+        return false;
       }
     }
 

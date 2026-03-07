@@ -230,36 +230,37 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
 
-      const res = await executeAutomationRequest(tools, 'inspect', {
-        action: 'get_property',
+      // Route to get_object_property — a direct WebSocket action that works on
+      // actors, components (dot notation), AND asset paths (/Game/...).
+      const res = await executeAutomationRequest(tools, 'get_object_property', {
         objectPath,
         propertyName
       }) as InspectResponse;
 
-      // Smart Lookup: If property not found on the Actor, try to find it on components
-      if (!res.success && (res.error === 'PROPERTY_NOT_FOUND' || String(res.error).includes('not found'))) {
+      // Smart Lookup: If property not found on the Actor, try to find it on components.
+      // Only applies to actor-style paths (not /Game/ asset paths).
+      if (!res.success && (res.error === 'PROPERTY_NOT_FOUND' || String(res.error).includes('not found'))
+          && !objectPath.startsWith('/Game/')) {
         const actorName = await resolveObjectPath(args, tools, { pathKeys: [], actorKeys: ['actorName', 'name', 'objectPath'] });
         if (actorName) {
           const triedPaths: string[] = [];
 
           // Strategy 1: Check RootComponent (Most common for transform/mobility)
           try {
-            const rootRes = await executeAutomationRequest(tools, 'inspect', {
-              action: 'get_property',
+            const rootRes = await executeAutomationRequest(tools, 'get_object_property', {
               objectPath: actorName,
               propertyName: 'RootComponent'
             }) as InspectResponse;
 
             // Check if we got a valid object path string or object with path
             const rootValue = rootRes.value as Record<string, unknown> | string | undefined;
-            const rootPath = typeof rootValue === 'string' 
-              ? rootValue 
+            const rootPath = typeof rootValue === 'string'
+              ? rootValue
               : (typeof rootValue === 'object' && rootValue ? (rootValue.path || rootValue.objectPath) as string : undefined);
 
             if (rootRes.success && rootPath && typeof rootPath === 'string' && rootPath.length > 0 && rootPath !== 'None') {
               triedPaths.push(rootPath);
-              const propRes = await executeAutomationRequest(tools, 'inspect', {
-                action: 'get_property',
+              const propRes = await executeAutomationRequest(tools, 'get_object_property', {
                 objectPath: rootPath,
                 propertyName
               }) as InspectResponse;
@@ -275,7 +276,6 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
 
           try {
             // Strategy 2: Iterate all components
-            // Use ActorTools directly with the input/original name (args.objectPath)
             const shortName = String(argsTyped.objectPath || '').trim();
             const compsRes = await executeAutomationRequest(tools, 'inspect', {
               action: 'get_components',
@@ -284,22 +284,18 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
             }) as InspectResponse;
 
             if (compsRes.success && (Array.isArray(compsRes.components) || Array.isArray(compsRes))) {
-              const list: ComponentInfo[] = Array.isArray(compsRes.components) 
-                ? compsRes.components 
+              const list: ComponentInfo[] = Array.isArray(compsRes.components)
+                ? compsRes.components
                 : (Array.isArray(compsRes) ? compsRes as unknown as ComponentInfo[] : []);
               const triedPathsInner: string[] = [];
               for (const comp of list) {
-                // Use path if available, otherwise construct it (ActorPath.ComponentName)
-                // Note: C++ Inspect handler might miss 'path', so we fallback.
                 const compName = comp.name;
                 const compPath = comp.objectPath || (compName ? `${actorName}.${compName}` : undefined);
 
                 if (!compPath) continue;
                 triedPathsInner.push(compPath);
 
-                // Quick check: Try to get property on component
-                const compRes = await executeAutomationRequest(tools, 'inspect', {
-                  action: 'get_property',
+                const compRes = await executeAutomationRequest(tools, 'get_object_property', {
                   objectPath: compPath,
                   propertyName
                 }) as InspectResponse;
@@ -350,8 +346,9 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
 
-      const res = await executeAutomationRequest(tools, 'inspect', {
-        action: 'set_property',
+      // Route to set_object_property — a direct WebSocket action that works on
+      // actors, components (dot notation), AND asset paths (/Game/...).
+      const res = await executeAutomationRequest(tools, 'set_object_property', {
         objectPath,
         propertyName,
         value
@@ -396,8 +393,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       ]);
       const propertyName = extractString(params, 'propertyName');
 
-      const res = await executeAutomationRequest(tools, 'inspect', {
-        action: 'get_property',
+      const res = await executeAutomationRequest(tools, 'get_object_property', {
         objectPath: componentObjectPath,
         propertyName
       }) as Record<string, unknown>;
@@ -412,8 +408,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       const propertyName = extractString(params, 'propertyName');
       const value = params.value;
 
-      const res = await executeAutomationRequest(tools, 'inspect', {
-        action: 'set_property',
+      const res = await executeAutomationRequest(tools, 'set_object_property', {
         objectPath: componentObjectPath,
         propertyName,
         value
@@ -694,6 +689,20 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         action: 'get_selected_actors',
         ...normalizedArgs
       });
+      return cleanObject(res) as Record<string, unknown>;
+    }
+    case 'get_datatable_rows': {
+      const dataTablePath = await resolveObjectPath(args, tools, { pathKeys: ['dataTablePath', 'objectPath'] });
+      const rowName = extractOptionalString(normalizeArgs(args, [{ key: 'rowName' }]), 'rowName');
+
+      if (!dataTablePath) {
+        throw new Error('get_datatable_rows requires a dataTablePath');
+      }
+
+      const payload: Record<string, unknown> = { dataTablePath };
+      if (rowName) payload.rowName = rowName;
+
+      const res = await executeAutomationRequest(tools, 'get_datatable_rows', payload);
       return cleanObject(res) as Record<string, unknown>;
     }
     default:
