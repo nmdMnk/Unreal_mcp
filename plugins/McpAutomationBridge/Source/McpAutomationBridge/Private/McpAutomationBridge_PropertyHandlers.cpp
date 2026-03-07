@@ -4,6 +4,10 @@
 #include "Internationalization/StringTable.h"
 #include "Internationalization/StringTableCore.h"
 #include "Internationalization/StringTableRegistry.h"
+#include "Factories/StringTableFactory.h"
+#include "AssetToolsModule.h"
+#include "IAssetTools.h"
+#include "UObject/SavePackage.h"
 #include "McpAutomationBridgeHelpers.h"
 #include "McpAutomationBridgeSubsystem.h"
 
@@ -2892,5 +2896,159 @@ bool UMcpAutomationBridgeSubsystem::HandleGetStringTableEntries(
   SendAutomationResponse(RequestingSocket, RequestId, true,
                          TEXT("StringTable entries retrieved."), ResultPayload,
                          FString());
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// StringTable entry write
+// ---------------------------------------------------------------------------
+
+static bool SaveStringTablePackage(UStringTable *Asset)
+{
+  UPackage *Package = Asset->GetPackage();
+  if (!Package)
+    return false;
+
+  FString PackageFilename;
+  if (!FPackageName::TryConvertLongPackageNameToFilename(
+          Package->GetName(), PackageFilename,
+          FPackageName::GetAssetPackageExtension()))
+    return false;
+
+  FSavePackageArgs SaveArgs;
+  SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+  return UPackage::Save(Package, Asset, *PackageFilename, SaveArgs).IsSuccessful();
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleSetStringTableEntry(
+    const FString &RequestId, const FString &Action,
+    const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+  if (!Action.Equals(TEXT("set_string_table_entry"), ESearchCase::IgnoreCase))
+    return false;
+
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("set_string_table_entry payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString StringTablePath, Key, Value;
+  if (!Payload->TryGetStringField(TEXT("stringTablePath"), StringTablePath) ||
+      StringTablePath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("set_string_table_entry requires stringTablePath."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+  if (!Payload->TryGetStringField(TEXT("key"), Key) ||
+      Key.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("set_string_table_entry requires key."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+  if (!Payload->TryGetStringField(TEXT("value"), Value)) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("set_string_table_entry requires value."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  UStringTable *StringTableAsset =
+      LoadObject<UStringTable>(nullptr, *StringTablePath);
+  if (!StringTableAsset) {
+    SendAutomationError(
+        RequestingSocket, RequestId,
+        FString::Printf(TEXT("StringTable not found: %s"), *StringTablePath),
+        TEXT("OBJECT_NOT_FOUND"));
+    return true;
+  }
+
+  FStringTableRef TableRef = StringTableAsset->GetMutableStringTable();
+  TableRef->SetSourceString(Key, Value);
+  StringTableAsset->MarkPackageDirty();
+  SaveStringTablePackage(StringTableAsset);
+
+  TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+  Result->SetStringField(TEXT("stringTablePath"), StringTablePath);
+  Result->SetStringField(TEXT("key"), Key);
+  Result->SetStringField(TEXT("value"), Value);
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         TEXT("StringTable entry set."), Result, FString());
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// StringTable creation
+// ---------------------------------------------------------------------------
+
+bool UMcpAutomationBridgeSubsystem::HandleCreateStringTable(
+    const FString &RequestId, const FString &Action,
+    const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+  if (!Action.Equals(TEXT("create_string_table"), ESearchCase::IgnoreCase))
+    return false;
+
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("create_string_table payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString AssetPath;
+  if (!Payload->TryGetStringField(TEXT("stringTablePath"), AssetPath) ||
+      AssetPath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("create_string_table requires stringTablePath."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  // If already exists, return success
+  UStringTable *Existing = LoadObject<UStringTable>(nullptr, *AssetPath);
+  if (Existing) {
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("stringTablePath"), AssetPath);
+    Result->SetBoolField(TEXT("alreadyExisted"), true);
+    Result->SetStringField(TEXT("tableNamespace"),
+                           Existing->GetStringTable()->GetNamespace());
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("StringTable already exists."), Result,
+                           FString());
+    return true;
+  }
+
+  const FString AssetName = FPackageName::GetShortName(AssetPath);
+  const FString PackagePath = FPackageName::GetLongPackagePath(AssetPath);
+
+  FAssetToolsModule &AssetToolsModule =
+      FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools");
+  UStringTableFactory *Factory = NewObject<UStringTableFactory>();
+
+  UObject *NewAsset = AssetToolsModule.Get().CreateAsset(
+      AssetName, PackagePath, UStringTable::StaticClass(), Factory);
+
+  if (!NewAsset) {
+    SendAutomationError(
+        RequestingSocket, RequestId,
+        FString::Printf(TEXT("Failed to create StringTable: %s"), *AssetPath),
+        TEXT("CREATE_FAILED"));
+    return true;
+  }
+
+  UStringTable *NewST = Cast<UStringTable>(NewAsset);
+  const FString Namespace = NewST ? NewST->GetStringTable()->GetNamespace() : AssetName;
+
+  TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+  Result->SetStringField(TEXT("stringTablePath"), AssetPath);
+  Result->SetBoolField(TEXT("alreadyExisted"), false);
+  Result->SetStringField(TEXT("tableNamespace"), Namespace);
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         TEXT("StringTable created."), Result, FString());
   return true;
 }

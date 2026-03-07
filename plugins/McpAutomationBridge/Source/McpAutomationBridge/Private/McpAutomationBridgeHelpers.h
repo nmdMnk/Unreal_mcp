@@ -1998,8 +1998,19 @@ ApplyJsonValueToProperty(void *TargetContainer, FProperty *Property,
   }
   if (FTextProperty *TP = CastField<FTextProperty>(Property)) {
     if (ValueField->Type == EJson::String) {
-      TP->SetPropertyValue_InContainer(TargetContainer,
-                                       FText::FromString(ValueField->AsString()));
+      const FString StrVal = ValueField->AsString();
+      // LOCTABLE/NSLOCTEXT/LOCGEN directives must be parsed via ImportText_Direct,
+      // not FText::FromString which treats them as literal strings.
+      if (StrVal.StartsWith(TEXT("LOCTABLE(")) ||
+          StrVal.StartsWith(TEXT("NSLOCTEXT(")) ||
+          StrVal.StartsWith(TEXT("LOCGEN("))) {
+        void *PropPtr = TP->ContainerPtrToValuePtr<void>(TargetContainer);
+        const TCHAR *Buffer = *StrVal;
+        if (TP->ImportText_Direct(Buffer, PropPtr, nullptr, PPF_None) != nullptr)
+          return true;
+        // Fallthrough to FromString if import fails
+      }
+      TP->SetPropertyValue_InContainer(TargetContainer, FText::FromString(StrVal));
       return true;
     }
     OutError = TEXT("Expected string for text property");

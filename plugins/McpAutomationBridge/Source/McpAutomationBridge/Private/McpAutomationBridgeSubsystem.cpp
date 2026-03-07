@@ -494,6 +494,18 @@ void UMcpAutomationBridgeSubsystem::InitializeHandlers() {
                          TSharedPtr<FMcpBridgeWebSocket> S) {
                     return HandleGetStringTableEntries(R, A, P, S);
                   });
+  RegisterHandler(TEXT("set_string_table_entry"),
+                  [this](const FString &R, const FString &A,
+                         const TSharedPtr<FJsonObject> &P,
+                         TSharedPtr<FMcpBridgeWebSocket> S) {
+                    return HandleSetStringTableEntry(R, A, P, S);
+                  });
+  RegisterHandler(TEXT("create_string_table"),
+                  [this](const FString &R, const FString &A,
+                         const TSharedPtr<FJsonObject> &P,
+                         TSharedPtr<FMcpBridgeWebSocket> S) {
+                    return HandleCreateStringTable(R, A, P, S);
+                  });
 
   // Asset Dependency
   RegisterHandler(TEXT("get_asset_references"),

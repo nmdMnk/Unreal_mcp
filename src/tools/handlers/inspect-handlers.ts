@@ -720,6 +720,27 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       const res = await executeAutomationRequest(tools, 'get_string_table_entries', payload);
       return cleanObject(res) as Record<string, unknown>;
     }
+    case 'set_string_table_entry': {
+      const stringTablePath = await resolveObjectPath(args, tools, { pathKeys: ['stringTablePath', 'objectPath'] });
+      const norm = normalizeArgs(args, [{ key: 'key' }, { key: 'value' }]);
+      const key = extractOptionalString(norm, 'key');
+      const value = extractOptionalString(norm, 'value');
+
+      if (!stringTablePath) throw new Error('set_string_table_entry requires stringTablePath');
+      if (!key) throw new Error('set_string_table_entry requires key');
+      if (value === undefined || value === null) throw new Error('set_string_table_entry requires value');
+
+      const res = await executeAutomationRequest(tools, 'set_string_table_entry', { stringTablePath, key, value });
+      return cleanObject(res) as Record<string, unknown>;
+    }
+    case 'create_string_table': {
+      const stringTablePath = await resolveObjectPath(args, tools, { pathKeys: ['stringTablePath', 'objectPath'] });
+
+      if (!stringTablePath) throw new Error('create_string_table requires stringTablePath');
+
+      const res = await executeAutomationRequest(tools, 'create_string_table', { stringTablePath });
+      return cleanObject(res) as Record<string, unknown>;
+    }
     default:
       // Fallback to generic automation request if action not explicitly handled
       const res = await executeAutomationRequest(tools, 'inspect', args, 'Automation bridge not available for inspect operations');

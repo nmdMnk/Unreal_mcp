@@ -884,7 +884,9 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'get_project_settings', 'get_world_settings', 'get_viewport_info', 'get_selected_actors',
             'get_scene_stats', 'get_performance_stats', 'get_memory_stats', 'get_editor_settings',
             'get_datatable_rows',
-            'get_string_table_entries'
+            'get_string_table_entries',
+            'set_string_table_entry',
+            'create_string_table'
           ],
           description: 'Action'
         },
