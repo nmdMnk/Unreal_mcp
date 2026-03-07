@@ -883,13 +883,16 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'create_snapshot', 'restore_snapshot', 'export', 'delete_object', 'find_by_class', 'get_bounding_box',
             'get_project_settings', 'get_world_settings', 'get_viewport_info', 'get_selected_actors',
             'get_scene_stats', 'get_performance_stats', 'get_memory_stats', 'get_editor_settings',
-            'get_datatable_rows'
+            'get_datatable_rows',
+            'get_string_table_entries'
           ],
           description: 'Action'
         },
         objectPath: commonSchemas.assetPath,
         dataTablePath: { type: 'string' as const, description: 'DataTable asset path (e.g., /Game/Path/DT_MyTable).' },
         rowName: { type: 'string' as const, description: 'Optional row name to filter. If omitted, all rows are returned.' },
+        stringTablePath: { type: 'string' as const, description: 'StringTable asset path (e.g., /Game/Path/ST_MyTable).' },
+        key: { type: 'string' as const, description: 'Optional key to filter. If omitted, all entries are returned.' },
         propertyName: commonSchemas.propertyName,
         propertyPath: commonSchemas.stringProp,
         value: commonSchemas.value,

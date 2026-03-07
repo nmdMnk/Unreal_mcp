@@ -260,6 +260,11 @@ private:
   bool HandleGetDataTableRows(const FString &RequestId, const FString &Action,
                               const TSharedPtr<FJsonObject> &Payload,
                               TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
+  // StringTable operations
+  bool HandleGetStringTableEntries(const FString &RequestId,
+                                   const FString &Action,
+                                   const TSharedPtr<FJsonObject> &Payload,
+                                   TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
   // Asset-related automation actions implemented by the plugin (editor-only
   // operations)
   bool HandleAssetAction(const FString &RequestId, const FString &Action,

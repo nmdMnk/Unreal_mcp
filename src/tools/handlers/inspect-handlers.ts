@@ -705,6 +705,21 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       const res = await executeAutomationRequest(tools, 'get_datatable_rows', payload);
       return cleanObject(res) as Record<string, unknown>;
     }
+    case 'get_string_table_entries': {
+      const stringTablePath = await resolveObjectPath(args, tools, { pathKeys: ['stringTablePath', 'objectPath'] });
+      const normalized = normalizeArgs(args, [{ key: 'key' }]);
+      const key = extractOptionalString(normalized, 'key');
+
+      if (!stringTablePath) {
+        throw new Error('get_string_table_entries requires a stringTablePath');
+      }
+
+      const payload: Record<string, unknown> = { stringTablePath };
+      if (key) payload.key = key;
+
+      const res = await executeAutomationRequest(tools, 'get_string_table_entries', payload);
+      return cleanObject(res) as Record<string, unknown>;
+    }
     default:
       // Fallback to generic automation request if action not explicitly handled
       const res = await executeAutomationRequest(tools, 'inspect', args, 'Automation bridge not available for inspect operations');

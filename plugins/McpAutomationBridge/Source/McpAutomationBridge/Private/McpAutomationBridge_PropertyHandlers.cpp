@@ -1,6 +1,9 @@
 #include "McpAutomationBridgeGlobals.h"
 #include "Dom/JsonObject.h"
 #include "Engine/DataTable.h"
+#include "Internationalization/StringTable.h"
+#include "Internationalization/StringTableCore.h"
+#include "Internationalization/StringTableRegistry.h"
 #include "McpAutomationBridgeHelpers.h"
 #include "McpAutomationBridgeSubsystem.h"
 
@@ -2816,6 +2819,78 @@ bool UMcpAutomationBridgeSubsystem::HandleGetDataTableRows(
 
   SendAutomationResponse(RequestingSocket, RequestId, true,
                          TEXT("DataTable rows retrieved."), ResultPayload,
+                         FString());
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// StringTable entry reading
+// ---------------------------------------------------------------------------
+
+bool UMcpAutomationBridgeSubsystem::HandleGetStringTableEntries(
+    const FString &RequestId, const FString &Action,
+    const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+  if (!Action.Equals(TEXT("get_string_table_entries"), ESearchCase::IgnoreCase))
+    return false;
+
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("get_string_table_entries payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString StringTablePath;
+  if (!Payload->TryGetStringField(TEXT("stringTablePath"), StringTablePath) ||
+      StringTablePath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("get_string_table_entries requires stringTablePath."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  UStringTable *StringTableAsset =
+      LoadObject<UStringTable>(nullptr, *StringTablePath);
+  if (!StringTableAsset) {
+    SendAutomationError(
+        RequestingSocket, RequestId,
+        FString::Printf(TEXT("StringTable not found: %s"), *StringTablePath),
+        TEXT("OBJECT_NOT_FOUND"));
+    return true;
+  }
+
+  FStringTableConstRef TableRef = StringTableAsset->GetStringTable();
+  const FString TableNamespace = TableRef->GetNamespace();
+
+  // Optional: filter by key
+  FString KeyFilter;
+  Payload->TryGetStringField(TEXT("key"), KeyFilter);
+
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetStringField(TEXT("stringTablePath"), StringTablePath);
+  ResultPayload->SetStringField(TEXT("tableNamespace"), TableNamespace);
+
+  TArray<TSharedPtr<FJsonValue>> EntriesArray;
+
+  TableRef->EnumerateSourceStrings(
+      [&](const FString &InKey, const FString &InSourceString) -> bool {
+        if (!KeyFilter.IsEmpty() &&
+            !InKey.Equals(KeyFilter, ESearchCase::IgnoreCase))
+          return true; // continue iteration
+
+        TSharedPtr<FJsonObject> EntryObj = MakeShared<FJsonObject>();
+        EntryObj->SetStringField(TEXT("key"), InKey);
+        EntryObj->SetStringField(TEXT("sourceString"), InSourceString);
+        EntriesArray.Add(MakeShared<FJsonValueObject>(EntryObj));
+        return true;
+      });
+
+  ResultPayload->SetArrayField(TEXT("entries"), EntriesArray);
+  ResultPayload->SetNumberField(TEXT("entryCount"), EntriesArray.Num());
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         TEXT("StringTable entries retrieved."), ResultPayload,
                          FString());
   return true;
 }
