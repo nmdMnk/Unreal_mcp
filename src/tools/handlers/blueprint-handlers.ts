@@ -108,10 +108,28 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
         category: argsRecord.category as string | undefined,
         isReplicated: argsRecord.isReplicated as boolean | undefined,
         isPublic: argsRecord.isPublic as boolean | undefined,
+        isArray: argsRecord.isArray as boolean | undefined,
+        isSet: argsRecord.isSet as boolean | undefined,
+        isMap: argsRecord.isMap as boolean | undefined,
         variablePinType: (typeof argsRecord.variablePinType === 'object' && argsRecord.variablePinType !== null ? argsRecord.variablePinType : undefined) as Record<string, unknown> | undefined,
         timeoutMs: argsRecord.timeoutMs as number | undefined,
         waitForCompletion: argsRecord.waitForCompletion as boolean | undefined,
         waitForCompletionTimeoutMs: argsRecord.waitForCompletionTimeoutMs as number | undefined
+      }) as Record<string, unknown>;
+      return cleanObject(res);
+    }
+    case 'modify_variable': {
+      const res = await executeAutomationRequest(tools, 'blueprint_modify_variable', {
+        blueprintCandidates: [argsTyped.name || argsTyped.blueprintPath || (argsRecord.path as string) || ''],
+        requestedPath: argsTyped.name || argsTyped.blueprintPath || (argsRecord.path as string) || '',
+        variableName: argsTyped.variableName ?? '',
+        variableType: argsRecord.variableType as string | undefined,
+        category: argsRecord.category as string | undefined,
+        isArray: argsRecord.isArray as boolean | undefined,
+        isSet: argsRecord.isSet as boolean | undefined,
+        isMap: argsRecord.isMap as boolean | undefined,
+        isReplicated: argsRecord.isReplicated as boolean | undefined,
+        timeoutMs: argsRecord.timeoutMs as number | undefined
       }) as Record<string, unknown>;
       return cleanObject(res);
     }
