@@ -20,6 +20,7 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
+#include "GameplayTagContainer.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #if __has_include("ScopedTransaction.h")
 #include "ScopedTransaction.h"
@@ -588,8 +589,12 @@ static FEdGraphPinType FMcpAutomationBridge_MakePinType(const FString &InType) {
   const FString Lower = InType.ToLower();
   const FString CleanType = InType.TrimStartAndEnd();
 
-  if (Lower == TEXT("float") || Lower == TEXT("double")) {
-    PinType.PinCategory = MCP_PC_Float;
+  if (Lower == TEXT("float")) {
+    PinType.PinCategory = UEdGraphSchema_K2::PC_Real;
+    PinType.PinSubCategory = UEdGraphSchema_K2::PC_Float;
+  } else if (Lower == TEXT("double")) {
+    PinType.PinCategory = UEdGraphSchema_K2::PC_Real;
+    PinType.PinSubCategory = UEdGraphSchema_K2::PC_Double;
   } else if (Lower == TEXT("int") || Lower == TEXT("integer")) {
     PinType.PinCategory = MCP_PC_Int;
   } else if (Lower == TEXT("int64")) {
@@ -2719,8 +2724,12 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
     // validation occurs even if variable already exists
     FEdGraphPinType PinType;
     const FString LowerType = VarType.ToLower();
-    if (LowerType == TEXT("float") || LowerType == TEXT("double")) {
-      PinType.PinCategory = MCP_PC_Float;
+    if (LowerType == TEXT("float")) {
+      PinType.PinCategory = UEdGraphSchema_K2::PC_Real;
+      PinType.PinSubCategory = UEdGraphSchema_K2::PC_Float;
+    } else if (LowerType == TEXT("double")) {
+      PinType.PinCategory = UEdGraphSchema_K2::PC_Real;
+      PinType.PinSubCategory = UEdGraphSchema_K2::PC_Double;
     } else if (LowerType == TEXT("int") || LowerType == TEXT("integer")) {
       PinType.PinCategory = MCP_PC_Int;
     } else if (LowerType == TEXT("bool") || LowerType == TEXT("boolean")) {
@@ -2740,6 +2749,21 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
     } else if (LowerType == TEXT("transform")) {
       PinType.PinCategory = MCP_PC_Struct;
       PinType.PinSubCategoryObject = TBaseStructure<FTransform>::Get();
+    } else if (LowerType == TEXT("gameplaytag")) {
+      PinType.PinCategory = MCP_PC_Struct;
+      PinType.PinSubCategoryObject = FGameplayTag::StaticStruct();
+    } else if (LowerType == TEXT("gameplaytagcontainer")) {
+      PinType.PinCategory = MCP_PC_Struct;
+      PinType.PinSubCategoryObject = FGameplayTagContainer::StaticStruct();
+    } else if (LowerType == TEXT("linearcolor")) {
+      PinType.PinCategory = MCP_PC_Struct;
+      PinType.PinSubCategoryObject = TBaseStructure<FLinearColor>::Get();
+    } else if (LowerType == TEXT("color")) {
+      PinType.PinCategory = MCP_PC_Struct;
+      PinType.PinSubCategoryObject = TBaseStructure<FColor>::Get();
+    } else if (LowerType == TEXT("softobjectpath")) {
+      PinType.PinCategory = UEdGraphSchema_K2::PC_SoftObject;
+      PinType.PinSubCategoryObject = UObject::StaticClass();
     } else if (LowerType == TEXT("object")) {
       PinType.PinCategory = MCP_PC_Object;
       PinType.PinSubCategoryObject = UObject::StaticClass();
@@ -2760,6 +2784,23 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
       }
     } else {
       PinType.PinCategory = MCP_PC_Wildcard;
+    }
+
+    // Container type support (array, set, map)
+    if (LocalPayload->HasField(TEXT("isArray")) &&
+        GetJsonBoolField(LocalPayload, TEXT("isArray")))
+    {
+      PinType.ContainerType = EPinContainerType::Array;
+    }
+    else if (LocalPayload->HasField(TEXT("isSet")) &&
+             GetJsonBoolField(LocalPayload, TEXT("isSet")))
+    {
+      PinType.ContainerType = EPinContainerType::Set;
+    }
+    else if (LocalPayload->HasField(TEXT("isMap")) &&
+             GetJsonBoolField(LocalPayload, TEXT("isMap")))
+    {
+      PinType.ContainerType = EPinContainerType::Map;
     }
 
     const FString RequestedPath = Path;
@@ -2871,6 +2912,33 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
     }
 
     Blueprint->NewVariables.Add(NewVar);
+
+    // Apply default value if provided
+    if (DefaultVal.IsValid() && DefaultVal->Type != EJson::Null)
+    {
+      FBPVariableDescription& AddedVar = Blueprint->NewVariables.Last();
+      if (DefaultVal->Type == EJson::String)
+      {
+        AddedVar.DefaultValue = DefaultVal->AsString();
+      }
+      else if (DefaultVal->Type == EJson::Number)
+      {
+        const double NumVal = DefaultVal->AsNumber();
+        if (FMath::IsNearlyEqual(NumVal, FMath::RoundToDouble(NumVal)))
+        {
+          AddedVar.DefaultValue = FString::FromInt(static_cast<int64>(NumVal));
+        }
+        else
+        {
+          AddedVar.DefaultValue = FString::SanitizeFloat(NumVal);
+        }
+      }
+      else if (DefaultVal->Type == EJson::Boolean)
+      {
+        AddedVar.DefaultValue = DefaultVal->AsBool() ? TEXT("true") : TEXT("false");
+      }
+    }
+
     FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
     McpSafeCompileBlueprint(Blueprint);
     const bool bSaved = SaveLoadedAssetThrottled(Blueprint);
@@ -3081,6 +3149,187 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
 #else
     SendAutomationResponse(RequestingSocket, RequestId, false,
                            TEXT("blueprint_set_default requires editor build"),
+                           nullptr, TEXT("NOT_AVAILABLE"));
+    return true;
+#endif
+  }
+
+  // ── modify_variable: change type/container of an existing variable ──
+  if (ActionMatchesPattern(TEXT("blueprint_modify_variable")) ||
+      AlphaNumLower.Contains(TEXT("blueprintmodifyvariable"))) {
+    FString Path = ResolveBlueprintRequestedPath();
+    if (Path.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("blueprint_modify_variable requires a blueprint path."), nullptr,
+                             TEXT("INVALID_BLUEPRINT_PATH"));
+      return true;
+    }
+
+    FString VarName;
+    LocalPayload->TryGetStringField(TEXT("variableName"), VarName);
+    if (VarName.TrimStartAndEnd().IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("variableName required"), nullptr,
+                             TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+#if WITH_EDITOR
+    FString LocalNormalized;
+    FString LocalLoadError;
+    UBlueprint *Blueprint =
+        LoadBlueprintAsset(Path, LocalNormalized, LocalLoadError);
+    if (!Blueprint) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          LocalLoadError.IsEmpty()
+                              ? TEXT("Failed to load blueprint")
+                              : LocalLoadError,
+                          TEXT("BLUEPRINT_NOT_FOUND"));
+      return true;
+    }
+
+    FBPVariableDescription *FoundVar = nullptr;
+    for (FBPVariableDescription &Var : Blueprint->NewVariables) {
+      if (Var.VarName == FName(*VarName)) {
+        FoundVar = &Var;
+        break;
+      }
+    }
+    if (!FoundVar) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          FString::Printf(TEXT("Variable '%s' not found"), *VarName),
+                          TEXT("VARIABLE_NOT_FOUND"));
+      return true;
+    }
+
+    Blueprint->Modify();
+    bool bChanged = false;
+
+    // Update variable type if provided
+    FString NewType;
+    LocalPayload->TryGetStringField(TEXT("variableType"), NewType);
+    if (!NewType.IsEmpty()) {
+      const FString LowerType = NewType.ToLower();
+      FEdGraphPinType NewPinType;
+      if (LowerType == TEXT("float")) {
+        NewPinType.PinCategory = UEdGraphSchema_K2::PC_Real;
+        NewPinType.PinSubCategory = UEdGraphSchema_K2::PC_Float;
+      } else if (LowerType == TEXT("double")) {
+        NewPinType.PinCategory = UEdGraphSchema_K2::PC_Real;
+        NewPinType.PinSubCategory = UEdGraphSchema_K2::PC_Double;
+      } else if (LowerType == TEXT("int") || LowerType == TEXT("integer")) {
+        NewPinType.PinCategory = MCP_PC_Int;
+      } else if (LowerType == TEXT("bool") || LowerType == TEXT("boolean")) {
+        NewPinType.PinCategory = MCP_PC_Boolean;
+      } else if (LowerType == TEXT("string")) {
+        NewPinType.PinCategory = MCP_PC_String;
+      } else if (LowerType == TEXT("name")) {
+        NewPinType.PinCategory = MCP_PC_Name;
+      } else if (LowerType == TEXT("text")) {
+        NewPinType.PinCategory = MCP_PC_Text;
+      } else if (LowerType == TEXT("vector")) {
+        NewPinType.PinCategory = MCP_PC_Struct;
+        NewPinType.PinSubCategoryObject = TBaseStructure<FVector>::Get();
+      } else if (LowerType == TEXT("rotator")) {
+        NewPinType.PinCategory = MCP_PC_Struct;
+        NewPinType.PinSubCategoryObject = TBaseStructure<FRotator>::Get();
+      } else if (LowerType == TEXT("transform")) {
+        NewPinType.PinCategory = MCP_PC_Struct;
+        NewPinType.PinSubCategoryObject = TBaseStructure<FTransform>::Get();
+      } else if (LowerType == TEXT("gameplaytag")) {
+        NewPinType.PinCategory = MCP_PC_Struct;
+        NewPinType.PinSubCategoryObject = FGameplayTag::StaticStruct();
+      } else if (LowerType == TEXT("gameplaytagcontainer")) {
+        NewPinType.PinCategory = MCP_PC_Struct;
+        NewPinType.PinSubCategoryObject = FGameplayTagContainer::StaticStruct();
+      } else if (LowerType == TEXT("linearcolor")) {
+        NewPinType.PinCategory = MCP_PC_Struct;
+        NewPinType.PinSubCategoryObject = TBaseStructure<FLinearColor>::Get();
+      } else if (LowerType == TEXT("color")) {
+        NewPinType.PinCategory = MCP_PC_Struct;
+        NewPinType.PinSubCategoryObject = TBaseStructure<FColor>::Get();
+      } else if (LowerType == TEXT("object")) {
+        NewPinType.PinCategory = MCP_PC_Object;
+        NewPinType.PinSubCategoryObject = UObject::StaticClass();
+      } else if (LowerType == TEXT("softobjectpath")) {
+        NewPinType.PinCategory = UEdGraphSchema_K2::PC_SoftObject;
+        NewPinType.PinSubCategoryObject = UObject::StaticClass();
+      }
+      // Preserve container type from existing variable unless overridden below
+      NewPinType.ContainerType = FoundVar->VarType.ContainerType;
+      if (!NewPinType.PinCategory.IsNone()) {
+        FoundVar->VarType.PinCategory = NewPinType.PinCategory;
+        FoundVar->VarType.PinSubCategory = NewPinType.PinSubCategory;
+        FoundVar->VarType.PinSubCategoryObject = NewPinType.PinSubCategoryObject;
+        bChanged = true;
+      }
+    }
+
+    // Update container type
+    if (LocalPayload->HasField(TEXT("isArray"))) {
+      const bool bIsArray = GetJsonBoolField(LocalPayload, TEXT("isArray"));
+      FoundVar->VarType.ContainerType =
+          bIsArray ? EPinContainerType::Array : EPinContainerType::None;
+      bChanged = true;
+    }
+    if (LocalPayload->HasField(TEXT("isSet"))) {
+      const bool bIsSet = GetJsonBoolField(LocalPayload, TEXT("isSet"));
+      if (bIsSet) {
+        FoundVar->VarType.ContainerType = EPinContainerType::Set;
+        bChanged = true;
+      }
+    }
+    if (LocalPayload->HasField(TEXT("isMap"))) {
+      const bool bIsMap = GetJsonBoolField(LocalPayload, TEXT("isMap"));
+      if (bIsMap) {
+        FoundVar->VarType.ContainerType = EPinContainerType::Map;
+        bChanged = true;
+      }
+    }
+
+    // Update category
+    FString NewCategory;
+    if (LocalPayload->TryGetStringField(TEXT("category"), NewCategory)) {
+      FoundVar->Category = FText::FromString(NewCategory);
+      bChanged = true;
+    }
+
+    // Update replication
+    if (LocalPayload->HasField(TEXT("isReplicated"))) {
+      if (GetJsonBoolField(LocalPayload, TEXT("isReplicated")))
+        FoundVar->PropertyFlags |= CPF_Net;
+      else
+        FoundVar->PropertyFlags &= ~CPF_Net;
+      bChanged = true;
+    }
+
+    if (!bChanged) {
+      SendAutomationResponse(RequestingSocket, RequestId, true,
+                             TEXT("No changes specified"), nullptr, FString());
+      return true;
+    }
+
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+    McpSafeCompileBlueprint(Blueprint);
+    SaveLoadedAssetThrottled(Blueprint);
+
+    const FString RegistryKey =
+        !LocalNormalized.IsEmpty() ? LocalNormalized : Path;
+    TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
+    Response->SetStringField(TEXT("blueprintPath"), RegistryKey);
+    Response->SetStringField(TEXT("variableName"), VarName);
+    Response->SetBoolField(TEXT("success"), true);
+    const TSharedPtr<FJsonObject> Snapshot =
+        FMcpAutomationBridge_BuildBlueprintSnapshot(Blueprint, RegistryKey);
+    if (Snapshot.IsValid()) {
+      Response->SetObjectField(TEXT("blueprint"), Snapshot);
+    }
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Variable modified"), Response, FString());
+    return true;
+#else
+    SendAutomationResponse(RequestingSocket, RequestId, false,
+                           TEXT("blueprint_modify_variable requires editor build"),
                            nullptr, TEXT("NOT_AVAILABLE"));
     return true;
 #endif
