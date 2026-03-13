@@ -38,12 +38,12 @@ export function validateSecurityPatterns(args: Record<string, unknown>): string 
       // Allow /Game/, /Engine/, /Script/, /Temp/ as they are UE paths
       // Also allow exact matches like /Game, /Engine (without trailing slash)
       if (key.toLowerCase().includes('path') && value.startsWith('/')) {
-        const allowedPrefixes = ['/Game/', '/Engine/', '/Script/', '/Temp/'];
-        const exactAllowed = ['/Game', '/Engine', '/Script', '/Temp'];
-        const isAllowed = allowedPrefixes.some(prefix => value.startsWith(prefix)) ||
-                          exactAllowed.includes(value);
-        if (!isAllowed) {
-          return `Security violation: '${key}' uses unauthorized absolute path. Only /Game/, /Engine/, /Script/, and /Temp/ paths are allowed.`;
+        // Allow UE content paths: /Game/, /Engine/, /Script/, /Temp/, and plugin paths like /PluginName/
+        // Plugin content paths start with /PluginName/ where PluginName is alphanumeric (with underscores)
+        const isUEContentPath = /^\/[A-Za-z_][A-Za-z0-9_]*\//.test(value) ||
+                                /^\/[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+        if (!isUEContentPath) {
+          return `Security violation: '${key}' uses unauthorized absolute path. Must be a valid UE content path (e.g. /Game/..., /PluginName/...).`;
         }
       }
     }

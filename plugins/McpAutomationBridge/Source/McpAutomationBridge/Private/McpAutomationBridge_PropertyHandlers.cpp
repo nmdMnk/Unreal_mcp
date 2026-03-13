@@ -81,10 +81,13 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
     }
   }
   
-  if (!RootObject) {
+  // Only attempt actor-name lookup for non-path strings.
+  // Paths starting with "/" are object/asset paths and should go straight
+  // to LoadObject. FindActorByName has a fallback that calls
+  // UEditorAssetLibrary::LoadAsset which errors on sub-object paths.
+  if (!RootObject && !ObjectPath.StartsWith(TEXT("/"))) {
     if (AActor *FoundActor = FindActorByName(ObjectPath)) {
       RootObject = FoundActor;
-      // Normalize for downstream error messages / responses
       ObjectPath = FoundActor->GetPathName();
     }
   }
@@ -287,15 +290,37 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
             bMarkDirty)) { /* ignore parse failure, default true */
     }
   }
+
   if (bMarkDirty)
     RootObject->MarkPackageDirty();
 #if WITH_EDITOR
   RootObject->PostEditChange();
 #endif
 
+  // Save the owning package. Use UPackage::Save directly to avoid
+  // UEditorAssetLibrary::SaveAsset which internally calls LoadAsset
+  // and can fail/warn on ObjectPaths with sub-object notation.
+  bool bSaved = false;
+  if (bMarkDirty) {
+    if (UPackage* Package = RootObject->GetOutermost()) {
+      if (!Package->HasAnyFlags(RF_Transient)) {
+        const FString Extension = Package->ContainsMap()
+            ? FPackageName::GetMapPackageExtension()
+            : FPackageName::GetAssetPackageExtension();
+        const FString PackageFilename =
+            FPackageName::LongPackageNameToFilename(
+                Package->GetName(), Extension);
+        FSavePackageArgs SaveArgs;
+        SaveArgs.TopLevelFlags = RF_Standalone;
+        bSaved = UPackage::SavePackage(Package, nullptr,
+                                       *PackageFilename, SaveArgs);
+      }
+    }
+  }
+
   TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
   ResultPayload->SetStringField(TEXT("propertyName"), PropertyName);
-  ResultPayload->SetBoolField(TEXT("saved"), true);
+  ResultPayload->SetBoolField(TEXT("saved"), !bMarkDirty || bSaved);
   
   // Add verification based on object type
   if (AActor* AsActor = Cast<AActor>(RootObject)) {
@@ -376,10 +401,13 @@ bool UMcpAutomationBridgeSubsystem::HandleGetObjectProperty(
     }
   }
   
-  if (!RootObject) {
+  // Only attempt actor-name lookup for non-path strings.
+  // Paths starting with "/" are object/asset paths and should go straight
+  // to LoadObject. FindActorByName has a fallback that calls
+  // UEditorAssetLibrary::LoadAsset which errors on sub-object paths.
+  if (!RootObject && !ObjectPath.StartsWith(TEXT("/"))) {
     if (AActor *FoundActor = FindActorByName(ObjectPath)) {
       RootObject = FoundActor;
-      // Normalize for downstream error messages / responses
       ObjectPath = FoundActor->GetPathName();
     }
   }
