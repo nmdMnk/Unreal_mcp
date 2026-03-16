@@ -14,6 +14,7 @@ DEFINE_LOG_CATEGORY(LogMcpSafeOperations);
 #if WITH_EDITOR
 #include "Editor.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "Components/ActorComponent.h"
 #include "AssetRegistry/AssetRegistryModule.h"
