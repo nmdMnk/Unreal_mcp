@@ -27,10 +27,12 @@
 #include "Engine/Blueprint.h"
 #include "Engine/LevelStreaming.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/WorldSettings.h"
 #include "Components/ActorComponent.h"
 #include "TickTaskManagerInterface.h"
 #include "HAL/PlatformProcess.h"
 #include "RenderingThread.h"
+#include "Async/TaskGraphInterfaces.h"
 
 #if __has_include("EditorAssetLibrary.h")
 #include "EditorAssetLibrary.h"
@@ -224,16 +226,12 @@ inline bool McpSafeLevelSave(ULevel* Level, const FString& FullPath, int32 MaxRe
     FPlatformProcess::Sleep(0.050f); // 50ms wait
 
     // Perform the actual save
-    UWorld* World = Level ? Level->GetWorld() : nullptr;
-    bool bSaveSucceeded = false;
-    if (World)
-    {
-        bSaveSucceeded = UEditorLoadingAndSavingUtils::SaveMap(World, PackagePath);
-    }
-    else
-    {
-        bSaveSucceeded = FEditorFileUtils::SaveLevel(Level, *PackagePath);
-    }
+    // CRITICAL FIX: Always use FEditorFileUtils::SaveLevel instead of UEditorLoadingAndSavingUtils::SaveMap.
+    // UEditorLoadingAndSavingUtils::SaveMap saves to a new package but doesn't update the world's outer
+    // package name. This causes "World Memory Leaks" crashes when load_level is called because
+    // McpSafeLoadMap doesn't recognize the saved level as the current level (package name mismatch).
+    // FEditorFileUtils::SaveLevel properly updates the world's package to match the save path.
+    bool bSaveSucceeded = FEditorFileUtils::SaveLevel(Level, *PackagePath);
 
     if (bSaveSucceeded)
     {
@@ -280,6 +278,12 @@ inline bool McpSafeLevelSave(ULevel* Level, const FString& FullPath, int32 MaxRe
  * Safe map loading - properly cleans up current world before loading a new map.
  * Prevents TickTaskManager assertion "!LevelList.Contains(TickTaskLevel)" and
  * "World Memory Leaks" crashes in UE 5.7.
+ *
+ * CRITICAL UE 5.7 FIX: The "Pure virtual not implemented" crash occurs when
+ * tick tasks reference destroyed actors/components. This function ensures:
+ * 1. All prerequisites are cleared BEFORE unregistering tick functions
+ * 2. All pending tick tasks complete before world destruction
+ * 3. Task graph is fully drained of tick-related work
  *
  * CRITICAL: This function must be called from the Game Thread.
  *
@@ -333,6 +337,26 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
 
     UWorld* CurrentWorld = GEditor->GetEditorWorldContext().World();
     
+    // CRITICAL: Check if the map we're trying to load is already the current map FIRST.
+    // This must happen BEFORE cleanup to avoid unnecessary cleanup on the same level.
+    // If we cleanup first and then check, we destroy tick functions on the level we want to keep.
+    if (CurrentWorld)
+    {
+        FString CurrentMapPath = CurrentWorld->GetOutermost()->GetName();
+        FString NormalizedMapPath = MapPath;
+        
+        if (NormalizedMapPath.EndsWith(TEXT(".umap")))
+        {
+            NormalizedMapPath.LeftChopInline(5);
+        }
+        
+        if (CurrentMapPath.Equals(NormalizedMapPath, ESearchCase::IgnoreCase))
+        {
+            UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeLoadMap: Map '%s' is already loaded, skipping"), *MapPath);
+            return true;
+        }
+    }
+    
     // CRITICAL: Check for World Partition
     if (CurrentWorld)
     {
@@ -352,7 +376,44 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
             TEXT("McpSafeLoadMap: Cleaning up current world '%s' before loading '%s'"), 
             *CurrentWorld->GetName(), *MapPath);
         
-        // STEP 1: Mark all levels as invisible to prevent FillLevelList from adding them
+        // =====================================================================
+        // PHASE 1: Clear all tick prerequisites FIRST
+        // CRITICAL: This prevents dangling references between tick functions
+        // =====================================================================
+        int32 ClearedPrereqCount = 0;
+        for (ULevel* Level : CurrentWorld->GetLevels())
+        {
+            if (!Level) continue;
+            
+            for (AActor* Actor : Level->Actors)
+            {
+                if (Actor)
+                {
+                    // Clear actor tick prerequisites before unregistering
+                    if (Actor->PrimaryActorTick.IsTickFunctionRegistered())
+                    {
+                        ClearedPrereqCount += Actor->PrimaryActorTick.GetPrerequisites().Num();
+                        Actor->PrimaryActorTick.GetPrerequisites().Empty();
+                    }
+                    
+                    // Clear component tick prerequisites
+                    for (UActorComponent* Component : Actor->GetComponents())
+                    {
+                        if (Component && Component->PrimaryComponentTick.IsTickFunctionRegistered())
+                        {
+                            ClearedPrereqCount += Component->PrimaryComponentTick.GetPrerequisites().Num();
+                            Component->PrimaryComponentTick.GetPrerequisites().Empty();
+                        }
+                    }
+                }
+            }
+        }
+        UE_LOG(LogMcpSafeOperations, Log, 
+            TEXT("McpSafeLoadMap: Cleared %d tick prerequisites"), ClearedPrereqCount);
+        
+        // =====================================================================
+        // PHASE 2: Mark levels invisible to prevent FillLevelList
+        // =====================================================================
         for (ULevel* Level : CurrentWorld->GetLevels())
         {
             if (Level)
@@ -361,7 +422,9 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
             }
         }
         
-        // STEP 2: Unregister all tick functions
+        // =====================================================================
+        // PHASE 3: Unregister all tick functions
+        // =====================================================================
         int32 UnregisteredActorCount = 0;
         int32 UnregisteredComponentCount = 0;
         for (ULevel* Level : CurrentWorld->GetLevels())
@@ -378,8 +441,6 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
                         UnregisteredActorCount++;
                     }
                     
-                    Actor->PrimaryActorTick.GetPrerequisites().Empty();
-                    
                     for (UActorComponent* Component : Actor->GetComponents())
                     {
                         if (Component && Component->PrimaryComponentTick.IsTickFunctionRegistered())
@@ -395,13 +456,26 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
             TEXT("McpSafeLoadMap: Unregistered %d actor ticks and %d component ticks"), 
             UnregisteredActorCount, UnregisteredComponentCount);
         
-        // STEP 3: Send end-of-frame updates
-        CurrentWorld->SendAllEndOfFrameUpdates();
+        // =====================================================================
+        // PHASE 4: Drain the task graph of any pending tick tasks
+        // CRITICAL: This prevents "Pure virtual not implemented" crash
+        // =====================================================================
+        FTaskGraphInterface& TaskGraph = FTaskGraphInterface::Get();
         
-        // STEP 4: Flush rendering commands
+        // Process all pending tasks on the game thread
+        TaskGraph.ProcessThreadUntilIdle(ENamedThreads::GameThread);
+        
+        // Wait for all rendering commands
         FlushRenderingCommands();
         
-        // STEP 5: Unload streaming levels
+        // =====================================================================
+        // PHASE 5: Send end-of-frame updates
+        // =====================================================================
+        CurrentWorld->SendAllEndOfFrameUpdates();
+        
+        // =====================================================================
+        // PHASE 6: Unload streaming levels
+        // =====================================================================
         TArray<ULevelStreaming*> StreamingLevels = CurrentWorld->GetStreamingLevels();
         for (ULevelStreaming* StreamingLevel : StreamingLevels)
         {
@@ -412,41 +486,34 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
             }
         }
         
-        // STEP 6: Flush again
+        // =====================================================================
+        // PHASE 7: Final task graph drain before GC
+        // =====================================================================
+        TaskGraph.ProcessThreadUntilIdle(ENamedThreads::GameThread);
         FlushRenderingCommands();
         
-        // STEP 7: Force garbage collection
+        // =====================================================================
+        // PHASE 8: Force garbage collection
+        // =====================================================================
         GEditor->ForceGarbageCollection(true);
         
-        // STEP 8: Flush after GC
+        // =====================================================================
+        // PHASE 9: Post-GC cleanup
+        // =====================================================================
         FlushRenderingCommands();
+        TaskGraph.ProcessThreadUntilIdle(ENamedThreads::GameThread);
         
-        // STEP 9: Give engine time to process cleanup
+        // =====================================================================
+        // PHASE 10: Allow engine to stabilize
+        // =====================================================================
         FPlatformProcess::Sleep(0.10f);
-        
-        // STEP 10: Final flush
         FlushRenderingCommands();
+        
+        UE_LOG(LogMcpSafeOperations, Log, 
+            TEXT("McpSafeLoadMap: Tick cleanup completed successfully"));
     }
     
-    // STEP 11: Check if already loaded
-    if (CurrentWorld)
-    {
-        FString CurrentMapPath = CurrentWorld->GetOutermost()->GetName();
-        FString NormalizedMapPath = MapPath;
-        
-        if (NormalizedMapPath.EndsWith(TEXT(".umap")))
-        {
-            NormalizedMapPath.LeftChopInline(5);
-        }
-        
-        if (CurrentMapPath.Equals(NormalizedMapPath, ESearchCase::IgnoreCase))
-        {
-            UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeLoadMap: Map '%s' is already loaded, skipping"), *MapPath);
-            return true;
-        }
-    }
-    
-    // STEP 12: Load the map
+    // STEP 11: Load the map
     UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeLoadMap: Loading map '%s'"), *MapPath);
     bool bLoaded = FEditorFileUtils::LoadMap(*MapPath);
     

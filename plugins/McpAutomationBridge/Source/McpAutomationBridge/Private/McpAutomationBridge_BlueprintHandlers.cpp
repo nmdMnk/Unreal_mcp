@@ -1883,26 +1883,16 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
         Op->TryGetStringField(TEXT("componentClass"), ComponentClassPath);
         FString AttachToName;
         Op->TryGetStringField(TEXT("attachTo"), AttachToName);
-        FSoftClassPath ComponentClassSoftPath(ComponentClassPath);
-        UClass *ComponentClass =
-            ComponentClassSoftPath.TryLoadClass<UActorComponent>();
-        if (!ComponentClass)
-          ComponentClass = FindObject<UClass>(nullptr, *ComponentClassPath);
-        if (!ComponentClass) {
-          const TArray<FString> Prefixes = {TEXT("/Script/Engine."),
-                                            TEXT("/Script/UMG."),
-                                            TEXT("/Script/Paper2D.")};
-          for (const FString &Prefix : Prefixes) {
-            const FString Guess = Prefix + ComponentClassPath;
-            UClass *TryClass = FindObject<UClass>(nullptr, *Guess);
-            if (!TryClass)
-              TryClass = StaticLoadClass(UActorComponent::StaticClass(),
-                                         nullptr, *Guess);
-            if (TryClass) {
-              ComponentClass = TryClass;
-              break;
-            }
-          }
+        
+        // UE 5.7 FIX: Use ResolveClassByName to handle short class names like "StaticMeshComponent"
+        // FSoftClassPath triggers ensure failure when given short package names in UE 5.7+
+        // ResolveClassByName handles short name resolution via prefix guessing and TObjectIterator
+        UClass *ComponentClass = ResolveClassByName(ComponentClassPath);
+        
+        // Fallback: Only use FSoftClassPath if it looks like a full path (contains /)
+        if (!ComponentClass && ComponentClassPath.Contains(TEXT("/"))) {
+          FSoftClassPath ComponentClassSoftPath(ComponentClassPath);
+          ComponentClass = ComponentClassSoftPath.TryLoadClass<UActorComponent>();
         }
         if (!ComponentClass) {
           OpSummary->SetBoolField(TEXT("success"), false);
@@ -3856,6 +3846,21 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
             ? NormPath
             : Path;
 
+    // CRITICAL FIX: Validate that the blueprint exists BEFORE treating operation as idempotent.
+    // Previously, the code returned success for non-existent blueprints, causing false negatives
+    // in tests that expect "not found" errors for invalid paths.
+    bool bBlueprintExists = false;
+#if WITH_EDITOR
+    FString NormalizedCheck;
+    FString CheckLoadErr;
+    UBlueprint *CheckBlueprint = LoadBlueprintAsset(RegistryPath, NormalizedCheck, CheckLoadErr);
+    bBlueprintExists = (CheckBlueprint != nullptr);
+#endif
+    if (!bBlueprintExists) {
+      // Check if path exists in asset registry as fallback
+      bBlueprintExists = FindBlueprintNormalizedPath(RegistryPath, NormPath);
+    }
+
     TSharedPtr<FJsonObject> Entry =
         FMcpAutomationBridge_EnsureBlueprintEntry(RegistryPath);
     TArray<TSharedPtr<FJsonValue>> Events =
@@ -3875,8 +3880,19 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
       }
     }
     if (FoundIdx == INDEX_NONE) {
+      // FIX: If blueprint doesn't exist, return error instead of idempotent success.
+      // Tests expect "not found" for non-existent blueprint paths.
+      if (!bBlueprintExists) {
+        TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+        Resp->SetStringField(TEXT("eventName"), EventName);
+        Resp->SetStringField(TEXT("blueprintPath"), Path);
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Blueprint not found."),
+                               Resp, TEXT("BLUEPRINT_NOT_FOUND"));
+        return true;
+      }
       // Treat remove as idempotent: if the event is not present in
-      // the registry consider the request successful (no-op).
+      // the registry AND blueprint exists, consider the request successful (no-op).
       TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       Resp->SetStringField(TEXT("eventName"), EventName);
       Resp->SetStringField(TEXT("blueprintPath"), Path);

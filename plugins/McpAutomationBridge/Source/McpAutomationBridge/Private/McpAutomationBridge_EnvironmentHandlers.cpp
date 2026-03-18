@@ -398,33 +398,55 @@ bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
                 FString AbsolutePath = FPaths::ProjectDir() / SafePath;
                 FPaths::MakeStandardFilename(AbsolutePath);
 
-                TSharedPtr<FJsonObject> Snapshot = McpHandlerUtils::CreateResultObject();
-                Snapshot->SetStringField(TEXT("timestamp"), FDateTime::UtcNow().ToString());
-                Snapshot->SetStringField(TEXT("type"), TEXT("environment_snapshot"));
+                // CRITICAL: Convert to absolute path for proper comparison
+                // This prevents path traversal via leading slash (e.g., /etc/passwd)
+                AbsolutePath = FPaths::ConvertRelativePathToFull(AbsolutePath);
+                FPaths::NormalizeFilename(AbsolutePath);
 
-                FString JsonString;
-                TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
-                if (FJsonSerializer::Serialize(Snapshot.ToSharedRef(), Writer))
+                FString NormalizedProjectDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+                FPaths::NormalizeDirectoryName(NormalizedProjectDir);
+                if (!NormalizedProjectDir.EndsWith(TEXT("/")))
                 {
-                    if (FFileHelper::SaveStringToFile(JsonString, *AbsolutePath))
+                    NormalizedProjectDir += TEXT("/");
+                }
+
+                if (!AbsolutePath.StartsWith(NormalizedProjectDir, ESearchCase::IgnoreCase))
+                {
+                    bSuccess = false;
+                    Message = FString::Printf(TEXT("Invalid or unsafe path: %s. Path escapes project directory."), *Path);
+                    ErrorCode = TEXT("SECURITY_VIOLATION");
+                    Resp->SetStringField(TEXT("error"), Message);
+                }
+                else
+                {
+                    TSharedPtr<FJsonObject> Snapshot = McpHandlerUtils::CreateResultObject();
+                    Snapshot->SetStringField(TEXT("timestamp"), FDateTime::UtcNow().ToString());
+                    Snapshot->SetStringField(TEXT("type"), TEXT("environment_snapshot"));
+
+                    FString JsonString;
+                    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+                    if (FJsonSerializer::Serialize(Snapshot.ToSharedRef(), Writer))
                     {
-                        Resp->SetStringField(TEXT("exportPath"), SafePath);
-                        Resp->SetStringField(TEXT("message"), TEXT("Snapshot exported"));
+                        if (FFileHelper::SaveStringToFile(JsonString, *AbsolutePath))
+                        {
+                            Resp->SetStringField(TEXT("exportPath"), SafePath);
+                            Resp->SetStringField(TEXT("message"), TEXT("Snapshot exported"));
+                        }
+                        else
+                        {
+                            bSuccess = false;
+                            Message = TEXT("Failed to write snapshot file");
+                            ErrorCode = TEXT("WRITE_FAILED");
+                            Resp->SetStringField(TEXT("error"), Message);
+                        }
                     }
                     else
                     {
                         bSuccess = false;
-                        Message = TEXT("Failed to write snapshot file");
-                        ErrorCode = TEXT("WRITE_FAILED");
+                        Message = TEXT("Failed to serialize snapshot");
+                        ErrorCode = TEXT("SERIALIZE_FAILED");
                         Resp->SetStringField(TEXT("error"), Message);
                     }
-                }
-                else
-                {
-                    bSuccess = false;
-                    Message = TEXT("Failed to serialize snapshot");
-                    ErrorCode = TEXT("SERIALIZE_FAILED");
-                    Resp->SetStringField(TEXT("error"), Message);
                 }
             }
         }
@@ -462,29 +484,51 @@ bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
                 FString AbsolutePath = FPaths::ProjectDir() / SafePath;
                 FPaths::MakeStandardFilename(AbsolutePath);
 
-                FString JsonString;
-                if (!FFileHelper::LoadFileToString(JsonString, *AbsolutePath))
+                // CRITICAL: Convert to absolute path for proper comparison
+                // This prevents path traversal via leading slash (e.g., /etc/passwd)
+                AbsolutePath = FPaths::ConvertRelativePathToFull(AbsolutePath);
+                FPaths::NormalizeFilename(AbsolutePath);
+
+                FString NormalizedProjectDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+                FPaths::NormalizeDirectoryName(NormalizedProjectDir);
+                if (!NormalizedProjectDir.EndsWith(TEXT("/")))
+                {
+                    NormalizedProjectDir += TEXT("/");
+                }
+
+                if (!AbsolutePath.StartsWith(NormalizedProjectDir, ESearchCase::IgnoreCase))
                 {
                     bSuccess = false;
-                    Message = TEXT("Failed to read snapshot file");
-                    ErrorCode = TEXT("LOAD_FAILED");
+                    Message = FString::Printf(TEXT("Invalid or unsafe path: %s. Path escapes project directory."), *Path);
+                    ErrorCode = TEXT("SECURITY_VIOLATION");
                     Resp->SetStringField(TEXT("error"), Message);
                 }
                 else
                 {
-                    TSharedPtr<FJsonObject> SnapshotObj;
-                    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
-                    if (!FJsonSerializer::Deserialize(Reader, SnapshotObj) || !SnapshotObj.IsValid())
+                    FString JsonString;
+                    if (!FFileHelper::LoadFileToString(JsonString, *AbsolutePath))
                     {
                         bSuccess = false;
-                        Message = TEXT("Failed to parse snapshot");
-                        ErrorCode = TEXT("PARSE_FAILED");
+                        Message = TEXT("Failed to read snapshot file");
+                        ErrorCode = TEXT("LOAD_FAILED");
                         Resp->SetStringField(TEXT("error"), Message);
                     }
                     else
                     {
-                        Resp->SetObjectField(TEXT("snapshot"), SnapshotObj.ToSharedRef());
-                        Resp->SetStringField(TEXT("message"), TEXT("Snapshot imported"));
+                        TSharedPtr<FJsonObject> SnapshotObj;
+                        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+                        if (!FJsonSerializer::Deserialize(Reader, SnapshotObj) || !SnapshotObj.IsValid())
+                        {
+                            bSuccess = false;
+                            Message = TEXT("Failed to parse snapshot");
+                            ErrorCode = TEXT("PARSE_FAILED");
+                            Resp->SetStringField(TEXT("error"), Message);
+                        }
+                        else
+                        {
+                            Resp->SetObjectField(TEXT("snapshot"), SnapshotObj.ToSharedRef());
+                            Resp->SetStringField(TEXT("message"), TEXT("Snapshot imported"));
+                        }
                     }
                 }
             }
@@ -587,12 +631,27 @@ bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
     // -------------------------------------------------------------------------
     else if (LowerSub == TEXT("create_sky_sphere"))
     {
-        if (GEditor)
+        // Initialize to false - only set true on successful creation
+        bSuccess = false;
+        
+        if (!GEditor)
+        {
+            Message = TEXT("Editor not available");
+            ErrorCode = TEXT("EDITOR_NOT_AVAILABLE");
+        }
+        else
         {
             UClass *SkySphereClass = LoadClass<AActor>(
                 nullptr, TEXT("/Script/Engine.Blueprint'/Engine/Maps/Templates/"
                               "SkySphere.SkySphere_C'"));
-            if (SkySphereClass)
+            if (!SkySphereClass)
+            {
+                Message = TEXT("SkySphere class not found at /Engine/Maps/Templates/SkySphere.SkySphere_C. "
+                               "This asset may not exist in the current project.");
+                ErrorCode = TEXT("CLASS_NOT_FOUND");
+                Resp->SetStringField(TEXT("missingAsset"), TEXT("/Engine/Maps/Templates/SkySphere"));
+            }
+            else
             {
                 AActor *SkySphere = SpawnActorInActiveWorld<AActor>(
                     SkySphereClass, FVector::ZeroVector, FRotator::ZeroRotator,
@@ -603,13 +662,12 @@ bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
                     Message = TEXT("Sky sphere created");
                     Resp->SetStringField(TEXT("actorName"), SkySphere->GetActorLabel());
                 }
+                else
+                {
+                    Message = TEXT("Failed to spawn sky sphere actor");
+                    ErrorCode = TEXT("SPAWN_FAILED");
+                }
             }
-        }
-        if (!bSuccess)
-        {
-            bSuccess = false;
-            Message = TEXT("Failed to create sky sphere");
-            ErrorCode = TEXT("CREATION_FAILED");
         }
     }
     // -------------------------------------------------------------------------
@@ -654,15 +712,39 @@ bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
     // -------------------------------------------------------------------------
     else if (LowerSub == TEXT("create_fog_volume"))
     {
+        // Initialize to false - only set true on successful creation
+        bSuccess = false;
+        
         FVector Location(0, 0, 0);
-        Payload->TryGetNumberField(TEXT("x"), Location.X);
-        Payload->TryGetNumberField(TEXT("y"), Location.Y);
-        Payload->TryGetNumberField(TEXT("z"), Location.Z);
+        // Support both top-level x/y/z and location object
+        const TSharedPtr<FJsonObject> *LocObj = nullptr;
+        if (Payload->TryGetObjectField(TEXT("location"), LocObj) && LocObj)
+        {
+            (*LocObj)->TryGetNumberField(TEXT("x"), Location.X);
+            (*LocObj)->TryGetNumberField(TEXT("y"), Location.Y);
+            (*LocObj)->TryGetNumberField(TEXT("z"), Location.Z);
+        }
+        else
+        {
+            Payload->TryGetNumberField(TEXT("x"), Location.X);
+            Payload->TryGetNumberField(TEXT("y"), Location.Y);
+            Payload->TryGetNumberField(TEXT("z"), Location.Z);
+        }
 
-        if (GEditor)
+        if (!GEditor)
+        {
+            Message = TEXT("Editor not available");
+            ErrorCode = TEXT("EDITOR_NOT_AVAILABLE");
+        }
+        else
         {
             UClass *FogClass = LoadClass<AActor>(nullptr, TEXT("/Script/Engine.ExponentialHeightFog"));
-            if (FogClass)
+            if (!FogClass)
+            {
+                Message = TEXT("ExponentialHeightFog class not found");
+                ErrorCode = TEXT("CLASS_NOT_FOUND");
+            }
+            else
             {
                 AActor *FogVolume = SpawnActorInActiveWorld<AActor>(
                     FogClass, Location, FRotator::ZeroRotator, TEXT("FogVolume"));
@@ -672,13 +754,12 @@ bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
                     Message = TEXT("Fog volume created");
                     Resp->SetStringField(TEXT("actorName"), FogVolume->GetActorLabel());
                 }
+                else
+                {
+                    Message = TEXT("Failed to spawn fog volume actor");
+                    ErrorCode = TEXT("SPAWN_FAILED");
+                }
             }
-        }
-        if (!bSuccess)
-        {
-            bSuccess = false;
-            Message = TEXT("Failed to create fog volume");
-            ErrorCode = TEXT("CREATION_FAILED");
         }
     }
     // -------------------------------------------------------------------------
@@ -953,172 +1034,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEnvironmentAction(
 #endif
 }
 
-// =============================================================================
-// Section 3: Console Command Handler
-// =============================================================================
 
-/**
- * HandleConsoleCommandAction
- * ---------------------------
- * Execute console commands with security filtering.
- * 
- * Supports:
- *   - Direct "console_command" action
- *   - "system_control" with action="console_command" in payload
- * 
- * Security:
- *   - Blocks dangerous commands: quit, exit, crash, shutdown, restart, reboot
- *   - Blocks destructive file operations: rm, del, format, rmdir, delete, remove
- *   - Blocks command chaining: &&, ||, ;, |, newlines
- *   - Whitelists safe commands: log (read-only)
- * 
- * Payload:
- *   - command: string (required) - Console command to execute
- * 
- * Response:
- *   - success: bool
- *   - command: string - The executed command
- *   - executed: bool - Whether the command was executed
- */
-bool UMcpAutomationBridgeSubsystem::HandleConsoleCommandAction(
-    const FString &RequestId, const FString &Action,
-    const TSharedPtr<FJsonObject> &Payload,
-    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket)
-{
-    // Handle both direct "console_command" and "system_control" with subAction
-    const FString LowerAction = Action.ToLower();
-    const bool bIsDirectConsoleCommand = LowerAction.Equals(TEXT("console_command"), ESearchCase::IgnoreCase);
-    const bool bIsSystemControl = LowerAction.Equals(TEXT("system_control"), ESearchCase::IgnoreCase);
-
-    if (!bIsDirectConsoleCommand && !bIsSystemControl)
-    {
-        return false;
-    }
-
-#if WITH_EDITOR
-    // For system_control, check if the sub-action is console_command
-    if (bIsSystemControl && Payload.IsValid())
-    {
-        FString SubAction;
-        Payload->TryGetStringField(TEXT("action"), SubAction);
-        if (!SubAction.ToLower().Equals(TEXT("console_command")))
-        {
-            return false; // Not a console_command, let other handlers try
-        }
-    }
-
-    if (!Payload.IsValid())
-    {
-        SendAutomationError(RequestingSocket, RequestId,
-                            TEXT("console_command payload missing"),
-                            TEXT("INVALID_PAYLOAD"));
-        return true;
-    }
-
-    FString Command;
-    if (!Payload->TryGetStringField(TEXT("command"), Command) || Command.IsEmpty())
-    {
-        SendAutomationError(RequestingSocket, RequestId,
-                            TEXT("command field required"), TEXT("INVALID_ARGUMENT"));
-        return true;
-    }
-
-    // SECURITY: Filter dangerous commands
-    FString LowerCommand = Command.ToLower();
-
-    // -------------------------------------------------------------------------
-    // Whitelist safe commands
-    // -------------------------------------------------------------------------
-    // "Log" is a read-only command that prints to console - always safe
-    bool bIsWhitelistedCommand = LowerCommand.StartsWith(TEXT("log "));
-    if (bIsWhitelistedCommand)
-    {
-        GEngine->Exec(nullptr, *Command);
-
-        TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-        Resp->SetStringField(TEXT("command"), Command);
-        Resp->SetBoolField(TEXT("success"), true);
-
-        SendAutomationResponse(RequestingSocket, RequestId, true,
-                               TEXT("Console command executed"), Resp, FString());
-        return true;
-    }
-
-    // -------------------------------------------------------------------------
-    // Block explicit dangerous commands
-    // -------------------------------------------------------------------------
-    TArray<FString> BlockedCommands = {
-        TEXT("quit"), TEXT("exit"), TEXT("crash"), TEXT("shutdown"),
-        TEXT("restart"), TEXT("reboot"), TEXT("debug exec"), TEXT("suicide"),
-        TEXT("disconnect"), TEXT("reconnect")
-    };
-
-    for (const FString& Blocked : BlockedCommands)
-    {
-        if (LowerCommand.StartsWith(Blocked))
-        {
-            SendAutomationError(RequestingSocket, RequestId,
-                                FString::Printf(TEXT("Command '%s' is blocked for security"), *Blocked),
-                                TEXT("COMMAND_BLOCKED"));
-            return true;
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Block destructive file operations
-    // Note: These tokens have trailing spaces to avoid matching
-    // valid MCP action names like "remove_volume" or "delete_actor"
-    // -------------------------------------------------------------------------
-    TArray<FString> BlockedTokens = {
-        TEXT("rm "), TEXT("del "), TEXT("format"), TEXT("rmdir"), TEXT("rd "),
-        TEXT("delete "), TEXT("remove "), TEXT("erase ")
-    };
-
-    for (const FString& Token : BlockedTokens)
-    {
-        if (LowerCommand.Contains(Token))
-        {
-            SendAutomationError(RequestingSocket, RequestId,
-                                FString::Printf(TEXT("Command contains blocked token '%s'"), *Token.TrimEnd()),
-                                TEXT("COMMAND_BLOCKED"));
-            return true;
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Block command chaining and injection attempts
-    // -------------------------------------------------------------------------
-    if (LowerCommand.Contains(TEXT("&&")) || LowerCommand.Contains(TEXT("||")) ||
-        LowerCommand.Contains(TEXT(";")) || LowerCommand.Contains(TEXT("|")) ||
-        LowerCommand.Contains(TEXT("\n")) || LowerCommand.Contains(TEXT("\r")))
-    {
-        SendAutomationError(RequestingSocket, RequestId,
-                            TEXT("Command chaining and special characters are not allowed"),
-                            TEXT("COMMAND_BLOCKED"));
-        return true;
-    }
-
-    // -------------------------------------------------------------------------
-    // Execute the console command
-    // -------------------------------------------------------------------------
-    GEngine->Exec(nullptr, *Command);
-
-    TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-    Resp->SetStringField(TEXT("command"), Command);
-    Resp->SetBoolField(TEXT("success"), true);
-    Resp->SetBoolField(TEXT("executed"), true);
-
-    SendAutomationResponse(RequestingSocket, RequestId, true,
-                           TEXT("Console command executed"), Resp, FString());
-    return true;
-
-#else
-    SendAutomationResponse(RequestingSocket, RequestId, false,
-                           TEXT("console_command requires editor build"), nullptr,
-                           TEXT("NOT_IMPLEMENTED"));
-    return true;
-#endif
-}
 
 // =============================================================================
 // Section 4: Environment Utilities
