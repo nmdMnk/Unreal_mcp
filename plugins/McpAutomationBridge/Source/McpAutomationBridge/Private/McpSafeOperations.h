@@ -226,16 +226,12 @@ inline bool McpSafeLevelSave(ULevel* Level, const FString& FullPath, int32 MaxRe
     FPlatformProcess::Sleep(0.050f); // 50ms wait
 
     // Perform the actual save
-    UWorld* World = Level ? Level->GetWorld() : nullptr;
-    bool bSaveSucceeded = false;
-    if (World)
-    {
-        bSaveSucceeded = UEditorLoadingAndSavingUtils::SaveMap(World, PackagePath);
-    }
-    else
-    {
-        bSaveSucceeded = FEditorFileUtils::SaveLevel(Level, *PackagePath);
-    }
+    // CRITICAL FIX: Always use FEditorFileUtils::SaveLevel instead of UEditorLoadingAndSavingUtils::SaveMap.
+    // UEditorLoadingAndSavingUtils::SaveMap saves to a new package but doesn't update the world's outer
+    // package name. This causes "World Memory Leaks" crashes when load_level is called because
+    // McpSafeLoadMap doesn't recognize the saved level as the current level (package name mismatch).
+    // FEditorFileUtils::SaveLevel properly updates the world's package to match the save path.
+    bool bSaveSucceeded = FEditorFileUtils::SaveLevel(Level, *PackagePath);
 
     if (bSaveSucceeded)
     {
@@ -340,6 +336,26 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
     }
 
     UWorld* CurrentWorld = GEditor->GetEditorWorldContext().World();
+    
+    // CRITICAL: Check if the map we're trying to load is already the current map FIRST.
+    // This must happen BEFORE cleanup to avoid unnecessary cleanup on the same level.
+    // If we cleanup first and then check, we destroy tick functions on the level we want to keep.
+    if (CurrentWorld)
+    {
+        FString CurrentMapPath = CurrentWorld->GetOutermost()->GetName();
+        FString NormalizedMapPath = MapPath;
+        
+        if (NormalizedMapPath.EndsWith(TEXT(".umap")))
+        {
+            NormalizedMapPath.LeftChopInline(5);
+        }
+        
+        if (CurrentMapPath.Equals(NormalizedMapPath, ESearchCase::IgnoreCase))
+        {
+            UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeLoadMap: Map '%s' is already loaded, skipping"), *MapPath);
+            return true;
+        }
+    }
     
     // CRITICAL: Check for World Partition
     if (CurrentWorld)
@@ -453,6 +469,22 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
         FlushRenderingCommands();
         
         // =====================================================================
+        // PHASE 4a: CRITICAL FIX - Call EndFrame() to clear FTickTaskManager's LevelList
+        // The FTickTaskManager maintains a LevelList that's populated by FillLevelList() during
+        // StartFrame() and cleared by LevelList.Reset() in EndFrame(). When LoadMap destroys
+        // the old world, FreeTickTaskLevel() asserts that the TickTaskLevel is NOT in LevelList.
+        // By calling EndFrame(), we ensure LevelList is cleared before world destruction.
+        // 
+        // This is safe because:
+        // 1. We've already unregistered all tick functions (PHASE 3)
+        // 2. We've set bIsVisible=false on all levels (PHASE 2)
+        // 3. EndFrame() doesn't have assertions that would fail if called outside a tick frame
+        // 4. The TickTaskSequencer.EndFrame() just clears batched tick data
+        // 5. The LevelList.Reset() is the critical operation we need
+        FTickTaskManagerInterface::Get().EndFrame();
+        UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeLoadMap: Called EndFrame() to clear TickTaskManager LevelList"));
+        
+        // =====================================================================
         // PHASE 5: Send end-of-frame updates
         // =====================================================================
         CurrentWorld->SendAllEndOfFrameUpdates();
@@ -497,25 +529,7 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
             TEXT("McpSafeLoadMap: Tick cleanup completed successfully"));
     }
     
-    // STEP 11: Check if already loaded
-    if (CurrentWorld)
-    {
-        FString CurrentMapPath = CurrentWorld->GetOutermost()->GetName();
-        FString NormalizedMapPath = MapPath;
-        
-        if (NormalizedMapPath.EndsWith(TEXT(".umap")))
-        {
-            NormalizedMapPath.LeftChopInline(5);
-        }
-        
-        if (CurrentMapPath.Equals(NormalizedMapPath, ESearchCase::IgnoreCase))
-        {
-            UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeLoadMap: Map '%s' is already loaded, skipping"), *MapPath);
-            return true;
-        }
-    }
-    
-    // STEP 12: Load the map
+    // STEP 11: Load the map
     UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeLoadMap: Loading map '%s'"), *MapPath);
     bool bLoaded = FEditorFileUtils::LoadMap(*MapPath);
     
