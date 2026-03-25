@@ -904,7 +904,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
           }
         }
 
-        TArray<TSharedPtr<FJsonValue>> LinkedToFileArray;
+        TArray<TSharedPtr<FJsonValue>> LinkedToArray;
         for (UEdGraphPin *LinkedPin : Pin->LinkedTo) {
           if (LinkedPin && LinkedPin->GetOwningNode()) {
             TSharedPtr<FJsonObject> LinkObj = McpHandlerUtils::CreateResultObject();
@@ -913,10 +913,10 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
                 LinkedPin->GetOwningNode()->NodeGuid.ToString());
             LinkObj->SetStringField(TEXT("pinName"),
                                     LinkedPin->PinName.ToString());
-            LinkedToFileArray.Add(MakeShared<FJsonValueObject>(LinkObj));
+            LinkedToArray.Add(MakeShared<FJsonValueObject>(LinkObj));
           }
         }
-        PinObj->SetArrayField(TEXT("linkedTo"), LinkedToFileArray);
+        PinObj->SetArrayField(TEXT("linkedTo"), LinkedToArray);
         PinsArray.Add(MakeShared<FJsonValueObject>(PinObj));
       }
       NodeObj->SetArrayField(TEXT("pins"), PinsArray);
@@ -1127,6 +1127,9 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
 
       TArray<TSharedPtr<FJsonValue>> Pins;
       for (UEdGraphPin *Pin : TargetNode->Pins) {
+        if (!Pin)
+          continue;
+
         TSharedPtr<FJsonObject> PinObj = McpHandlerUtils::CreateResultObject();
         PinObj->SetStringField(TEXT("pinName"), Pin->PinName.ToString());
         PinObj->SetStringField(TEXT("direction"), Pin->Direction == EGPD_Input
@@ -1134,6 +1137,44 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
                                                       : TEXT("Output"));
         PinObj->SetStringField(TEXT("pinType"),
                                Pin->PinType.PinCategory.ToString());
+
+        // Add pin sub-category object type if applicable
+        if (Pin->PinType.PinCategory == TEXT("object") ||
+            Pin->PinType.PinCategory == TEXT("class") ||
+            Pin->PinType.PinCategory == TEXT("struct")) {
+          if (Pin->PinType.PinSubCategoryObject.IsValid()) {
+            PinObj->SetStringField(
+                TEXT("pinSubType"),
+                Pin->PinType.PinSubCategoryObject->GetName());
+          }
+        }
+
+        // Serialize linked pins as JSON objects (consistent with get_nodes)
+        TArray<TSharedPtr<FJsonValue>> LinkedToArray;
+        for (UEdGraphPin *LinkedPin : Pin->LinkedTo) {
+          if (LinkedPin && LinkedPin->GetOwningNode()) {
+            TSharedPtr<FJsonObject> LinkObj =
+                McpHandlerUtils::CreateResultObject();
+            LinkObj->SetStringField(
+                TEXT("nodeId"),
+                LinkedPin->GetOwningNode()->NodeGuid.ToString());
+            LinkObj->SetStringField(TEXT("pinName"),
+                                    LinkedPin->PinName.ToString());
+            LinkedToArray.Add(MakeShared<FJsonValueObject>(LinkObj));
+          }
+        }
+        PinObj->SetArrayField(TEXT("linkedTo"), LinkedToArray);
+
+        if (!Pin->DefaultValue.IsEmpty()) {
+          PinObj->SetStringField(TEXT("defaultValue"), Pin->DefaultValue);
+        } else if (!Pin->DefaultTextValue.IsEmptyOrWhitespace()) {
+          PinObj->SetStringField(TEXT("defaultTextValue"),
+                                 Pin->DefaultTextValue.ToString());
+        } else if (Pin->DefaultObject) {
+          PinObj->SetStringField(TEXT("defaultObjectPath"),
+                                 Pin->DefaultObject->GetPathName());
+        }
+
         Pins.Add(MakeShared<FJsonValueObject>(PinObj));
       }
       Result->SetArrayField(TEXT("pins"), Pins);
@@ -1211,25 +1252,32 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
       PinObj->SetStringField(TEXT("pinType"),
                              Pin->PinType.PinCategory.ToString());
 
-      if (Pin->LinkedTo.Num() > 0) {
-        TArray<TSharedPtr<FJsonValue>> LinkedArray;
-        for (UEdGraphPin *LinkedPin : Pin->LinkedTo) {
-          if (!LinkedPin) {
-            continue;
-          }
-          FString LinkedNodeId =
-              LinkedPin->GetOwningNode()
-                  ? LinkedPin->GetOwningNode()->NodeGuid.ToString()
-                  : FString();
-          const FString LinkedLabel =
-              LinkedNodeId.IsEmpty()
-                  ? LinkedPin->PinName.ToString()
-                  : FString::Printf(TEXT("%s:%s"), *LinkedNodeId,
-                                    *LinkedPin->PinName.ToString());
-          LinkedArray.Add(MakeShared<FJsonValueString>(LinkedLabel));
+      // Add pin sub-category object type if applicable
+      if (Pin->PinType.PinCategory == TEXT("object") ||
+          Pin->PinType.PinCategory == TEXT("class") ||
+          Pin->PinType.PinCategory == TEXT("struct")) {
+        if (Pin->PinType.PinSubCategoryObject.IsValid()) {
+          PinObj->SetStringField(
+              TEXT("pinSubType"),
+              Pin->PinType.PinSubCategoryObject->GetName());
         }
-        PinObj->SetArrayField(TEXT("linkedTo"), LinkedArray);
       }
+
+      // Serialize linked pins as JSON objects (consistent with get_nodes)
+      TArray<TSharedPtr<FJsonValue>> LinkedToArray;
+      for (UEdGraphPin *LinkedPin : Pin->LinkedTo) {
+        if (LinkedPin && LinkedPin->GetOwningNode()) {
+          TSharedPtr<FJsonObject> LinkObj =
+              McpHandlerUtils::CreateResultObject();
+          LinkObj->SetStringField(
+              TEXT("nodeId"),
+              LinkedPin->GetOwningNode()->NodeGuid.ToString());
+          LinkObj->SetStringField(TEXT("pinName"),
+                                  LinkedPin->PinName.ToString());
+          LinkedToArray.Add(MakeShared<FJsonValueObject>(LinkObj));
+        }
+      }
+      PinObj->SetArrayField(TEXT("linkedTo"), LinkedToArray);
 
       if (!Pin->DefaultValue.IsEmpty()) {
         PinObj->SetStringField(TEXT("defaultValue"), Pin->DefaultValue);
