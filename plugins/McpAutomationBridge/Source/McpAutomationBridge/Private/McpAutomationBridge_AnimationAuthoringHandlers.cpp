@@ -592,12 +592,16 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
             Controller.AddBoneCurve(BoneFName);
 
             // Verify the bone curve was actually added
-#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 2)
-            const int32 AddedTrackIndex = Controller.GetModel()->GetBoneTrackIndexByName(BoneFName);
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 4)
+            const bool bTrackAdded = Controller.GetModel()->IsValidBoneTrackName(BoneFName);
+#elif ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 2
+            PRAGMA_DISABLE_DEPRECATION_WARNINGS
+            const bool bTrackAdded = Controller.GetModel()->GetBoneTrackIndexByName(BoneFName) != INDEX_NONE;
+            PRAGMA_ENABLE_DEPRECATION_WARNINGS
 #else
-            const int32 AddedTrackIndex = Controller.GetModel()->GetBoneTrackIndex(BoneFName);
+            const bool bTrackAdded = Controller.GetModel()->GetBoneTrackIndex(BoneFName) != INDEX_NONE;
 #endif
-            if (AddedTrackIndex == INDEX_NONE)
+            if (!bTrackAdded)
             {
                 ANIM_ERROR_RESPONSE(
                     FString::Printf(TEXT("Failed to add bone track '%s' - bone may not exist in skeleton"), *BoneName),
@@ -685,12 +689,16 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
         }
 
         // Verify bone track exists before setting keys
-#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 2)
-        const int32 TrackIndex = Controller.GetModel()->GetBoneTrackIndexByName(BoneFName);
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 4)
+        const bool bTrackExists = Controller.GetModel()->IsValidBoneTrackName(BoneFName);
+#elif ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 2
+        PRAGMA_DISABLE_DEPRECATION_WARNINGS
+        const bool bTrackExists = Controller.GetModel()->GetBoneTrackIndexByName(BoneFName) != INDEX_NONE;
+        PRAGMA_ENABLE_DEPRECATION_WARNINGS
 #else
-        const int32 TrackIndex = Controller.GetModel()->GetBoneTrackIndex(BoneFName);
+        const bool bTrackExists = Controller.GetModel()->GetBoneTrackIndex(BoneFName) != INDEX_NONE;
 #endif
-        if (TrackIndex == INDEX_NONE)
+        if (!bTrackExists)
         {
             ANIM_ERROR_RESPONSE(
                 FString::Printf(TEXT("Bone track '%s' not found in animation sequence. Add the track first using add_bone_track."), *BoneName),
