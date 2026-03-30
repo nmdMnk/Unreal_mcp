@@ -224,8 +224,19 @@ PRAGMA_ENABLE_DEPRECATION_WARNINGS
 #if __has_include("ChaosWheeledVehicleMovementComponent.h")
 #include "ChaosWheeledVehicleMovementComponent.h"
 #define MCP_HAS_CHAOS_WHEELED_VEHICLE 1
+#elif __has_include("Chaos/ChaosWheeledVehicleMovementComponent.h")
+#include "Chaos/ChaosWheeledVehicleMovementComponent.h"
+#define MCP_HAS_CHAOS_WHEELED_VEHICLE 1
 #else
 #define MCP_HAS_CHAOS_WHEELED_VEHICLE 0
+#endif
+
+// If we have Chaos vehicles but not PhysX vehicles, enable the vehicle feature via Chaos
+#if MCP_HAS_CHAOS_WHEELED_VEHICLE && !MCP_HAS_WHEELED_VEHICLE_4W
+#undef MCP_HAS_WHEELED_VEHICLE_4W
+#define MCP_HAS_WHEELED_VEHICLE_4W 1
+// Alias for Chaos vehicle component type
+#define UWheeledVehicleMovementComponent4W UChaosWheeledVehicleMovementComponent
 #endif
 
 // -----------------------------------------------------------------------------
@@ -1097,6 +1108,17 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
                       }
 
                       const FName BoneFName(*BoneName);
+
+                      // CRITICAL: Validate bone exists in skeleton before attempting to add track
+                      const FReferenceSkeleton& RefSkeleton = TargetSkeleton->GetReferenceSkeleton();
+                      const int32 BoneIndex = RefSkeleton.FindBoneIndex(BoneFName);
+                      if (BoneIndex == INDEX_NONE)
+                      {
+                        // Bone doesn't exist in skeleton - skip this track
+                        UE_LOG(LogTemp, Warning, TEXT("create_procedural_anim: Bone '%s' not found in skeleton %s"), 
+                               *BoneName, *TargetSkeleton->GetName());
+                        continue;
+                      }
 
 #if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 1
                       if (!Controller.GetModel()->IsValidBoneTrackName(BoneFName)) {
@@ -3137,32 +3159,64 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
         ErrorCode = TEXT("INVALID_ARGUMENT");
         Resp->SetStringField(TEXT("error"), Message);
       } else {
-        if (!UEditorAssetLibrary::DoesDirectoryExist(SavePath)) {
-          UEditorAssetLibrary::MakeDirectory(SavePath);
+        // Check if an asset already exists at the target path to prevent UObject class collision crash
+        FString ObjectPath = FString::Printf(TEXT("%s/%s"), *SavePath, *MontageName);
+        if (UEditorAssetLibrary::DoesAssetExist(ObjectPath))
+        {
+          UObject* ExistingAsset = UEditorAssetLibrary::LoadAsset(ObjectPath);
+          if (ExistingAsset)
+          {
+            if (ExistingAsset->IsA<UAnimMontage>())
+            {
+              // Same type - return success with existing asset info
+              bSuccess = true;
+              Message = FString::Printf(TEXT("Animation montage '%s' already exists - reusing existing asset"), *MontageName);
+              Resp->SetStringField(TEXT("assetPath"), ObjectPath);
+              Resp->SetStringField(TEXT("skeletonPath"), SkeletonPath);
+              Resp->SetBoolField(TEXT("existingAsset"), true);
+              McpHandlerUtils::AddVerification(Resp, ExistingAsset);
+            }
+            else
+            {
+              // Different type - return error to prevent crash
+              FString ExistingClassName = ExistingAsset->GetClass()->GetName();
+              Message = FString::Printf(
+                TEXT("Cannot create AnimMontage: asset '%s' already exists as type '%s'"),
+                *ObjectPath, *ExistingClassName);
+              ErrorCode = TEXT("ASSET_TYPE_MISMATCH");
+              Resp->SetStringField(TEXT("error"), Message);
+              Resp->SetStringField(TEXT("existingClass"), ExistingClassName);
+            }
+          }
         }
+        else {
+          if (!UEditorAssetLibrary::DoesDirectoryExist(SavePath)) {
+            UEditorAssetLibrary::MakeDirectory(SavePath);
+          }
 
-        UAnimMontageFactory *MontageFactory = NewObject<UAnimMontageFactory>();
-        if (!MontageFactory) {
-          Message = TEXT("Failed to create AnimMontage factory");
-          ErrorCode = TEXT("FACTORY_FAILED");
-          Resp->SetStringField(TEXT("error"), Message);
-        } else {
-          MontageFactory->TargetSkeleton = TargetSkeleton;
-
-          FAssetToolsModule &AssetToolsModule =
-              FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools");
-          UObject *NewAsset = AssetToolsModule.Get().CreateAsset(
-              MontageName, SavePath, UAnimMontage::StaticClass(), MontageFactory);
-
-          if (!NewAsset) {
-            Message = TEXT("Failed to create animation montage");
-            ErrorCode = TEXT("ASSET_CREATION_FAILED");
+          UAnimMontageFactory *MontageFactory = NewObject<UAnimMontageFactory>();
+          if (!MontageFactory) {
+            Message = TEXT("Failed to create AnimMontage factory");
+            ErrorCode = TEXT("FACTORY_FAILED");
             Resp->SetStringField(TEXT("error"), Message);
           } else {
-            bSuccess = true;
-            Message = TEXT("Animation montage created successfully");
-            Resp->SetStringField(TEXT("assetPath"), NewAsset->GetPathName());
-            Resp->SetStringField(TEXT("skeletonPath"), SkeletonPath);
+            MontageFactory->TargetSkeleton = TargetSkeleton;
+
+            FAssetToolsModule &AssetToolsModule =
+                FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools");
+            UObject *NewAsset = AssetToolsModule.Get().CreateAsset(
+                MontageName, SavePath, UAnimMontage::StaticClass(), MontageFactory);
+
+            if (!NewAsset) {
+              Message = TEXT("Failed to create animation montage");
+              ErrorCode = TEXT("ASSET_CREATION_FAILED");
+              Resp->SetStringField(TEXT("error"), Message);
+            } else {
+              bSuccess = true;
+              Message = TEXT("Animation montage created successfully");
+              Resp->SetStringField(TEXT("assetPath"), NewAsset->GetPathName());
+              Resp->SetStringField(TEXT("skeletonPath"), SkeletonPath);
+            }
           }
         }
       }
