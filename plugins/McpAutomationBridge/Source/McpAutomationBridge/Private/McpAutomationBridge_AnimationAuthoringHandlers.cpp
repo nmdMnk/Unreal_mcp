@@ -3018,20 +3018,35 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
         FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Retargeting")));
         FString SkeletalMeshPath = GetStringFieldAnimAuth(Params, TEXT("skeletalMeshPath"), TEXT(""));
         bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
+
         if (Name.IsEmpty())
         {
             ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
         }
-        
-        // Use static factory method to create IK Rig
-        UIKRigDefinition* IKRig = UIKRigDefinitionFactory::CreateNewIKRigAsset(Path, Name);
-        
+
+        // Create IK Rig asset using the factory
+        UIKRigDefinition* IKRig = nullptr;
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5)
+        // UE 5.5+: Use static factory method
+        IKRig = UIKRigDefinitionFactory::CreateNewIKRigAsset(Path, Name);
+#else
+        // UE 5.4 and earlier: Use standard asset factory pattern
+        UIKRigDefinitionFactory* Factory = NewObject<UIKRigDefinitionFactory>();
+        FString PackagePath = Path / Name;
+        UPackage* Package = CreatePackage(*PackagePath);
+        if (Package)
+        {
+            IKRig = Cast<UIKRigDefinition>(Factory->FactoryCreateNew(
+                UIKRigDefinition::StaticClass(), Package, FName(*Name),
+                RF_Public | RF_Standalone, nullptr, GWarn));
+        }
+#endif
+
         if (!IKRig)
         {
             ANIM_ERROR_RESPONSE(TEXT("Failed to create IK Rig asset"), TEXT("CREATION_FAILED"));
         }
-        
+
         // If skeletal mesh path provided, set the preview mesh
         if (!SkeletalMeshPath.IsEmpty())
         {
@@ -3041,7 +3056,7 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
                 IKRig->SetPreviewMesh(SkeletalMesh);
             }
         }
-        
+
         // Save if requested
         if (bSave)
         {
@@ -3050,7 +3065,7 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
             if (DotIndex != INDEX_NONE) { AssetPathStr.LeftInline(DotIndex); }
             IKRig->MarkPackageDirty();
         }
-        
+
         Response->SetStringField(TEXT("assetPath"), IKRig->GetPathName());
         ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("IK Rig '%s' created successfully"), *Name));
 #elif MCP_HAS_IKRIG
