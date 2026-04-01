@@ -47,6 +47,7 @@
 #include "Misc/Paths.h"
 #include "McpAutomationBridgeGlobals.h"
 #include "McpAutomationBridgeHelpers.h"
+#include "McpSafeOperations.h"
 
 // -----------------------------------------------------------------------------
 // MCP Handler Utilities (centralized JSON/Asset helpers)
@@ -1830,8 +1831,12 @@ bool UMcpAutomationBridgeSubsystem::HandleDeleteAssets(
   for (const FString &Path : PathsToDelete) {
     // Check if it's a directory first (folder path)
     if (UEditorAssetLibrary::DoesDirectoryExist(Path)) {
-      // Directory exists - attempt to delete it
-      if (UEditorAssetLibrary::DeleteDirectory(Path)) {
+      // Directory exists - use safe folder deletion with proper cleanup
+      // CRITICAL for UE 5.7+: Use McpSafeDeleteFolder instead of UEditorAssetLibrary::DeleteDirectory
+      // to prevent crashes during UWorld::CleanupWorld when deleting folders containing
+      // AnimBlueprints, IKRigs, IKRetargeters, etc.
+      if (McpSafeOperations::McpSafeDeleteFolder(Path, true))
+      {
         // Verify the directory was actually deleted
         if (!UEditorAssetLibrary::DoesDirectoryExist(Path)) {
           DeletedCount++;
