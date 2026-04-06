@@ -103,7 +103,10 @@ async function resolveComponentObjectPathFromArgs(args: HandlerArgs, tools: IToo
 
   let components: ComponentInfo[] = [];
   if (compsRes.success) {
-    components = Array.isArray(compsRes?.components) ? compsRes.components : [];
+    const resultData = compsRes?.result as Record<string, unknown> | undefined;
+    components = Array.isArray(compsRes?.components) ? compsRes.components :
+      (resultData && Array.isArray(resultData.components)) ? resultData.components as ComponentInfo[] :
+      [];
   }
 
   const needle = effectiveComponentName.toLowerCase();
@@ -678,6 +681,15 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       }
       return cleanObject(res);
     }
+    case 'inspect_cdo': {
+      const inspectArgs = args as InspectArgs;
+      const res = await executeAutomationRequest(tools, 'inspect', {
+        ...normalizedArgs,
+        action: 'inspect_cdo',
+        blueprintPath: inspectArgs.blueprintPath || normalizedArgs.objectPath as string,
+      });
+      return cleanObject(res) as Record<string, unknown>;
+    }
     // Global actions that don't require objectPath
     case 'get_project_settings': {
       const res = await executeAutomationRequest(tools, 'inspect', {
@@ -778,9 +790,10 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       const res = await executeAutomationRequest(tools, 'create_string_table', { stringTablePath });
       return cleanObject(res) as Record<string, unknown>;
     }
-    default:
+    default: {
       // Fallback to generic automation request if action not explicitly handled
       const res = await executeAutomationRequest(tools, 'inspect', args, 'Automation bridge not available for inspect operations');
       return cleanObject(res) as Record<string, unknown>;
+    }
   }
 }

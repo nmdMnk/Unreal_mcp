@@ -362,7 +362,6 @@ namespace WidgetAuthoringHelpers
      */
     void RegisterWidgetGuid(UWidgetBlueprint* WidgetBP, UWidget* Widget)
     {
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
         if (!WidgetBP || !Widget)
         {
             return;
@@ -370,17 +369,22 @@ namespace WidgetAuthoringHelpers
 
         const FName WidgetFName = Widget->GetFName();
 
+#if MCP_HAS_WIDGET_VARIABLE_GUID_MAP
         // Only register if not already present
-        if (!WidgetBP->WidgetVariableNameToGuidMap.Contains(WidgetFName))
+        if (!MCP_WIDGET_BP_GET_GUID_MAP(WidgetBP).Contains(WidgetFName))
         {
             // Use deterministic GUID based on widget path for stability across saves
             // This matches the engine's pattern in WidgetBlueprintCompiler.cpp line 774
-            FGuid WidgetGuid = FGuid::NewDeterministicGuid(Widget->GetPathName());
-            WidgetBP->WidgetVariableNameToGuidMap.Emplace(WidgetFName, WidgetGuid);
+            FGuid WidgetGuid = MCP_NEW_DETERMINISTIC_GUID(Widget->GetPathName());
+            MCP_WIDGET_BP_GET_GUID_MAP(WidgetBP).Emplace(WidgetFName, WidgetGuid);
 
             UE_LOG(LogTemp, Verbose, TEXT("RegisterWidgetGuid: Registered widget '%s' with GUID %s"),
                 *WidgetFName.ToString(), *WidgetGuid.ToString());
         }
+#else
+        // UE 5.0+: WidgetVariableNameToGuidMap doesn't exist, GUID tracking is handled differently
+        UE_LOG(LogTemp, Verbose, TEXT("RegisterWidgetGuid: Widget '%s' registered (UE 5.0 mode)"),
+            *WidgetFName.ToString());
 #endif
     }
 
@@ -399,7 +403,6 @@ namespace WidgetAuthoringHelpers
      */
     void UnregisterWidgetGuid(UWidgetBlueprint* WidgetBP, UWidget* Widget)
     {
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
         if (!WidgetBP || !Widget)
         {
             return;
@@ -407,12 +410,17 @@ namespace WidgetAuthoringHelpers
 
         const FName WidgetFName = Widget->GetFName();
 
-        if (WidgetBP->WidgetVariableNameToGuidMap.Contains(WidgetFName))
+#if MCP_HAS_WIDGET_VARIABLE_GUID_MAP
+        if (MCP_WIDGET_BP_GET_GUID_MAP(WidgetBP).Contains(WidgetFName))
         {
-            WidgetBP->WidgetVariableNameToGuidMap.Remove(WidgetFName);
+            MCP_WIDGET_BP_GET_GUID_MAP(WidgetBP).Remove(WidgetFName);
             UE_LOG(LogTemp, Verbose, TEXT("UnregisterWidgetGuid: Unregistered widget '%s'"),
                 *WidgetFName.ToString());
         }
+#else
+        // UE 5.0+: WidgetVariableNameToGuidMap doesn't exist
+        UE_LOG(LogTemp, Verbose, TEXT("UnregisterWidgetGuid: Widget '%s' unregistered (UE 5.0 mode)"),
+            *WidgetFName.ToString());
 #endif
     }
 
@@ -551,26 +559,30 @@ namespace WidgetAuthoringHelpers
      * @param WidgetBP The widget blueprint that owns the animation
      * @param Animation The newly created animation to register
      */
-    void RegisterAnimationGuid(UWidgetBlueprint* WidgetBP, UWidgetAnimation* Animation)
-    {
-        if (!WidgetBP || !Animation)
-        {
-            return;
-        }
+void RegisterAnimationGuid(UWidgetBlueprint* WidgetBP, UWidgetAnimation* Animation)
+{
+if (!WidgetBP || !Animation)
+{
+return;
+}
 
         const FName AnimFName = Animation->GetFName();
 
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
+#if MCP_HAS_WIDGET_VARIABLE_GUID_MAP
         // Register in WidgetVariableNameToGuidMap if not present
-        if (!WidgetBP->WidgetVariableNameToGuidMap.Contains(AnimFName))
+        if (!MCP_WIDGET_BP_GET_GUID_MAP(WidgetBP).Contains(AnimFName))
         {
             // Use deterministic GUID based on animation path for stability
-            FGuid AnimGuid = FGuid::NewDeterministicGuid(Animation->GetPathName());
-            WidgetBP->WidgetVariableNameToGuidMap.Emplace(AnimFName, AnimGuid);
+            FGuid AnimGuid = MCP_NEW_DETERMINISTIC_GUID(Animation->GetPathName());
+            MCP_WIDGET_BP_GET_GUID_MAP(WidgetBP).Emplace(AnimFName, AnimGuid);
 
             UE_LOG(LogTemp, Verbose, TEXT("RegisterAnimationGuid: Registered animation '%s' with GUID %s"),
                 *AnimFName.ToString(), *AnimGuid.ToString());
         }
+#else
+        // UE 5.0+: WidgetVariableNameToGuidMap doesn't exist
+        UE_LOG(LogTemp, Verbose, TEXT("RegisterAnimationGuid: Animation '%s' registered (UE 5.0 mode)"),
+            *AnimFName.ToString());
 #endif
         
         // Ensure animation is in the Animations array
@@ -695,16 +707,16 @@ namespace WidgetAuthoringHelpers
             }
         }
 
-        // Step 4: Clear the root widget pointer
-        WidgetTree->RootWidget = nullptr;
+// Step 4: Clear the root widget pointer
+WidgetTree->RootWidget = nullptr;
 
         // Step 5: Clear the GUID map - we'll rebuild it from scratch
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
+#if MCP_HAS_WIDGET_VARIABLE_GUID_MAP
         WidgetBP->WidgetVariableNameToGuidMap.Empty();
 #endif
 
-        UE_LOG(LogTemp, Verbose, TEXT("ClearWidgetTreeForRebuild: Cleared %d widgets from tree"), WidgetsToRemove.Num());
-    }
+UE_LOG(LogTemp, Verbose, TEXT("ClearWidgetTreeForRebuild: Cleared %d widgets from tree"), WidgetsToRemove.Num());
+}
 }
 
 using namespace WidgetAuthoringHelpers;
