@@ -348,14 +348,8 @@ export async function handleLevelTools(action: string, args: HandlerArgs, tools:
       return cleanObject(res) as Record<string, unknown>;
     }
     case 'get_current_level': {
-      const res = await executeAutomationRequest(tools, 'list_levels', {}) as Record<string, unknown>;
-      const resTyped = res as { currentMap?: string; currentMapPath?: string };
-      return cleanObject({
-        success: true,
-        levelName: resTyped.currentMap,
-        levelPath: resTyped.currentMapPath,
-        ...res
-      });
+      const res = await executeAutomationRequest(tools, 'manage_level', { action }) as Record<string, unknown>;
+      return cleanObject(res) as Record<string, unknown>;
     }
     case 'set_metadata': {
       const levelPath = requireNonEmptyString(argsTyped.levelPath, 'levelPath', 'Missing required parameter: levelPath');
