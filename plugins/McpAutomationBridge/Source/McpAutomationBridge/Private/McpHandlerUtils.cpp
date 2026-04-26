@@ -898,23 +898,53 @@ TArray<TSharedPtr<FJsonValue>> CollectBlueprintVariables(UBlueprint* Blueprint)
         return Out;
     }
 
-    for (const FBPVariableDescription& Var : Blueprint->NewVariables)
+    TArray<UBlueprint*> Chain;
     {
-        TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
-        Obj->SetStringField(TEXT("name"), Var.VarName.ToString());
-        Obj->SetStringField(TEXT("type"), DescribePinType(Var.VarType));
-        Obj->SetBoolField(TEXT("replicated"), (Var.PropertyFlags & CPF_Net) != 0);
-        Obj->SetBoolField(TEXT("public"), (Var.PropertyFlags & CPF_BlueprintReadOnly) == 0);
-        
-        const FString CategoryStr = Var.Category.IsEmpty() ? FString() : Var.Category.ToString();
-        if (!CategoryStr.IsEmpty())
+        UBlueprint* Current = Blueprint;
+        while (Current)
         {
-            Obj->SetStringField(TEXT("category"), CategoryStr);
+            Chain.Add(Current);
+            UClass* ParentClass = Current->ParentClass;
+            UBlueprint* ParentBP = ParentClass
+                ? Cast<UBlueprint>(ParentClass->ClassGeneratedBy)
+                : nullptr;
+            if (!ParentBP || ParentBP == Current || Chain.Contains(ParentBP))
+            {
+                break;
+            }
+            Current = ParentBP;
         }
-        
-        Out.Add(MakeShared<FJsonValueObject>(Obj));
     }
-    
+
+    for (int32 ChainIdx = Chain.Num() - 1; ChainIdx >= 0; --ChainIdx)
+    {
+        UBlueprint* CurrentBP = Chain[ChainIdx];
+        const bool bInherited = (CurrentBP != Blueprint);
+
+        for (const FBPVariableDescription& Var : CurrentBP->NewVariables)
+        {
+            TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+            Obj->SetStringField(TEXT("name"), Var.VarName.ToString());
+            Obj->SetStringField(TEXT("type"), DescribePinType(Var.VarType));
+            Obj->SetBoolField(TEXT("replicated"), (Var.PropertyFlags & CPF_Net) != 0);
+            Obj->SetBoolField(TEXT("public"), (Var.PropertyFlags & CPF_BlueprintReadOnly) == 0);
+
+            const FString CategoryStr = Var.Category.IsEmpty() ? FString() : Var.Category.ToString();
+            if (!CategoryStr.IsEmpty())
+            {
+                Obj->SetStringField(TEXT("category"), CategoryStr);
+            }
+
+            if (bInherited)
+            {
+                Obj->SetBoolField(TEXT("inherited"), true);
+                Obj->SetStringField(TEXT("declaringBlueprint"), CurrentBP->GetName());
+            }
+
+            Out.Add(MakeShared<FJsonValueObject>(Obj));
+        }
+    }
+
     return Out;
 }
 
