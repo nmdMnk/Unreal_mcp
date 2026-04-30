@@ -337,64 +337,84 @@ FSCSHandlers::GetBlueprintSCS(const FString &BlueprintPath) {
     return Result;
   }
 
-  // Get SCS
-  USimpleConstructionScript *SCS = Blueprint->SimpleConstructionScript;
-  if (!SCS) {
-    Result->SetBoolField(TEXT("success"), false);
-    Result->SetStringField(TEXT("error"),
-                           TEXT("Blueprint has no SimpleConstructionScript"));
-    return Result;
+  TArray<UBlueprint *> Chain;
+  {
+    UBlueprint *Current = Blueprint;
+    while (Current) {
+      Chain.Add(Current);
+      UClass *ParentClass = Current->ParentClass;
+      UBlueprint *ParentBP =
+          ParentClass ? Cast<UBlueprint>(ParentClass->ClassGeneratedBy)
+                      : nullptr;
+      if (!ParentBP || ParentBP == Current || Chain.Contains(ParentBP)) {
+        break;
+      }
+      Current = ParentBP;
+    }
   }
 
-  // Build component tree
   TArray<TSharedPtr<FJsonValue>> Components;
-  const TArray<USCS_Node *> &AllNodes = SCS->GetAllNodes();
+  for (int32 ChainIdx = Chain.Num() - 1; ChainIdx >= 0; --ChainIdx) {
+    UBlueprint *CurrentBP = Chain[ChainIdx];
+    USimpleConstructionScript *SCS = CurrentBP->SimpleConstructionScript;
+    if (!SCS) {
+      continue;
+    }
+    const bool bInherited = (CurrentBP != Blueprint);
+    const TArray<USCS_Node *> &AllNodes = SCS->GetAllNodes();
 
-  for (USCS_Node *Node : AllNodes) {
-    if (Node && Node->GetVariableName().IsValid()) {
-      TSharedPtr<FJsonObject> ComponentObj = McpHandlerUtils::CreateResultObject();
-      ComponentObj->SetStringField(TEXT("name"),
-                                   Node->GetVariableName().ToString());
-      ComponentObj->SetStringField(
-          TEXT("class"), Node->ComponentClass ? Node->ComponentClass->GetName()
-                                              : TEXT("Unknown"));
-      if (!Node->ParentComponentOrVariableName.IsNone()) {
+    for (USCS_Node *Node : AllNodes) {
+      if (Node && Node->GetVariableName().IsValid()) {
+        TSharedPtr<FJsonObject> ComponentObj = McpHandlerUtils::CreateResultObject();
+        ComponentObj->SetStringField(TEXT("name"),
+                                     Node->GetVariableName().ToString());
         ComponentObj->SetStringField(
-            TEXT("parent"), Node->ParentComponentOrVariableName.ToString());
-      }
-
-      // Add transform if component template exists (cast to SceneComponent for
-      // UE 5.6)
-      if (Node->ComponentTemplate) {
-        FTransform Transform = FTransform::Identity;
-        if (USceneComponent *SceneComp =
-                Cast<USceneComponent>(Node->ComponentTemplate)) {
-          Transform = SceneComp->GetRelativeTransform();
+            TEXT("class"), Node->ComponentClass ? Node->ComponentClass->GetName()
+                                                : TEXT("Unknown"));
+        if (!Node->ParentComponentOrVariableName.IsNone()) {
+          ComponentObj->SetStringField(
+              TEXT("parent"), Node->ParentComponentOrVariableName.ToString());
         }
-        TSharedPtr<FJsonObject> TransformObj = McpHandlerUtils::CreateResultObject();
 
-        FVector Loc = Transform.GetLocation();
-        FRotator Rot = Transform.GetRotation().Rotator();
-        FVector Scale = Transform.GetScale3D();
+        // Add transform if component template exists (cast to SceneComponent for
+        // UE 5.6)
+        if (Node->ComponentTemplate) {
+          FTransform Transform = FTransform::Identity;
+          if (USceneComponent *SceneComp =
+                  Cast<USceneComponent>(Node->ComponentTemplate)) {
+            Transform = SceneComp->GetRelativeTransform();
+          }
+          TSharedPtr<FJsonObject> TransformObj = McpHandlerUtils::CreateResultObject();
 
-        TransformObj->SetStringField(
-            TEXT("location"),
-            FString::Printf(TEXT("X=%.2f Y=%.2f Z=%.2f"), Loc.X, Loc.Y, Loc.Z));
-        TransformObj->SetStringField(
-            TEXT("rotation"), FString::Printf(TEXT("P=%.2f Y=%.2f R=%.2f"),
-                                              Rot.Pitch, Rot.Yaw, Rot.Roll));
-        TransformObj->SetStringField(
-            TEXT("scale"), FString::Printf(TEXT("X=%.2f Y=%.2f Z=%.2f"),
-                                           Scale.X, Scale.Y, Scale.Z));
+          FVector Loc = Transform.GetLocation();
+          FRotator Rot = Transform.GetRotation().Rotator();
+          FVector Scale = Transform.GetScale3D();
 
-        ComponentObj->SetObjectField(TEXT("transform"), TransformObj);
+          TransformObj->SetStringField(
+              TEXT("location"),
+              FString::Printf(TEXT("X=%.2f Y=%.2f Z=%.2f"), Loc.X, Loc.Y, Loc.Z));
+          TransformObj->SetStringField(
+              TEXT("rotation"), FString::Printf(TEXT("P=%.2f Y=%.2f R=%.2f"),
+                                                Rot.Pitch, Rot.Yaw, Rot.Roll));
+          TransformObj->SetStringField(
+              TEXT("scale"), FString::Printf(TEXT("X=%.2f Y=%.2f Z=%.2f"),
+                                             Scale.X, Scale.Y, Scale.Z));
+
+          ComponentObj->SetObjectField(TEXT("transform"), TransformObj);
+        }
+
+        // Add child count
+        ComponentObj->SetNumberField(TEXT("child_count"),
+                                     Node->GetChildNodes().Num());
+
+        if (bInherited) {
+          ComponentObj->SetBoolField(TEXT("inherited"), true);
+          ComponentObj->SetStringField(TEXT("declaringBlueprint"),
+                                       CurrentBP->GetName());
+        }
+
+        Components.Add(MakeShared<FJsonValueObject>(ComponentObj));
       }
-
-      // Add child count
-      ComponentObj->SetNumberField(TEXT("child_count"),
-                                   Node->GetChildNodes().Num());
-
-      Components.Add(MakeShared<FJsonValueObject>(ComponentObj));
     }
   }
 
