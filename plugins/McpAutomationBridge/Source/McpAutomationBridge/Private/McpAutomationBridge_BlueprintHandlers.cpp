@@ -1465,11 +1465,10 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
       if (FChar::IsAlnum(C))
         PatternAlpha.AppendChar(C);
     }
-    const bool bExactOrContains =
-        (Lower.Equals(PatternStr) || Lower.Contains(PatternStr));
+    const bool bExactOrContains = Lower.Equals(PatternStr);
     const bool bAlphaMatch =
         (!AlphaNumLower.IsEmpty() && !PatternAlpha.IsEmpty() &&
-         AlphaNumLower.Contains(PatternAlpha));
+         AlphaNumLower.Equals(PatternAlpha));
     const bool bMatched = (bExactOrContains || bAlphaMatch);
     // Keep this at VeryVerbose because it executes for every pattern match
     // attempt and rapidly fills the log during normal operation.
