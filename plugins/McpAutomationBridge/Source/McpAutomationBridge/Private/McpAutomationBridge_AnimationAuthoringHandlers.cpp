@@ -556,25 +556,34 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
     
     if (SubAction == TEXT("create_animation_sequence"))
     {
-        FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Animations")));
-        FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
-        int32 NumFrames = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("numFrames"), 30));
-        int32 FrameRate = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("frameRate"), 30));
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        if (Name.IsEmpty())
-        {
-            ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
-        }
-        
-        USkeleton* Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
+    FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
+    FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Animations")));
+    FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
+    int32 NumFrames = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("numFrames"), 30));
+    int32 FrameRate = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("frameRate"), 30));
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (FrameRate <= 0)
+    {
+        ANIM_ERROR_RESPONSE(TEXT("frameRate must be greater than 0"), TEXT("INVALID_FRAME_RATE"));
+    }
+
+    if (Name.IsEmpty())
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
+    }
+
+    USkeleton* Skeleton = nullptr;
+    if (!SkeletonPath.IsEmpty())
+    {
+        Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
         if (!Skeleton)
         {
             ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeleton: %s"), *SkeletonPath), TEXT("SKELETON_NOT_FOUND"));
         }
-        
-        // Check if an asset already exists at the target path to prevent assertion failure
+    }
+
+    // Check if an asset already exists at the target path to prevent assertion failure
         FString ObjectPath = FString::Printf(TEXT("%s/%s"), *Path, *Name);
         if (UEditorAssetLibrary::DoesAssetExist(ObjectPath))
         {
@@ -736,7 +745,7 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
 #if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 1
         // UE 5.1+ uses IAnimationDataController with IsValidBoneTrackName and AddBoneCurve
         IAnimationDataController& Controller = Sequence->GetController();
-        
+
         // Validate the controller model is available
         if (!Controller.GetModel())
         {
@@ -745,11 +754,9 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
                 TEXT("MODEL_NOT_AVAILABLE")
             );
         }
-        
-        PRAGMA_DISABLE_DEPRECATION_WARNINGS
-        const int32 ExistingTrackIndex = Controller.GetModel()->GetBoneTrackIndexByName(BoneFName);
-        PRAGMA_ENABLE_DEPRECATION_WARNINGS
-        if (ExistingTrackIndex == INDEX_NONE)
+
+        // Use IsValidBoneTrackName (non-deprecated) instead of GetBoneTrackIndexByName (deprecated since 5.2)
+        if (!Controller.GetModel()->IsValidBoneTrackName(BoneFName))
         {
             // AddBoneCurve returns bool - check the result
             const bool bAdded = Controller.AddBoneCurve(BoneFName);
@@ -761,12 +768,7 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
                 );
             }
 
-            // Verify the bone curve was actually added
-            // Note: GetBoneTrackIndexByName is deprecated in UE 5.2+ but still functional
-            PRAGMA_DISABLE_DEPRECATION_WARNINGS
-            const int32 AddedTrackIndex = Controller.GetModel()->GetBoneTrackIndexByName(BoneFName);
-            PRAGMA_ENABLE_DEPRECATION_WARNINGS
-            if (AddedTrackIndex == INDEX_NONE)
+            if (!Controller.GetModel()->IsValidBoneTrackName(BoneFName))
             {
                 ANIM_ERROR_RESPONSE(
                     FString::Printf(TEXT("Bone track '%s' was not found after AddBoneCurve succeeded - internal inconsistency"), *BoneName),
@@ -841,6 +843,20 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
             ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load animation sequence: %s"), *AssetPath), TEXT("SEQUENCE_NOT_FOUND"));
         }
         
+        // Build transform key
+        FVector Location = LocationObj.IsValid() ? GetVectorFromJsonAnim(LocationObj) : FVector::ZeroVector;
+        FQuat Rotation = RotationObj.IsValid() ? GetRotatorFromJsonAnim(RotationObj).Quaternion() : FQuat::Identity;
+        FVector Scale = ScaleObj.IsValid() ? GetVectorFromJsonAnim(ScaleObj) : FVector::OneVector;
+
+        int32 TotalFrames = Sequence->GetDataModel()->GetNumberOfFrames();
+        if (Frame < 0 || Frame >= TotalFrames)
+        {
+            ANIM_ERROR_RESPONSE(
+                FString::Printf(TEXT("Frame %d is out of range (animation has %d frames)"), Frame, TotalFrames),
+                TEXT("FRAME_OUT_OF_RANGE")
+            );
+        }
+
 #if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 1
         // UE 5.1+ API
         IAnimationDataController& Controller = Sequence->GetController();
@@ -854,10 +870,8 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
             );
         }
 
-        PRAGMA_DISABLE_DEPRECATION_WARNINGS
-        int32 TrackIndex = Controller.GetModel()->GetBoneTrackIndexByName(BoneFName);
-        PRAGMA_ENABLE_DEPRECATION_WARNINGS
-        if (TrackIndex == INDEX_NONE)
+        // Use IsValidBoneTrackName (non-deprecated) instead of GetBoneTrackIndexByName (deprecated since 5.2)
+        if (!Controller.GetModel()->IsValidBoneTrackName(BoneFName))
         {
             const bool bAdded = Controller.AddBoneCurve(BoneFName);
             if (!bAdded)
@@ -868,35 +882,30 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
                 );
             }
 
-            PRAGMA_DISABLE_DEPRECATION_WARNINGS
-            TrackIndex = Controller.GetModel()->GetBoneTrackIndexByName(BoneFName);
-            PRAGMA_ENABLE_DEPRECATION_WARNINGS
+            // Verify the track was actually created after AddBoneCurve succeeded
+            if (!Controller.GetModel()->IsValidBoneTrackName(BoneFName))
+            {
+                ANIM_ERROR_RESPONSE(
+                    FString::Printf(TEXT("Bone track '%s' not found in animation sequence after AddBoneCurve. Add the track first using add_bone_track."), *BoneName),
+                    TEXT("BONE_TRACK_NOT_FOUND")
+                );
+            }
         }
 
-        // Verify bone track exists before setting keys
-        if (TrackIndex == INDEX_NONE)
+        // UpdateBoneTrackKeys preserves other frames; SetBoneTrackKeys would replace the entire track
+        FInt32Range KeyRange(Frame, Frame + 1);
+        if (!Controller.UpdateBoneTrackKeys(BoneFName, KeyRange, {Location}, {Rotation}, {Scale}))
         {
             ANIM_ERROR_RESPONSE(
-                FString::Printf(TEXT("Bone track '%s' not found in animation sequence. Add the track first using add_bone_track."), *BoneName),
-                TEXT("BONE_TRACK_NOT_FOUND")
+                FString::Printf(TEXT("Failed to set bone key at frame %d"), Frame),
+                TEXT("BONE_KEY_SET_FAILED")
             );
         }
-        
-        // Build transform key
-        FVector Location = LocationObj.IsValid() ? GetVectorFromJsonAnim(LocationObj) : FVector::ZeroVector;
-        FQuat Rotation = RotationObj.IsValid() ? GetRotatorFromJsonAnim(RotationObj).Quaternion() : FQuat::Identity;
-        FVector Scale = ScaleObj.IsValid() ? GetVectorFromJsonAnim(ScaleObj) : FVector::OneVector;
-        
-        FTransform Transform(Rotation, Location, Scale);
-        
-        // Set key at frame
-        FFrameNumber FrameNumber(Frame);
-        Controller.SetBoneTrackKeys(BoneFName, {Location}, {Rotation}, {Scale});
 #elif ENGINE_MAJOR_VERSION >= 5
         // UE 5.0 API - uses FindBoneTrackByName which returns a pointer
         IAnimationDataController& Controller = Sequence->GetController();
         FName BoneFName(*BoneName);
-        
+
         const FBoneAnimationTrack* Track = Controller.GetModel()->FindBoneTrackByName(BoneFName);
         if (Track == nullptr)
         {
@@ -917,12 +926,8 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
                 TEXT("BONE_TRACK_NOT_FOUND")
             );
         }
-        
-        FVector Location = LocationObj.IsValid() ? GetVectorFromJsonAnim(LocationObj) : FVector::ZeroVector;
-        FQuat Rotation = RotationObj.IsValid() ? GetRotatorFromJsonAnim(RotationObj).Quaternion() : FQuat::Identity;
-        FVector Scale = ScaleObj.IsValid() ? GetVectorFromJsonAnim(ScaleObj) : FVector::OneVector;
-        
-        FFrameNumber FrameNumber(Frame);
+
+        // UE 5.0 fallback: SetBoneTrackKeys replaces the entire track (no UpdateBoneTrackKeys available)
         Controller.SetBoneTrackKeys(BoneFName, {Location}, {Rotation}, {Scale});
 #endif
         
@@ -985,154 +990,211 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
         return Response;
     }
 
-    if (SubAction == TEXT("add_notify"))
-    {
+if (SubAction == TEXT("add_notify"))
+{
         FString AssetPath = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("assetPath"), TEXT("")));
-        FString NotifyClass = GetStringFieldAnimAuth(Params, TEXT("notifyClass"), TEXT("AnimNotify"));
-        int32 Frame = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("frame"), 0));
-        int32 TrackIndex = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("trackIndex"), 0));
-        FString NotifyName = GetStringFieldAnimAuth(Params, TEXT("notifyName"), TEXT(""));
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        UAnimSequenceBase* AnimAsset = Cast<UAnimSequenceBase>(StaticLoadObject(UAnimSequenceBase::StaticClass(), nullptr, *AssetPath));
-        if (!AnimAsset)
-        {
-            ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load animation asset: %s"), *AssetPath), TEXT("ASSET_NOT_FOUND"));
-        }
-        
-        // Find notify class
+    FString NotifyClass = GetStringFieldAnimAuth(Params, TEXT("notifyClass"), TEXT(""));
+    int32 Frame = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("frame"), 0));
+    int32 TrackIndex = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("trackIndex"), 0));
+    FString NotifyName = GetStringFieldAnimAuth(Params, TEXT("notifyName"), TEXT(""));
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (NotifyClass.IsEmpty() && NotifyName.IsEmpty())
+    {
+        ANIM_ERROR_RESPONSE(TEXT("At least one of notifyClass or notifyName is required"), TEXT("MISSING_NOTIFY_PARAMS"));
+    }
+
+    // Resolve notify class BEFORE modifying the asset
+    UClass* ResolvedNotifyClass = nullptr;
+    if (!NotifyClass.IsEmpty())
+    {
         FString FullClassName = NotifyClass;
         if (!FullClassName.StartsWith(TEXT("AnimNotify_")))
         {
             FullClassName = TEXT("AnimNotify_") + NotifyClass;
         }
-        
+
 #if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 1
-        UClass* NotifyUClass = FindFirstObject<UClass>(*FullClassName, EFindFirstObjectOptions::ExactClass);
+        ResolvedNotifyClass = FindFirstObject<UClass>(*FullClassName, EFindFirstObjectOptions::None);
 #else
-        // UE 5.0: Use ResolveClassByName instead of deprecated ANY_PACKAGE
-        UClass* NotifyUClass = ResolveClassByName(FullClassName);
+        ResolvedNotifyClass = ResolveClassByName(FullClassName);
 #endif
-        if (!NotifyUClass)
+        if (!ResolvedNotifyClass)
         {
-            NotifyUClass = UAnimNotify::StaticClass();
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 1
+            ResolvedNotifyClass = FindFirstObject<UClass>(*NotifyClass, EFindFirstObjectOptions::None);
+#else
+            ResolvedNotifyClass = ResolveClassByName(NotifyClass);
+#endif
         }
-        
-        // Validate that the class is not abstract - abstract classes cannot be instantiated
-        if (NotifyUClass && NotifyUClass->HasAnyClassFlags(CLASS_Abstract))
+
+        if (ResolvedNotifyClass && ResolvedNotifyClass->HasAnyClassFlags(CLASS_Abstract))
         {
             ANIM_ERROR_RESPONSE(
                 FString::Printf(TEXT("Cannot create AnimNotify: '%s' is an abstract class. Use a concrete subclass like AnimNotify_PlaySound or create a custom AnimNotify blueprint."), *FullClassName),
                 TEXT("ABSTRACT_CLASS_ERROR")
             );
         }
-        
-        // Calculate time from frame
-        float FrameRate = 30.0f;
+
+        if (!ResolvedNotifyClass)
+        {
+            ANIM_ERROR_RESPONSE(
+                FString::Printf(TEXT("AnimNotify class '%s' not found. Use a concrete subclass like AnimNotify_PlaySound or a custom AnimNotify blueprint."), *NotifyClass),
+                TEXT("CLASS_NOT_FOUND")
+            );
+        }
+    }
+
+    UAnimSequenceBase* AnimAsset = Cast<UAnimSequenceBase>(StaticLoadObject(UAnimSequenceBase::StaticClass(), nullptr, *AssetPath));
+    if (!AnimAsset)
+    {
+        ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load animation asset: %s"), *AssetPath), TEXT("ASSET_NOT_FOUND"));
+    }
+
+    // Calculate time from frame
+    float FrameRate = 30.0f;
 #if ENGINE_MAJOR_VERSION >= 5
-        if (UAnimSequence* Seq = Cast<UAnimSequence>(AnimAsset))
-        {
-            FrameRate = Seq->GetSamplingFrameRate().AsDecimal();
-        }
+    if (UAnimSequence* Seq = Cast<UAnimSequence>(AnimAsset))
+    {
+        FrameRate = Seq->GetSamplingFrameRate().AsDecimal();
+    }
 #endif
-        float TriggerTime = static_cast<float>(Frame) / FrameRate;
-        
-        // Create notify
-        UAnimNotify* NewNotify = NewObject<UAnimNotify>(AnimAsset, NotifyUClass);
-        if (NewNotify)
+    float TriggerTime = static_cast<float>(Frame) / FrameRate;
+
+    FAnimNotifyEvent& NotifyEvent = AnimAsset->Notifies.AddDefaulted_GetRef();
+    NotifyEvent.SetTime(TriggerTime);
+    NotifyEvent.TrackIndex = TrackIndex;
+
+    if (!NotifyName.IsEmpty())
+    {
+        NotifyEvent.NotifyName = FName(*NotifyName);
+    }
+
+    if (ResolvedNotifyClass)
+    {
+        UAnimNotify* NewNotify = NewObject<UAnimNotify>(AnimAsset, ResolvedNotifyClass);
+        if (!NewNotify)
         {
-            FAnimNotifyEvent& NotifyEvent = AnimAsset->Notifies.AddDefaulted_GetRef();
-            NotifyEvent.Notify = NewNotify;
-            NotifyEvent.TriggerTimeOffset = TriggerTime;
-            NotifyEvent.TrackIndex = TrackIndex;
-            
-            if (!NotifyName.IsEmpty())
-            {
-                NotifyEvent.NotifyName = FName(*NotifyName);
-            }
-            
-            AnimAsset->RefreshCacheData();
+            AnimAsset->Notifies.Pop();
+            ANIM_ERROR_RESPONSE(
+                FString::Printf(TEXT("Failed to create AnimNotify instance of class '%s'"), *NotifyClass),
+                TEXT("INSTANTIATION_FAILED")
+            );
         }
-        
+        NotifyEvent.Notify = NewNotify;
+    }
+
+        AnimAsset->RefreshCacheData();
         SaveAnimAsset(AnimAsset, bSave);
 
         ANIM_SUCCESS_RESPONSE(TEXT("Notify added"));
         McpHandlerUtils::AddVerification(Response, AnimAsset);
         return Response;
+}
+
+if (SubAction == TEXT("add_notify_state"))
+{
+        FString AssetPath = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("assetPath"), TEXT("")));
+    FString NotifyClass = GetStringFieldAnimAuth(Params, TEXT("notifyClass"), TEXT(""));
+    int32 StartFrame = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("startFrame"), 0));
+    int32 EndFrame = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("endFrame"), 10));
+    int32 TrackIndex = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("trackIndex"), 0));
+    FString NotifyName = GetStringFieldAnimAuth(Params, TEXT("notifyName"), TEXT(""));
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (EndFrame < StartFrame)
+    {
+        ANIM_ERROR_RESPONSE(TEXT("endFrame must be greater than or equal to startFrame"), TEXT("INVALID_FRAME_RANGE"));
     }
 
-    if (SubAction == TEXT("add_notify_state"))
+    if (NotifyClass.IsEmpty() && NotifyName.IsEmpty())
     {
-        FString AssetPath = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("assetPath"), TEXT("")));
-        FString NotifyClass = GetStringFieldAnimAuth(Params, TEXT("notifyClass"), TEXT("AnimNotifyState"));
-        int32 StartFrame = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("startFrame"), 0));
-        int32 EndFrame = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("endFrame"), 10));
-        int32 TrackIndex = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("trackIndex"), 0));
-        FString NotifyName = GetStringFieldAnimAuth(Params, TEXT("notifyName"), TEXT(""));
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        UAnimSequenceBase* AnimAsset = Cast<UAnimSequenceBase>(StaticLoadObject(UAnimSequenceBase::StaticClass(), nullptr, *AssetPath));
-        if (!AnimAsset)
-        {
-            ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load animation asset: %s"), *AssetPath), TEXT("ASSET_NOT_FOUND"));
-        }
-        
-        // Find notify state class
+        ANIM_ERROR_RESPONSE(TEXT("At least one of notifyClass or notifyName is required"), TEXT("MISSING_NOTIFY_PARAMS"));
+    }
+
+    // Resolve notify state class BEFORE modifying the asset
+    UClass* ResolvedNotifyStateClass = nullptr;
+    if (!NotifyClass.IsEmpty())
+    {
         FString FullClassName = NotifyClass;
         if (!FullClassName.StartsWith(TEXT("AnimNotifyState_")))
         {
             FullClassName = TEXT("AnimNotifyState_") + NotifyClass;
         }
-        
+
 #if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 1
-        UClass* NotifyStateClass = FindFirstObject<UClass>(*FullClassName, EFindFirstObjectOptions::ExactClass);
+        ResolvedNotifyStateClass = FindFirstObject<UClass>(*FullClassName, EFindFirstObjectOptions::None);
 #else
-        // UE 5.0: Use ResolveClassByName instead of deprecated ANY_PACKAGE
-        UClass* NotifyStateClass = ResolveClassByName(FullClassName);
+        ResolvedNotifyStateClass = ResolveClassByName(FullClassName);
 #endif
-        if (!NotifyStateClass)
+        if (!ResolvedNotifyStateClass)
         {
-            NotifyStateClass = UAnimNotifyState::StaticClass();
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 1
+            ResolvedNotifyStateClass = FindFirstObject<UClass>(*NotifyClass, EFindFirstObjectOptions::None);
+#else
+            ResolvedNotifyStateClass = ResolveClassByName(NotifyClass);
+#endif
         }
-        
-        // Validate that the class is not abstract - abstract classes cannot be instantiated
-        if (NotifyStateClass && NotifyStateClass->HasAnyClassFlags(CLASS_Abstract))
+
+        if (ResolvedNotifyStateClass && ResolvedNotifyStateClass->HasAnyClassFlags(CLASS_Abstract))
         {
             ANIM_ERROR_RESPONSE(
                 FString::Printf(TEXT("Cannot create AnimNotifyState: '%s' is an abstract class. Use a concrete subclass like AnimNotifyState_PlayMontageNotify or create a custom AnimNotifyState blueprint."), *FullClassName),
                 TEXT("ABSTRACT_CLASS_ERROR")
             );
         }
-        
-        // Calculate times from frames
-        float FrameRate = 30.0f;
+
+        if (!ResolvedNotifyStateClass)
+        {
+            ANIM_ERROR_RESPONSE(
+                FString::Printf(TEXT("AnimNotifyState class '%s' not found. Use a concrete subclass like AnimNotifyState_PlayMontageNotify or a custom AnimNotifyState blueprint."), *NotifyClass),
+                TEXT("CLASS_NOT_FOUND")
+            );
+        }
+    }
+
+    UAnimSequenceBase* AnimAsset = Cast<UAnimSequenceBase>(StaticLoadObject(UAnimSequenceBase::StaticClass(), nullptr, *AssetPath));
+    if (!AnimAsset)
+    {
+        ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load animation asset: %s"), *AssetPath), TEXT("ASSET_NOT_FOUND"));
+    }
+
+    float FrameRate = 30.0f;
 #if ENGINE_MAJOR_VERSION >= 5
-        if (UAnimSequence* Seq = Cast<UAnimSequence>(AnimAsset))
-        {
-            FrameRate = Seq->GetSamplingFrameRate().AsDecimal();
-        }
+    if (UAnimSequence* Seq = Cast<UAnimSequence>(AnimAsset))
+    {
+        FrameRate = Seq->GetSamplingFrameRate().AsDecimal();
+    }
 #endif
-        float StartTime = static_cast<float>(StartFrame) / FrameRate;
-        float EndTime = static_cast<float>(EndFrame) / FrameRate;
-        float Duration = EndTime - StartTime;
-        
-        // Create notify state
-        UAnimNotifyState* NewNotifyState = NewObject<UAnimNotifyState>(AnimAsset, NotifyStateClass);
-        if (NewNotifyState)
+    float StartTime = static_cast<float>(StartFrame) / FrameRate;
+    float EndTime = static_cast<float>(EndFrame) / FrameRate;
+    float Duration = EndTime - StartTime;
+
+    FAnimNotifyEvent& NotifyEvent = AnimAsset->Notifies.AddDefaulted_GetRef();
+    NotifyEvent.SetTime(StartTime);
+    NotifyEvent.SetDuration(Duration);
+    NotifyEvent.TrackIndex = TrackIndex;
+
+    if (!NotifyName.IsEmpty())
+    {
+        NotifyEvent.NotifyName = FName(*NotifyName);
+    }
+
+    if (ResolvedNotifyStateClass)
+    {
+        UAnimNotifyState* NewNotifyState = NewObject<UAnimNotifyState>(AnimAsset, ResolvedNotifyStateClass);
+        if (!NewNotifyState)
         {
-            FAnimNotifyEvent& NotifyEvent = AnimAsset->Notifies.AddDefaulted_GetRef();
-            NotifyEvent.NotifyStateClass = NewNotifyState;
-            NotifyEvent.TriggerTimeOffset = StartTime;
-            NotifyEvent.SetDuration(Duration);
-            NotifyEvent.TrackIndex = TrackIndex;
-            
-            if (!NotifyName.IsEmpty())
-            {
-                NotifyEvent.NotifyName = FName(*NotifyName);
-            }
-            
-            AnimAsset->RefreshCacheData();
+            AnimAsset->Notifies.Pop();
+            ANIM_ERROR_RESPONSE(
+                FString::Printf(TEXT("Failed to create AnimNotifyState instance of class '%s'"), *NotifyClass),
+                TEXT("INSTANTIATION_FAILED")
+            );
         }
+        NotifyEvent.NotifyStateClass = NewNotifyState;
+    }
+
+        AnimAsset->RefreshCacheData();
         
         SaveAnimAsset(AnimAsset, bSave);
 
@@ -1284,24 +1346,28 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
     
     if (SubAction == TEXT("create_montage"))
     {
-        FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Animations")));
-        FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
-        FString SlotName = GetStringFieldAnimAuth(Params, TEXT("slotName"), TEXT("DefaultSlot"));
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        if (Name.IsEmpty())
-        {
-            ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
-        }
-        
-        USkeleton* Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
+    FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
+    FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Animations")));
+    FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
+    FString SlotName = GetStringFieldAnimAuth(Params, TEXT("slotName"), TEXT("DefaultSlot"));
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (Name.IsEmpty())
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
+    }
+
+    USkeleton* Skeleton = nullptr;
+    if (!SkeletonPath.IsEmpty())
+    {
+        Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
         if (!Skeleton)
         {
             ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeleton: %s"), *SkeletonPath), TEXT("SKELETON_NOT_FOUND"));
         }
-        
-        // Create package and asset directly to avoid UI dialogs
+    }
+
+    // Create package and asset directly to avoid UI dialogs
         FString PackagePath = Path / Name;
         UPackage* Package = CreatePackage(*PackagePath);
         if (!Package)
@@ -1460,80 +1526,109 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
         return Response;
     }
 
-    if (SubAction == TEXT("add_montage_notify"))
-    {
-        // Similar to add_notify but for montages
+if (SubAction == TEXT("add_montage_notify"))
+{
         FString AssetPath = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("assetPath"), TEXT("")));
-        FString NotifyClass = GetStringFieldAnimAuth(Params, TEXT("notifyClass"), TEXT("AnimNotify"));
-        float Time = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("time"), 0.0));
-        int32 TrackIndex = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("trackIndex"), 0));
-        FString NotifyName = GetStringFieldAnimAuth(Params, TEXT("notifyName"), TEXT(""));
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        UAnimMontage* Montage = Cast<UAnimMontage>(StaticLoadObject(UAnimMontage::StaticClass(), nullptr, *AssetPath));
-        if (!Montage)
-        {
-            ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load montage: %s"), *AssetPath), TEXT("MONTAGE_NOT_FOUND"));
-        }
-        
-        // Find notify class
+    FString NotifyClass = GetStringFieldAnimAuth(Params, TEXT("notifyClass"), TEXT(""));
+    float Time = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("time"), 0.0));
+    int32 TrackIndex = static_cast<int32>(GetNumberFieldAnimAuth(Params, TEXT("trackIndex"), 0));
+    FString NotifyName = GetStringFieldAnimAuth(Params, TEXT("notifyName"), TEXT(""));
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (NotifyClass.IsEmpty() && NotifyName.IsEmpty())
+    {
+        ANIM_ERROR_RESPONSE(TEXT("At least one of notifyClass or notifyName is required"), TEXT("MISSING_NOTIFY_PARAMS"));
+    }
+
+    // Resolve notify class BEFORE modifying the asset
+    UClass* ResolvedNotifyClass = nullptr;
+    if (!NotifyClass.IsEmpty())
+    {
         FString FullClassName = NotifyClass;
         if (!FullClassName.StartsWith(TEXT("AnimNotify_")))
         {
             FullClassName = TEXT("AnimNotify_") + NotifyClass;
         }
-        
+
 #if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 1
-        UClass* NotifyUClass = FindFirstObject<UClass>(*FullClassName, EFindFirstObjectOptions::ExactClass);
+        ResolvedNotifyClass = FindFirstObject<UClass>(*FullClassName, EFindFirstObjectOptions::None);
 #else
-        // UE 5.0: Use ResolveClassByName instead of deprecated ANY_PACKAGE
-        UClass* NotifyUClass = ResolveClassByName(FullClassName);
+        ResolvedNotifyClass = ResolveClassByName(FullClassName);
 #endif
-        if (!NotifyUClass)
+        if (!ResolvedNotifyClass)
         {
-            NotifyUClass = UAnimNotify::StaticClass();
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 1
+            ResolvedNotifyClass = FindFirstObject<UClass>(*NotifyClass, EFindFirstObjectOptions::None);
+#else
+            ResolvedNotifyClass = ResolveClassByName(NotifyClass);
+#endif
         }
-        
-        // Ensure notify track exists BEFORE creating the notify
-        // This prevents the ensure/debugbreak in RefreshCacheData() when validating notify track indices
-        // The engine's RefreshCacheData() uses WITH_EDITOR, so we use the same guard here
+
+        if (ResolvedNotifyClass && ResolvedNotifyClass->HasAnyClassFlags(CLASS_Abstract))
+        {
+            ANIM_ERROR_RESPONSE(
+                FString::Printf(TEXT("Cannot create AnimNotify: '%s' is an abstract class. Use a concrete subclass like AnimNotify_PlaySound or create a custom AnimNotify blueprint."), *FullClassName),
+                TEXT("ABSTRACT_CLASS_ERROR")
+            );
+        }
+
+        if (!ResolvedNotifyClass)
+        {
+            ANIM_ERROR_RESPONSE(
+                FString::Printf(TEXT("AnimNotify class '%s' not found. Use a concrete subclass like AnimNotify_PlaySound or a custom AnimNotify blueprint."), *NotifyClass),
+                TEXT("CLASS_NOT_FOUND")
+            );
+        }
+    }
+
+    UAnimMontage* Montage = Cast<UAnimMontage>(StaticLoadObject(UAnimMontage::StaticClass(), nullptr, *AssetPath));
+    if (!Montage)
+    {
+        ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load montage: %s"), *AssetPath), TEXT("MONTAGE_NOT_FOUND"));
+    }
+
 #if WITH_EDITOR
-        if (TrackIndex >= 0)
+    if (TrackIndex >= 0)
+    {
+        while (!Montage->AnimNotifyTracks.IsValidIndex(TrackIndex))
         {
-            // Ensure we have enough tracks for the requested TrackIndex
-            // Use the engine's exact approach: FAnimNotifyTrack(Name, Color)
-            while (!Montage->AnimNotifyTracks.IsValidIndex(TrackIndex))
-            {
-                const int32 NewTrackIndex = Montage->AnimNotifyTracks.Add(
-                    FAnimNotifyTrack(*FString::FromInt(Montage->AnimNotifyTracks.Num() + 1), FLinearColor::White)
-                );
-            }
+            Montage->AnimNotifyTracks.Add(
+                FAnimNotifyTrack(*FString::FromInt(Montage->AnimNotifyTracks.Num() + 1), FLinearColor::White)
+            );
         }
+    }
 #endif
-        
-        // Create notify
-        UAnimNotify* NewNotify = NewObject<UAnimNotify>(Montage, NotifyUClass);
-        if (NewNotify)
+
+    FAnimNotifyEvent& NotifyEvent = Montage->Notifies.AddDefaulted_GetRef();
+    NotifyEvent.SetTime(Time);
+    NotifyEvent.TrackIndex = TrackIndex;
+
+    if (!NotifyName.IsEmpty())
+    {
+        NotifyEvent.NotifyName = FName(*NotifyName);
+    }
+
+    if (ResolvedNotifyClass)
+    {
+        UAnimNotify* NewNotify = NewObject<UAnimNotify>(Montage, ResolvedNotifyClass);
+        if (!NewNotify)
         {
-            FAnimNotifyEvent& NotifyEvent = Montage->Notifies.AddDefaulted_GetRef();
-            NotifyEvent.Notify = NewNotify;
-            NotifyEvent.TriggerTimeOffset = Time;
-            NotifyEvent.TrackIndex = TrackIndex;
-            
-            if (!NotifyName.IsEmpty())
-            {
-                NotifyEvent.NotifyName = FName(*NotifyName);
-            }
-            
-            Montage->RefreshCacheData();
+            Montage->Notifies.Pop();
+            ANIM_ERROR_RESPONSE(
+                FString::Printf(TEXT("Failed to create AnimNotify instance of class '%s'"), *NotifyClass),
+                TEXT("INSTANTIATION_FAILED")
+            );
         }
-        
+        NotifyEvent.Notify = NewNotify;
+    }
+
+        Montage->RefreshCacheData();
         SaveAnimAsset(Montage, bSave);
 
         ANIM_SUCCESS_RESPONSE(TEXT("Montage notify added"));
         McpHandlerUtils::AddVerification(Response, Montage);
         return Response;
-    }
+}
 
     if (SubAction == TEXT("set_blend_in"))
     {
@@ -1645,26 +1740,30 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
     if (SubAction == TEXT("create_blend_space_1d"))
     {
 #if MCP_HAS_BLENDSPACE_FACTORY
-        FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Animations")));
-        FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
-        FString AxisName = GetStringFieldAnimAuth(Params, TEXT("axisName"), TEXT("Speed"));
-        float AxisMin = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("axisMin"), 0.0));
-        float AxisMax = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("axisMax"), 600.0));
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        if (Name.IsEmpty())
-        {
-            ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
-        }
-        
-        USkeleton* Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
+    FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
+    FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Animations")));
+    FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
+    FString AxisName = GetStringFieldAnimAuth(Params, TEXT("axisName"), TEXT("Speed"));
+    float AxisMin = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("axisMin"), 0.0));
+    float AxisMax = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("axisMax"), 600.0));
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (Name.IsEmpty())
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
+    }
+
+    USkeleton* Skeleton = nullptr;
+    if (!SkeletonPath.IsEmpty())
+    {
+        Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
         if (!Skeleton)
         {
             ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeleton: %s"), *SkeletonPath), TEXT("SKELETON_NOT_FOUND"));
         }
-        
-        // Check if an asset already exists at the target path to prevent modal dialog
+    }
+
+    // Check if an asset already exists at the target path to prevent modal dialog
         FString ObjectPath = FString::Printf(TEXT("%s/%s"), *Path, *Name);
         if (UEditorAssetLibrary::DoesAssetExist(ObjectPath))
         {
@@ -1748,29 +1847,33 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
     if (SubAction == TEXT("create_blend_space_2d"))
     {
 #if MCP_HAS_BLENDSPACE_FACTORY
-        FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Animations")));
-        FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
-        FString HorizontalAxisName = GetStringFieldAnimAuth(Params, TEXT("horizontalAxisName"), TEXT("Direction"));
-        float HorizontalMin = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("horizontalMin"), -180.0));
-        float HorizontalMax = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("horizontalMax"), 180.0));
-        FString VerticalAxisName = GetStringFieldAnimAuth(Params, TEXT("verticalAxisName"), TEXT("Speed"));
-        float VerticalMin = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("verticalMin"), 0.0));
-        float VerticalMax = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("verticalMax"), 600.0));
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        if (Name.IsEmpty())
-        {
-            ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
-        }
-        
-        USkeleton* Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
+    FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
+    FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Animations")));
+    FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
+    FString HorizontalAxisName = GetStringFieldAnimAuth(Params, TEXT("horizontalAxisName"), TEXT("Direction"));
+    float HorizontalMin = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("horizontalMin"), -180.0));
+    float HorizontalMax = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("horizontalMax"), 180.0));
+    FString VerticalAxisName = GetStringFieldAnimAuth(Params, TEXT("verticalAxisName"), TEXT("Speed"));
+    float VerticalMin = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("verticalMin"), 0.0));
+    float VerticalMax = static_cast<float>(GetNumberFieldAnimAuth(Params, TEXT("verticalMax"), 600.0));
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (Name.IsEmpty())
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
+    }
+
+    USkeleton* Skeleton = nullptr;
+    if (!SkeletonPath.IsEmpty())
+    {
+        Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
         if (!Skeleton)
         {
             ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeleton: %s"), *SkeletonPath), TEXT("SKELETON_NOT_FOUND"));
         }
-        
-        // Check if an asset already exists at the target path to prevent modal dialog
+    }
+
+    // Check if an asset already exists at the target path to prevent modal dialog
         FString ObjectPath = FString::Printf(TEXT("%s/%s"), *Path, *Name);
         if (UEditorAssetLibrary::DoesAssetExist(ObjectPath))
         {
@@ -1982,23 +2085,27 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
     if (SubAction == TEXT("create_aim_offset"))
     {
 #if MCP_HAS_BLENDSPACE_FACTORY
-        FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Animations")));
-        FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        if (Name.IsEmpty())
-        {
-            ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
-        }
-        
-        USkeleton* Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
+    FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
+    FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Animations")));
+    FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (Name.IsEmpty())
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
+    }
+
+    USkeleton* Skeleton = nullptr;
+    if (!SkeletonPath.IsEmpty())
+    {
+        Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
         if (!Skeleton)
         {
             ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeleton: %s"), *SkeletonPath), TEXT("SKELETON_NOT_FOUND"));
         }
-        
-        // Create package and asset directly to avoid UI dialogs
+    }
+
+    // Create package and asset directly to avoid UI dialogs
         FString PackagePath = Path / Name;
         UPackage* Package = CreatePackage(*PackagePath);
         if (!Package)
@@ -2087,24 +2194,28 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
     
     if (SubAction == TEXT("create_anim_blueprint"))
     {
-        FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Blueprints")));
-        FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
-        FString ParentClass = GetStringFieldAnimAuth(Params, TEXT("parentClass"), TEXT("AnimInstance"));
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        if (Name.IsEmpty())
-        {
-            ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
-        }
-        
-        USkeleton* Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
+    FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
+    FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Blueprints")));
+    FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
+    FString ParentClass = GetStringFieldAnimAuth(Params, TEXT("parentClass"), TEXT("AnimInstance"));
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (Name.IsEmpty())
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
+    }
+
+    USkeleton* Skeleton = nullptr;
+    if (!SkeletonPath.IsEmpty())
+    {
+        Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
         if (!Skeleton)
         {
             ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeleton: %s"), *SkeletonPath), TEXT("SKELETON_NOT_FOUND"));
         }
-        
-        // Check if an asset already exists at the target path to prevent assertion failure in Kismet2.cpp
+    }
+
+    // Check if an asset already exists at the target path to prevent assertion failure in Kismet2.cpp
         FString ObjectPath = FString::Printf(TEXT("%s/%s"), *Path, *Name);
         if (UEditorAssetLibrary::DoesAssetExist(ObjectPath))
         {
@@ -3035,32 +3146,42 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
         FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
         FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/ControlRigs")));
         FString SkeletalMeshPath = GetStringFieldAnimAuth(Params, TEXT("skeletalMeshPath"), TEXT(""));
+        FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
         bool bModularRig = GetBoolFieldAnimAuth(Params, TEXT("modularRig"), false);
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        if (Name.IsEmpty())
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (Name.IsEmpty())
         {
             ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
         }
-        
+
         UControlRigBlueprint* ControlRigBP = nullptr;
         FString FullPath = Path / Name;
-        
-        // If skeletal mesh provided, create from it; otherwise create empty
+
+        UObject* SelectedObject = nullptr;
         if (!SkeletalMeshPath.IsEmpty())
         {
-            USkeletalMesh* SkeletalMesh = LoadSkeletalMeshFromPathAnim(SkeletalMeshPath);
-            if (!SkeletalMesh)
+            SelectedObject = LoadSkeletalMeshFromPathAnim(SkeletalMeshPath);
+            if (!SelectedObject)
             {
                 ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeletal mesh: %s"), *SkeletalMeshPath), TEXT("SKELETAL_MESH_NOT_FOUND"));
             }
-            
-            // Use static factory method to create from skeletal mesh (UE 5.5+ only)
-            ControlRigBP = UControlRigBlueprintFactory::CreateControlRigFromSkeletalMeshOrSkeleton(SkeletalMesh, bModularRig);
+        }
+        else if (!SkeletonPath.IsEmpty())
+        {
+            SelectedObject = LoadSkeletonFromPathAnim(SkeletonPath);
+            if (!SelectedObject)
+            {
+                ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeleton: %s"), *SkeletonPath), TEXT("SKELETON_NOT_FOUND"));
+            }
+        }
+
+        if (SelectedObject)
+        {
+            ControlRigBP = UControlRigBlueprintFactory::CreateControlRigFromSkeletalMeshOrSkeleton(SelectedObject, bModularRig);
         }
         else
         {
-            // Create empty control rig at specified path (UE 5.5+ only)
             ControlRigBP = UControlRigBlueprintFactory::CreateNewControlRigAsset(FullPath, bModularRig);
         }
         
@@ -3083,26 +3204,27 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
         FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
         FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/ControlRigs")));
         FString SkeletalMeshPath = GetStringFieldAnimAuth(Params, TEXT("skeletalMeshPath"), TEXT(""));
-        
+        FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
+
         if (Name.IsEmpty())
         {
             ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
         }
-        
+
         FString FullPath = Path / Name;
-        
+
         // Create Control Rig Blueprint using FKismetEditorUtilities (works in all UE 5.x versions)
         FString FullPackageName = Path / Name;
-        
+
         // Create the package
         UPackage* Package = CreatePackage(*FullPackageName);
         if (!Package)
         {
             ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Failed to create package: %s"), *FullPackageName), TEXT("PACKAGE_CREATE_FAILED"));
         }
-        
+
         Package->FullyLoad();
-        
+
         // Create the Control Rig Blueprint using FKismetEditorUtilities
         UControlRigBlueprint* ControlRigBP = Cast<UControlRigBlueprint>(
             FKismetEditorUtilities::CreateBlueprint(
@@ -3118,23 +3240,40 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
                 UControlRigBlueprintGeneratedClass::StaticClass(),
 #endif
                 NAME_None));
-        
+
         if (!ControlRigBP)
         {
             ANIM_ERROR_RESPONSE(TEXT("Failed to create Control Rig Blueprint"), TEXT("CREATION_FAILED"));
         }
-        
-        // Set the target skeleton if provided (via skeletal mesh)
+
+        // Set the target skeleton if provided (via skeletal mesh or skeleton path)
         if (!SkeletalMeshPath.IsEmpty())
         {
             USkeletalMesh* SkeletalMesh = LoadSkeletalMeshFromPathAnim(SkeletalMeshPath);
-            if (SkeletalMesh && SkeletalMesh->GetSkeleton())
+            if (!SkeletalMesh)
+            {
+                ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeletal mesh: %s"), *SkeletalMeshPath), TEXT("SKELETAL_MESH_NOT_FOUND"));
+            }
+            if (SkeletalMesh->GetSkeleton())
             {
                 USkeletalMesh* PreviewMesh = SkeletalMesh->GetSkeleton()->GetPreviewMesh();
                 if (PreviewMesh)
                 {
                     ControlRigBP->SetPreviewMesh(PreviewMesh);
                 }
+            }
+        }
+        else if (!SkeletonPath.IsEmpty())
+        {
+            USkeleton* Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
+            if (!Skeleton)
+            {
+                ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeleton: %s"), *SkeletonPath), TEXT("SKELETON_NOT_FOUND"));
+            }
+            USkeletalMesh* PreviewMesh = Skeleton->GetPreviewMesh();
+            if (PreviewMesh)
+            {
+                ControlRigBP->SetPreviewMesh(PreviewMesh);
             }
         }
         
@@ -3224,72 +3363,89 @@ static TSharedPtr<FJsonObject> HandleAnimationAuthoringRequest(const TSharedPtr<
     
     // ===== 10.6 Retargeting =====
     
-    if (SubAction == TEXT("create_ik_rig"))
-    {
+if (SubAction == TEXT("create_ik_rig"))
+{
 #if MCP_HAS_IKRIG_FACTORY && MCP_HAS_IKRIG
-        FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Retargeting")));
-        FString SkeletalMeshPath = GetStringFieldAnimAuth(Params, TEXT("skeletalMeshPath"), TEXT(""));
-        bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
-        
-        if (Name.IsEmpty())
-        {
-            ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
-        }
-        
-// Use static factory method to create IK Rig (UE 5.1+) or fallback to NewObject (UE 5.0)
+    FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
+    FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Retargeting")));
+    FString SkeletalMeshPath = GetStringFieldAnimAuth(Params, TEXT("skeletalMeshPath"), TEXT(""));
+    FString SkeletonPath = GetStringFieldAnimAuth(Params, TEXT("skeletonPath"), TEXT(""));
+    bool bSave = GetBoolFieldAnimAuth(Params, TEXT("save"), true);
+
+    if (Name.IsEmpty())
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Name is required"), TEXT("MISSING_NAME"));
+    }
+
+    // Use static factory method to create IK Rig (UE 5.1+) or fallback to NewObject (UE 5.0)
 #if MCP_HAS_IKRIG_CREATE_NEW_ASSET
-UIKRigDefinition* IKRig = MCP_IKRIG_CREATE_NEW_ASSET(Path, Name);
+    UIKRigDefinition* IKRig = MCP_IKRIG_CREATE_NEW_ASSET(Path, Name);
 #else
-// UE 5.0: Create using NewObject since CreateNewIKRigAsset doesn't exist
-UPackage* Package = CreatePackage(*FString(Path / Name));
-if (!Package)
-{
-ANIM_ERROR_RESPONSE(TEXT("Failed to create package for IK Rig"), TEXT("PACKAGE_FAILED"));
-}
-UIKRigDefinition* IKRig = NewObject<UIKRigDefinition>(Package, *Name, RF_Public | RF_Standalone);
-if (!IKRig)
-{
-ANIM_ERROR_RESPONSE(TEXT("Failed to create IK Rig asset"), TEXT("CREATION_FAILED"));
-}
-// Mark the package as needing save
-Package->MarkPackageDirty();
+    // UE 5.0: Create using NewObject since CreateNewIKRigAsset doesn't exist
+    UPackage* Package = CreatePackage(*FString(Path / Name));
+    if (!Package)
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Failed to create package for IK Rig"), TEXT("PACKAGE_FAILED"));
+    }
+    UIKRigDefinition* IKRig = NewObject<UIKRigDefinition>(Package, *Name, RF_Public | RF_Standalone);
+    if (!IKRig)
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Failed to create IK Rig asset"), TEXT("CREATION_FAILED"));
+    }
+    // Mark the package as needing save
+    Package->MarkPackageDirty();
 #endif
-        
-        if (!IKRig)
-        {
-            ANIM_ERROR_RESPONSE(TEXT("Failed to create IK Rig asset"), TEXT("CREATION_FAILED"));
-        }
-        
+
+    if (!IKRig)
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Failed to create IK Rig asset"), TEXT("CREATION_FAILED"));
+    }
+
         // If skeletal mesh path provided, set the preview mesh
         if (!SkeletalMeshPath.IsEmpty())
         {
             USkeletalMesh* SkeletalMesh = LoadSkeletalMeshFromPathAnim(SkeletalMeshPath);
-            if (SkeletalMesh)
+            if (!SkeletalMesh)
             {
-                IKRig->SetPreviewMesh(SkeletalMesh);
+                ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeletal mesh: %s"), *SkeletalMeshPath), TEXT("SKELETAL_MESH_NOT_FOUND"));
             }
+            IKRig->SetPreviewMesh(SkeletalMesh);
         }
-        
-        if (!SaveAnimAsset(IKRig, bSave))
+        // Also support skeletonPath: load skeleton and set its preview mesh on the IK Rig
+        else if (!SkeletonPath.IsEmpty())
         {
-            ANIM_ERROR_RESPONSE(TEXT("Failed to save IK Rig asset"), TEXT("SAVE_FAILED"));
+            USkeleton* Skeleton = LoadSkeletonFromPathAnim(SkeletonPath);
+            if (!Skeleton)
+            {
+                ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeleton: %s"), *SkeletonPath), TEXT("SKELETON_NOT_FOUND"));
+            }
+            USkeletalMesh* PreviewMesh = Skeleton->GetPreviewMesh();
+            if (PreviewMesh)
+            {
+                IKRig->SetPreviewMesh(PreviewMesh);
+            }
+            Response->SetStringField(TEXT("skeletonPath"), Skeleton->GetPathName());
         }
-        
-        Response->SetStringField(TEXT("assetPath"), IKRig->GetPathName());
-        ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("IK Rig '%s' created successfully"), *Name));
-#elif MCP_HAS_IKRIG
-        // Factory not available, fall back to informative message
-        FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Retargeting")));
-        FString FullPath = Path / Name;
-        Response->SetStringField(TEXT("assetPath"), FullPath);
-        ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("IK Rig '%s' creation requires IKRigEditor module"), *Name));
-#else
-        ANIM_ERROR_RESPONSE(TEXT("IK Rig module not available"), TEXT("NOT_SUPPORTED"));
-#endif
-        return Response;
+
+    if (!SaveAnimAsset(IKRig, bSave))
+    {
+        ANIM_ERROR_RESPONSE(TEXT("Failed to save IK Rig asset"), TEXT("SAVE_FAILED"));
     }
+
+    Response->SetStringField(TEXT("assetPath"), IKRig->GetPathName());
+    ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("IK Rig '%s' created successfully"), *Name));
+#elif MCP_HAS_IKRIG
+    // Factory not available, fall back to informative message
+    FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
+    FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Retargeting")));
+    FString FullPath = Path / Name;
+    Response->SetStringField(TEXT("assetPath"), FullPath);
+    ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("IK Rig '%s' creation requires IKRigEditor module"), *Name));
+#else
+    ANIM_ERROR_RESPONSE(TEXT("IK Rig module not available"), TEXT("NOT_SUPPORTED"));
+#endif
+    return Response;
+}
     
     if (SubAction == TEXT("add_ik_chain"))
     {
