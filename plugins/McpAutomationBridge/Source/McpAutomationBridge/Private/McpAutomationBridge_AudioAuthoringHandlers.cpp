@@ -71,6 +71,9 @@
 #include "Sound/SoundNodeSwitch.h"
 #include "Sound/SoundNodeBranch.h"
 
+#include "SoundCueGraph/SoundCueGraphNode.h"
+#include "SoundCueGraph/SoundCueGraphNode_Root.h"
+
 // Audio Factories
 #include "Factories/SoundCueFactoryNew.h"
 #include "Factories/SoundClassFactory.h"
@@ -127,6 +130,29 @@
 #define MCP_HAS_EFFECT_CHAIN 0
 #else
 #define MCP_HAS_EFFECT_CHAIN 0
+#endif
+
+// Source Effect Presets (Synthesis plugin - optional)
+#if __has_include("SourceEffects/SourceEffectEQ.h")
+#include "SourceEffects/SourceEffectEQ.h"
+#include "SourceEffects/SourceEffectChorus.h"
+#include "SourceEffects/SourceEffectSimpleDelay.h"
+#include "SourceEffects/SourceEffectFilter.h"
+#include "SourceEffects/SourceEffectDynamicsProcessor.h"
+#include "SourceEffects/SourceEffectBitCrusher.h"
+#include "SourceEffects/SourceEffectPhaser.h"
+#include "SourceEffects/SourceEffectWaveShaper.h"
+#include "SourceEffects/SourceEffectPanner.h"
+#include "SourceEffects/SourceEffectStereoDelay.h"
+#include "SourceEffects/SourceEffectFoldbackDistortion.h"
+#include "SourceEffects/SourceEffectRingModulation.h"
+#include "SourceEffects/SourceEffectMidSideSpreader.h"
+#include "SourceEffects/SourceEffectMotionFilter.h"
+#include "SourceEffects/SourceEffectEnvelopeFollower.h"
+#include "SourceEffects/SourceEffectConvolutionReverb.h"
+#define MCP_HAS_SOURCE_EFFECT_PRESETS 1
+#else
+#define MCP_HAS_SOURCE_EFFECT_PRESETS 0
 #endif
 
 // Reverb Effects
@@ -201,41 +227,58 @@ namespace {
 // Note: These are macros to avoid ODR issues with the anonymous namespace
 
 // Helper to normalize asset path with security validation
-static FString NormalizeAudioPath(const FString& Path)
+static FString NormalizeAudioPath(const FString& Path, bool bForLoad = true)
 {
-    // SECURITY: First validate path for traversal attacks
-    FString Sanitized = SanitizeProjectRelativePath(Path);
-    if (Sanitized.IsEmpty() && !Path.IsEmpty())
-    {
-        // Path was rejected due to traversal or invalid characters
-        UE_LOG(LogMcpAutomationBridgeSubsystem, Warning, 
-            TEXT("NormalizeAudioPath: Rejected malicious path: %s"), *Path);
-        return FString();
-    }
-    
-    FString Normalized = Sanitized;
-    
-    // Only replace /Content at the start to avoid corrupting plugin paths
-    // Plugin paths like /MyPlugin/Content/Audio should NOT become /MyPlugin/Game/Audio
-    if (Normalized.StartsWith(TEXT("/Content/")))
-    {
-        Normalized = TEXT("/Game/") + Normalized.Mid(9);  // Skip "/Content/"
-    }
-    else if (Normalized == TEXT("/Content"))
-    {
-        Normalized = TEXT("/Game");
-    }
-    
-    Normalized.ReplaceInline(TEXT("\\"), TEXT("/"));
-    
-    // Remove trailing slashes
-    while (Normalized.EndsWith(TEXT("/")))
-    {
-        Normalized.LeftChopInline(1);
-    }
-    
-    return Normalized;
+	// SECURITY: First validate path for traversal attacks
+	FString Sanitized = SanitizeProjectRelativePath(Path);
+	if (Sanitized.IsEmpty() && !Path.IsEmpty())
+	{
+		// Path was rejected due to traversal or invalid characters
+		UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+			TEXT("NormalizeAudioPath: Rejected malicious path: %s"), *Path);
+		return FString();
+	}
+
+	FString Normalized = Sanitized;
+
+	// Only replace /Content at the start to avoid corrupting plugin paths
+	// Plugin paths like /MyPlugin/Content/Audio should NOT become /MyPlugin/Game/Audio
+	if (Normalized.StartsWith(TEXT("/Content/")))
+	{
+		Normalized = TEXT("/Game/") + Normalized.Mid(9); // Skip "/Content/"
+	}
+	else if (Normalized == TEXT("/Content"))
+	{
+		Normalized = TEXT("/Game");
+	}
+
+	Normalized.ReplaceInline(TEXT("\\"), TEXT("/"));
+
+	// Remove trailing slashes
+	while (Normalized.EndsWith(TEXT("/")))
+	{
+		Normalized.LeftChopInline(1);
+	}
+
+	// Append .AssetName suffix for StaticLoadObject compatibility
+	// StaticLoadObject requires full UE object path format: /Game/Path/Asset.AssetName
+	// Without the dot suffix, StaticLoadObject returns nullptr
+	// ONLY append for load operations — creation paths must NOT have the dot suffix
+	// because CreatePackage() and "Path / Name" concatenation produce invalid paths with dots
+	if (bForLoad && !Normalized.Contains(TEXT(".")) && !Normalized.IsEmpty())
+	{
+		FString AssetName = Normalized;
+		int32 LastSlashIdx;
+		if (Normalized.FindLastChar(TEXT('/'), LastSlashIdx) && LastSlashIdx < Normalized.Len() - 1)
+		{
+			AssetName = Normalized.Mid(LastSlashIdx + 1);
+		}
+		Normalized = Normalized + TEXT(".") + AssetName;
+	}
+
+	return Normalized;
 }
+    
 
 // Helper to save asset - UE 5.7+ Fix: Do not save immediately to avoid modal dialogs.
 // modal progress dialogs that block automation. Instead, just mark dirty and notify registry.
@@ -284,9 +327,57 @@ static USoundAttenuation* LoadSoundAttenuationFromPath(const FString& AttenPath)
 // Helper to load sound mix from path
 static USoundMix* LoadSoundMixFromPath(const FString& MixPath)
 {
-    FString NormalizedPath = NormalizeAudioPath(MixPath);
-    return Cast<USoundMix>(StaticLoadObject(USoundMix::StaticClass(), nullptr, *NormalizedPath));
+	FString NormalizedPath = NormalizeAudioPath(MixPath);
+	return Cast<USoundMix>(StaticLoadObject(USoundMix::StaticClass(), nullptr, *NormalizedPath));
 }
+
+#if MCP_HAS_SOURCE_EFFECT_PRESETS
+static USoundEffectSourcePreset* CreateSourceEffectPresetByType(const FString& EffectType, UObject* Outer)
+{
+	FString LowerType = EffectType.ToLower();
+	UClass* PresetClass = nullptr;
+
+	if (LowerType == TEXT("eq") || LowerType == TEXT("equalizer"))
+		PresetClass = USourceEffectEQPreset::StaticClass();
+	else if (LowerType == TEXT("chorus"))
+		PresetClass = USourceEffectChorusPreset::StaticClass();
+	else if (LowerType == TEXT("delay") || LowerType == TEXT("simpledelay"))
+		PresetClass = USourceEffectSimpleDelayPreset::StaticClass();
+	else if (LowerType == TEXT("filter"))
+		PresetClass = USourceEffectFilterPreset::StaticClass();
+	else if (LowerType == TEXT("dynamics") || LowerType == TEXT("dynamicsprocessor") || LowerType == TEXT("compressor"))
+		PresetClass = USourceEffectDynamicsProcessorPreset::StaticClass();
+	else if (LowerType == TEXT("bitcrusher") || LowerType == TEXT("bit_crusher"))
+		PresetClass = USourceEffectBitCrusherPreset::StaticClass();
+	else if (LowerType == TEXT("phaser"))
+		PresetClass = USourceEffectPhaserPreset::StaticClass();
+	else if (LowerType == TEXT("waveshaper") || LowerType == TEXT("wave_shaper") || LowerType == TEXT("distortion"))
+		PresetClass = USourceEffectWaveShaperPreset::StaticClass();
+	else if (LowerType == TEXT("panner"))
+		PresetClass = USourceEffectPannerPreset::StaticClass();
+	else if (LowerType == TEXT("stereodelay") || LowerType == TEXT("stereo_delay"))
+		PresetClass = USourceEffectStereoDelayPreset::StaticClass();
+	else if (LowerType == TEXT("foldbackdistortion") || LowerType == TEXT("foldback"))
+		PresetClass = USourceEffectFoldbackDistortionPreset::StaticClass();
+	else if (LowerType == TEXT("ringmodulation") || LowerType == TEXT("ring_mod"))
+		PresetClass = USourceEffectRingModulationPreset::StaticClass();
+	else if (LowerType == TEXT("midsidespreader") || LowerType == TEXT("mid_side"))
+		PresetClass = USourceEffectMidSideSpreaderPreset::StaticClass();
+	else if (LowerType == TEXT("motionfilter"))
+		PresetClass = USourceEffectMotionFilterPreset::StaticClass();
+	else if (LowerType == TEXT("envelopefollower") || LowerType == TEXT("envelope"))
+		PresetClass = USourceEffectEnvelopeFollowerPreset::StaticClass();
+	else if (LowerType == TEXT("convolutionreverb") || LowerType == TEXT("conv_reverb"))
+		PresetClass = USourceEffectConvolutionReverbPreset::StaticClass();
+
+	if (PresetClass)
+	{
+		FName PresetName = MakeUniqueObjectName(GetTransientPackage(), PresetClass, FName(*EffectType));
+		return Cast<USoundEffectSourcePreset>(NewObject<UObject>(GetTransientPackage(), PresetClass, PresetName));
+	}
+	return nullptr;
+}
+#endif
 
 } // anonymous namespace
 
@@ -302,7 +393,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
     if (SubAction == TEXT("create_sound_cue"))
     {
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Cues")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Cues")), false);
         FString WavePath = McpHandlerUtils::GetOptionalString(Params, TEXT("wavePath"), TEXT(""));
         bool bLooping = McpHandlerUtils::GetOptionalBool(Params, TEXT("looping"), false);
         float Volume = static_cast<float>(McpHandlerUtils::GetOptionalFloat(Params, TEXT("volume"), 1.0));
@@ -329,52 +420,84 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
             Factory->FactoryCreateNew(USoundCue::StaticClass(), Package,
                                       FName(*Name), RF_Public | RF_Standalone,
                                       nullptr, GWarn));
-        if (!NewCue)
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("CREATE_FAILED"), TEXT("Failed to create SoundCue"));
-        }
-        
-        // If wave path provided, set up basic graph
-        if (!WavePath.IsEmpty())
-        {
-            USoundWave* Wave = LoadSoundWaveFromPath(WavePath);
-            if (Wave)
-            {
-                USoundNodeWavePlayer* PlayerNode = NewCue->ConstructSoundNode<USoundNodeWavePlayer>();
-                PlayerNode->SetSoundWave(Wave);
-                
-                USoundNode* LastNode = PlayerNode;
-                
-                // Add looping if requested
-                // Use InsertChildNode() to properly create both the child slot AND corresponding graph pin
-                // Direct ChildNodes.Add() bypasses graph pin creation, causing crash in LinkGraphNodesFromSoundNodes()
-                if (bLooping)
-                {
-                    USoundNodeLooping* LoopNode = NewCue->ConstructSoundNode<USoundNodeLooping>();
-                    LoopNode->InsertChildNode(0);        // Creates slot + corresponding graph pin
-                    LoopNode->ChildNodes[0] = LastNode;  // Assign child to the slot
-                    LastNode = LoopNode;
-                }
-                
-                // Add modulation if volume/pitch differs from default
-                // Use InsertChildNode() to properly create both the child slot AND corresponding graph pin
-                // Direct ChildNodes.Add() bypasses graph pin creation, causing crash in LinkGraphNodesFromSoundNodes()
-                if (Volume != 1.0f || Pitch != 1.0f)
-                {
-                    USoundNodeModulator* ModNode = NewCue->ConstructSoundNode<USoundNodeModulator>();
-                    ModNode->InsertChildNode(0);         // Creates slot + corresponding graph pin
-                    ModNode->ChildNodes[0] = LastNode;   // Assign child to the slot
-                    ModNode->PitchMin = ModNode->PitchMax = Pitch;
-                    ModNode->VolumeMin = ModNode->VolumeMax = Volume;
-                    LastNode = ModNode;
-                }
-                
-                NewCue->FirstNode = LastNode;
-                NewCue->LinkGraphNodesFromSoundNodes();
-            }
-        }
-        
-        SaveAudioAsset(NewCue, bSave);
+	if (!NewCue)
+	{
+		return McpHandlerUtils::BuildErrorResponse(TEXT("CREATE_FAILED"), TEXT("Failed to create SoundCue"));
+	}
+
+	// Ensure the graph exists for subsequent ConstructSoundNode / LinkGraphNodesFromSoundNodes calls
+	if (!NewCue->SoundCueGraph)
+	{
+		NewCue->CreateGraph();
+	}
+
+	// If wave path provided, set up basic graph
+	if (!WavePath.IsEmpty())
+	{
+		USoundWave* Wave = LoadSoundWaveFromPath(WavePath);
+		if (Wave)
+		{
+			USoundNodeWavePlayer* PlayerNode = NewCue->ConstructSoundNode<USoundNodeWavePlayer>();
+			PlayerNode->SetSoundWave(Wave);
+
+			USoundNode* LastNode = PlayerNode;
+
+			if (bLooping)
+			{
+				USoundNodeLooping* LoopNode = NewCue->ConstructSoundNode<USoundNodeLooping>();
+				LoopNode->InsertChildNode(0);
+				LoopNode->ChildNodes[0] = LastNode;
+				USoundCueGraphNode* LoopGraphNode = Cast<USoundCueGraphNode>(LoopNode->GetGraphNode());
+				USoundCueGraphNode* LastGraphNode = Cast<USoundCueGraphNode>(LastNode->GetGraphNode());
+				if (LoopGraphNode && LastGraphNode)
+				{
+					TArray<UEdGraphPin*> Pins;
+					LoopGraphNode->GetInputPins(Pins);
+					if (Pins.Num() > 0 && Pins[0] && LastGraphNode->GetOutputPin())
+					{
+						Pins[0]->MakeLinkTo(LastGraphNode->GetOutputPin());
+					}
+				}
+				LastNode = LoopNode;
+			}
+
+			if (Volume != 1.0f || Pitch != 1.0f)
+			{
+				USoundNodeModulator* ModNode = NewCue->ConstructSoundNode<USoundNodeModulator>();
+				ModNode->InsertChildNode(0);
+				ModNode->ChildNodes[0] = LastNode;
+				ModNode->PitchMin = ModNode->PitchMax = Pitch;
+				ModNode->VolumeMin = ModNode->VolumeMax = Volume;
+				USoundCueGraphNode* ModGraphNode = Cast<USoundCueGraphNode>(ModNode->GetGraphNode());
+				USoundCueGraphNode* LastGraphNode = Cast<USoundCueGraphNode>(LastNode->GetGraphNode());
+				if (ModGraphNode && LastGraphNode)
+				{
+					TArray<UEdGraphPin*> Pins;
+					ModGraphNode->GetInputPins(Pins);
+					if (Pins.Num() > 0 && Pins[0] && LastGraphNode->GetOutputPin())
+					{
+						Pins[0]->MakeLinkTo(LastGraphNode->GetOutputPin());
+					}
+				}
+				LastNode = ModNode;
+			}
+
+			// Link root node output to FirstNode's graph node input
+			NewCue->FirstNode = LastNode;
+			USoundCueGraphNode* FirstGraphNode = Cast<USoundCueGraphNode>(LastNode->GetGraphNode());
+			if (FirstGraphNode && NewCue->SoundCueGraph)
+			{
+				TArray<USoundCueGraphNode_Root*> RootNodeList;
+				NewCue->SoundCueGraph->GetNodesOfClass<USoundCueGraphNode_Root>(RootNodeList);
+				if (RootNodeList.Num() > 0 && RootNodeList[0]->Pins.Num() > 0 && FirstGraphNode->GetOutputPin())
+				{
+			RootNodeList[0]->Pins[0]->MakeLinkTo(FirstGraphNode->GetOutputPin());
+			}
+		}
+	}
+	}
+
+	SaveAudioAsset(NewCue, bSave);
         
         FString FullPath = NewCue->GetPathName();
         Response->SetStringField(TEXT("assetPath"), FullPath);
@@ -389,14 +512,20 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         FString NodeType = McpHandlerUtils::GetOptionalString(Params, TEXT("nodeType"), TEXT("wave_player"));
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
         
-        USoundCue* Cue = LoadSoundCueFromPath(AssetPath);
-        if (!Cue)
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("CUE_NOT_FOUND"), FString::Printf(TEXT("Could not load SoundCue: %s"), *AssetPath));
-        }
-        
-        USoundNode* NewNode = nullptr;
-        FString NodeTypeLower = NodeType.ToLower();
+	USoundCue* Cue = LoadSoundCueFromPath(AssetPath);
+	if (!Cue)
+	{
+		return McpHandlerUtils::BuildErrorResponse(TEXT("CUE_NOT_FOUND"), FString::Printf(TEXT("Could not load SoundCue: %s"), *AssetPath));
+	}
+
+	// Ensure the SoundCue graph exists before ConstructSoundNode (which needs SoundCueGraph)
+	if (!Cue->SoundCueGraph)
+	{
+		Cue->CreateGraph();
+	}
+
+	USoundNode* NewNode = nullptr;
+	FString NodeTypeLower = NodeType.ToLower();
         
         if (NodeTypeLower == TEXT("wave_player") || NodeTypeLower == TEXT("waveplayer"))
         {
@@ -476,12 +605,17 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
             return McpHandlerUtils::BuildErrorResponse(TEXT("CREATE_NODE_FAILED"), TEXT("Failed to create sound node"));
         }
         
-        Cue->LinkGraphNodesFromSoundNodes();
-        SaveAudioAsset(Cue, bSave);
-        
-        Response->SetStringField(TEXT("nodeId"), NewNode->GetName());
-        McpHandlerUtils::AddVerification(Response, Cue);
-        return Response;
+	// Do NOT call CompileSoundNodesFromGraphNodes() here — the newly created node
+	// is disconnected from the tree and has no parent linking it. Compile walks
+	// the entire graph and rebuilds ALL ChildNodes arrays from pin connections,
+	// which can corrupt state or trigger ensures on nodes with mismatched pins.
+	// Compile should only happen after connect_cue_nodes links the node to a parent.
+	SaveAudioAsset(Cue, bSave);
+
+	Response->SetBoolField(TEXT("success"), true);
+	Response->SetStringField(TEXT("nodeId"), NewNode->GetName());
+	McpHandlerUtils::AddVerification(Response, Cue);
+	return Response;
     }
     
     if (SubAction == TEXT("connect_cue_nodes"))
@@ -492,13 +626,18 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         int32 ChildIndex = static_cast<int32>(McpHandlerUtils::GetOptionalInt(Params, TEXT("childIndex"), 0));
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
         
-        USoundCue* Cue = LoadSoundCueFromPath(AssetPath);
-        if (!Cue)
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("CUE_NOT_FOUND"), FString::Printf(TEXT("Could not load SoundCue: %s"), *AssetPath));
-        }
-        
-        // Find source and target nodes
+	USoundCue* Cue = LoadSoundCueFromPath(AssetPath);
+	if (!Cue)
+	{
+		return McpHandlerUtils::BuildErrorResponse(TEXT("CUE_NOT_FOUND"), FString::Printf(TEXT("Could not load SoundCue: %s"), *AssetPath));
+	}
+
+	if (!Cue->SoundCueGraph)
+	{
+		Cue->CreateGraph();
+	}
+
+	// Find source and target nodes
         USoundNode* SourceNode = nullptr;
         USoundNode* TargetNode = nullptr;
         
@@ -523,17 +662,49 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
             return McpHandlerUtils::BuildErrorResponse(TEXT("TARGET_NODE_NOT_FOUND"), FString::Printf(TEXT("Target node not found: %s"), *TargetNodeId));
         }
         
-        // Connect target as child of source
-        if (ChildIndex >= SourceNode->ChildNodes.Num())
-        {
-            SourceNode->ChildNodes.SetNum(ChildIndex + 1);
-        }
-        SourceNode->ChildNodes[ChildIndex] = TargetNode;
-        
-        Cue->LinkGraphNodesFromSoundNodes();
-        SaveAudioAsset(Cue, bSave);
+	// Connect target as child of source using the graph API
+	// Direct ChildNodes manipulation + LinkGraphNodesFromSoundNodes() crashes UE
+	// when graph pin count doesn't match ChildNodes count (assert in SoundCueGraph.cpp:61)
+	// Instead, use graph pin linking + CompileSoundNodesFromGraphNodes()
+	USoundCueGraphNode* SourceGraphNode = Cast<USoundCueGraphNode>(SourceNode->GetGraphNode());
+	USoundCueGraphNode* TargetGraphNode = Cast<USoundCueGraphNode>(TargetNode->GetGraphNode());
+	if (!SourceGraphNode || !TargetGraphNode)
+	{
+		return McpHandlerUtils::BuildErrorResponse(TEXT("GRAPH_NODE_ERROR"), TEXT("Could not get graph nodes for sound nodes"));
+	}
+
+	UEdGraphPin* TargetOutputPin = TargetGraphNode->GetOutputPin();
+	if (!TargetOutputPin)
+	{
+		return McpHandlerUtils::BuildErrorResponse(TEXT("GRAPH_PIN_ERROR"), TEXT("Target node has no output pin"));
+	}
+
+	TArray<UEdGraphPin*> InputPins;
+	SourceGraphNode->GetInputPins(InputPins);
+	while (InputPins.Num() <= ChildIndex)
+	{
+		if (SourceNode->GetMaxChildNodes() <= InputPins.Num())
+		{
+			return McpHandlerUtils::BuildErrorResponse(TEXT("MAX_CHILDREN_EXCEEDED"),
+				FString::Printf(TEXT("Source node supports max %d children, requested index %d"),
+					SourceNode->GetMaxChildNodes(), ChildIndex));
+		}
+		SourceNode->InsertChildNode(SourceNode->ChildNodes.Num());
+		InputPins.Empty();
+		SourceGraphNode->GetInputPins(InputPins);
+	}
+
+	if (ChildIndex < InputPins.Num() && InputPins[ChildIndex])
+	{
+		InputPins[ChildIndex]->BreakAllPinLinks();
+		InputPins[ChildIndex]->MakeLinkTo(TargetOutputPin);
+	}
+
+	Cue->CompileSoundNodesFromGraphNodes();
+	SaveAudioAsset(Cue, bSave);
         
         McpHandlerUtils::AddVerification(Response, Cue);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
@@ -565,6 +736,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         SaveAudioAsset(Cue, bSave);
         
         McpHandlerUtils::AddVerification(Response, Cue);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
@@ -598,90 +770,61 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         SaveAudioAsset(Cue, bSave);
         
         McpHandlerUtils::AddVerification(Response, Cue);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
     // ===== 11.2 MetaSounds =====
     
-    if (SubAction == TEXT("create_metasound"))
-    {
-#if MCP_HAS_METASOUND && MCP_HAS_METASOUND_FACTORY
-        FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/MetaSounds")));
-        bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
-        
-        if (Name.IsEmpty())
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("MISSING_NAME"), TEXT("Name is required"));
-        }
-        
-        // Create package for the MetaSound asset
-        FString PackagePath = Path / Name;
-        UPackage* Package = CreatePackage(*PackagePath);
-        if (!Package)
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("PACKAGE_ERROR"), TEXT("Failed to create package"));
-        }
-        
-        // Create MetaSound Source asset using the factory
-        UMetaSoundSourceFactory* Factory = NewObject<UMetaSoundSourceFactory>();
-        UMetaSoundSource* MetaSound = Cast<UMetaSoundSource>(
-            Factory->FactoryCreateNew(UMetaSoundSource::StaticClass(), Package,
-                                      FName(*Name), RF_Public | RF_Standalone,
-                                      nullptr, GWarn));
-        
-        if (!MetaSound)
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("CREATE_FAILED"), TEXT("Failed to create MetaSound asset"));
-        }
-        
-        // Mark dirty and notify asset registry
-        McpSafeAssetSave(MetaSound);
-        
-        FString FullPath = MetaSound->GetPathName();
-        Response->SetStringField(TEXT("assetPath"), FullPath);
-        Response->SetBoolField(TEXT("success"), true);
-        Response->SetStringField(TEXT("message"), FString::Printf(TEXT("MetaSound '%s' created"), *Name));
-        McpHandlerUtils::AddVerification(Response, MetaSound);
-        return Response;
-#elif MCP_HAS_METASOUND
-        // MetaSound available but no factory - create basic asset
-        FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/MetaSounds")));
-        
-        if (Name.IsEmpty())
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("MISSING_NAME"), TEXT("Name is required"));
-        }
-        
-        FString PackagePath = Path / Name;
-        UPackage* Package = CreatePackage(*PackagePath);
-        if (!Package)
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("PACKAGE_ERROR"), TEXT("Failed to create package"));
-        }
-        
-        // Create MetaSound directly
-        UMetaSoundSource* MetaSound = NewObject<UMetaSoundSource>(Package, FName(*Name), RF_Public | RF_Standalone);
-        if (!MetaSound)
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("CREATE_FAILED"), TEXT("Failed to create MetaSound asset"));
-        }
-        
-        McpSafeAssetSave(MetaSound);
-        
-        FString FullPath = MetaSound->GetPathName();
-        Response->SetStringField(TEXT("assetPath"), FullPath);
-        Response->SetBoolField(TEXT("success"), true);
-        Response->SetStringField(TEXT("message"), FString::Printf(TEXT("MetaSound '%s' created"), *Name));
-        McpHandlerUtils::AddVerification(Response, MetaSound);
-        return Response;
-#else
-        return McpHandlerUtils::BuildErrorResponse(TEXT("METASOUND_NOT_AVAILABLE"), TEXT("MetaSound support not available in this engine version"));
+if (SubAction == TEXT("create_metasound"))
+	{
+#if MCP_HAS_METASOUND
+		FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
+		FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/MetaSounds")), false);
+		bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
+
+		if (Name.IsEmpty())
+		{
+			return McpHandlerUtils::BuildErrorResponse(TEXT("MISSING_NAME"), TEXT("Name is required"));
+		}
+
+		FString PackagePath = Path / Name;
+		UPackage* Package = CreatePackage(*PackagePath);
+		if (!Package)
+		{
+			return McpHandlerUtils::BuildErrorResponse(TEXT("PACKAGE_ERROR"), TEXT("Failed to create package"));
+		}
+
+		UMetaSoundSource* MetaSound = NewObject<UMetaSoundSource>(Package, FName(*Name), RF_Public | RF_Standalone);
+		if (!MetaSound)
+		{
+			return McpHandlerUtils::BuildErrorResponse(TEXT("CREATE_FAILED"), TEXT("Failed to create MetaSound asset"));
+		}
+
+#if MCP_HAS_METASOUND_FRONTEND
+		TScriptInterface<IMetaSoundDocumentInterface> DocInterface(MetaSound);
+		if (DocInterface)
+		{
+			FMetaSoundFrontendDocumentBuilder Builder(DocInterface);
+			Builder.InitDocument();
+		}
 #endif
-    }
-    
-    if (SubAction == TEXT("add_metasound_node"))
+
+		MetaSound->MarkPackageDirty();
+		FAssetRegistryModule::AssetCreated(MetaSound);
+
+		FString FullPath = MetaSound->GetPathName();
+		Response->SetStringField(TEXT("assetPath"), FullPath);
+		Response->SetBoolField(TEXT("success"), true);
+		Response->SetStringField(TEXT("message"), FString::Printf(TEXT("MetaSound '%s' created"), *Name));
+		McpHandlerUtils::AddVerification(Response, MetaSound);
+		return Response;
+#else
+		return McpHandlerUtils::BuildErrorResponse(TEXT("METASOUND_NOT_AVAILABLE"), TEXT("MetaSound support not available in this engine version"));
+#endif
+	}
+
+	if (SubAction == TEXT("add_metasound_node"))
     {
 #if MCP_HAS_METASOUND && MCP_HAS_METASOUND_FRONTEND
         FString AssetPath = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("assetPath"), TEXT("")));
@@ -717,61 +860,110 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         FMetaSoundFrontendDocumentBuilder Builder(ScriptInterface);
 #endif
         
-        // Determine node class name from nodeType if not explicitly provided
-        FString ActualClassName = NodeClassName;
-        if (ActualClassName.IsEmpty() && !NodeType.IsEmpty())
-        {
-            // Map common node types to class names
-            FString NodeTypeLower = NodeType.ToLower();
-            if (NodeTypeLower == TEXT("oscillator") || NodeTypeLower == TEXT("sine"))
-            {
-                ActualClassName = TEXT("Metasound.Sine");
-            }
-            else if (NodeTypeLower == TEXT("gain") || NodeTypeLower == TEXT("multiply"))
-            {
-                ActualClassName = TEXT("Metasound.Multiply");
-            }
-            else if (NodeTypeLower == TEXT("add"))
-            {
-                ActualClassName = TEXT("Metasound.Add");
-            }
-            else if (NodeTypeLower == TEXT("waveplayer"))
-            {
-                ActualClassName = TEXT("Metasound.WavePlayer");
-            }
-            else
-            {
-                // Use node type as class name directly
-                ActualClassName = NodeType;
-            }
-        }
-        
-        if (ActualClassName.IsEmpty())
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("MISSING_NODE_TYPE"), TEXT("Node class name or type is required"));
-        }
-        
-        // Add the node using the builder
-        FMetasoundFrontendClassName ClassName = FMetasoundFrontendClassName(FName(), FName(*ActualClassName), FName());
+	// Determine node class name from nodeType if not explicitly provided
+	// MetaSound nodes are registered with 3-part class names: {Namespace, Name, Variant}
+	// Standard audio nodes use Namespace="UE", Variant="Audio"
+	// Math nodes use Namespace="UE", Variant="Float"|"Int32"|"Audio"
+	// WavePlayer uses Namespace="UE", Variant="Mono"|"Stereo"
+	FString ActualNamespace;
+	FString ActualName;
+	FString ActualVariant;
+
+	if (!NodeClassName.IsEmpty())
+	{
+		// If explicit nodeClassName provided, try to parse it as "Namespace.Name.Variant"
+		// or fall back to putting the whole string in the Name field
+		TArray<FString> Parts;
+		NodeClassName.ParseIntoArray(Parts, TEXT("."));
+		if (Parts.Num() == 3)
+		{
+			ActualNamespace = Parts[0];
+			ActualName = Parts[1];
+			ActualVariant = Parts[2];
+		}
+		else
+		{
+			ActualName = NodeClassName;
+		}
+	}
+	else if (!NodeType.IsEmpty())
+	{
+		FString NodeTypeLower = NodeType.ToLower();
+		if (NodeTypeLower == TEXT("oscillator") || NodeTypeLower == TEXT("sine"))
+		{
+			ActualNamespace = TEXT("UE");
+			ActualName = TEXT("Sine");
+			ActualVariant = TEXT("Audio");
+		}
+		else if (NodeTypeLower == TEXT("gain") || NodeTypeLower == TEXT("multiply"))
+		{
+			ActualNamespace = TEXT("UE");
+			ActualName = TEXT("Multiply");
+			ActualVariant = TEXT("Float");
+		}
+		else if (NodeTypeLower == TEXT("multiply_audio"))
+		{
+			ActualNamespace = TEXT("UE");
+			ActualName = TEXT("Multiply");
+			ActualVariant = TEXT("Audio");
+		}
+		else if (NodeTypeLower == TEXT("add"))
+		{
+			ActualNamespace = TEXT("UE");
+			ActualName = TEXT("Add");
+			ActualVariant = TEXT("Float");
+		}
+		else if (NodeTypeLower == TEXT("add_audio"))
+		{
+			ActualNamespace = TEXT("UE");
+			ActualName = TEXT("Add");
+			ActualVariant = TEXT("Audio");
+		}
+		else if (NodeTypeLower == TEXT("waveplayer") || NodeTypeLower == TEXT("wave_player"))
+		{
+			ActualNamespace = TEXT("UE");
+			ActualName = TEXT("Wave Player");
+			ActualVariant = TEXT("Mono");
+		}
+		else
+		{
+			ActualName = NodeType;
+		}
+	}
+
+	if (ActualName.IsEmpty())
+	{
+		return McpHandlerUtils::BuildErrorResponse(TEXT("MISSING_NODE_TYPE"), TEXT("Node class name or type is required"));
+	}
+
+	// Add the node using the builder with proper 3-part class name
+	FMetasoundFrontendClassName ClassName = FMetasoundFrontendClassName(
+		FName(*ActualNamespace), FName(*ActualName), FName(*ActualVariant));
         const FMetasoundFrontendNode* NewNode = Builder.AddNodeByClassName(ClassName, 1, FGuid::NewGuid());
         
-        if (NewNode)
-        {
-            McpSafeAssetSave(MetaSound);
-            
-            Response->SetStringField(TEXT("nodeId"), NewNode->GetID().ToString());
-            Response->SetStringField(TEXT("nodeClassName"), ActualClassName);
-            Response->SetBoolField(TEXT("success"), true);
-            Response->SetStringField(TEXT("message"), FString::Printf(TEXT("MetaSound node '%s' added"), *ActualClassName));
-            McpHandlerUtils::AddVerification(Response, MetaSound);
-        }
-        else
-        {
-            // FIX: Return success: false when node class is not found
-            Response->SetBoolField(TEXT("success"), false);
-            Response->SetStringField(TEXT("error"), FString::Printf(TEXT("Node class '%s' not found in MetaSound registry"), *ActualClassName));
-            Response->SetStringField(TEXT("errorCode"), TEXT("NODE_CLASS_NOT_FOUND"));
-        }
+	if (NewNode)
+	{
+		McpSafeAssetSave(MetaSound);
+
+		FString FullClassName = ActualNamespace.IsEmpty() ? ActualName :
+			(ActualVariant.IsEmpty() ? FString::Printf(TEXT("%s.%s"), *ActualNamespace, *ActualName) :
+			 FString::Printf(TEXT("%s.%s.%s"), *ActualNamespace, *ActualName, *ActualVariant));
+		Response->SetStringField(TEXT("nodeId"), NewNode->GetID().ToString());
+		Response->SetStringField(TEXT("nodeClassName"), FullClassName);
+		Response->SetBoolField(TEXT("success"), true);
+		Response->SetStringField(TEXT("message"), FString::Printf(TEXT("MetaSound node '%s' added"), *FullClassName));
+		McpHandlerUtils::AddVerification(Response, MetaSound);
+	}
+	else
+	{
+		FString FullClassName = ActualNamespace.IsEmpty() ? ActualName :
+			(ActualVariant.IsEmpty() ? FString::Printf(TEXT("%s.%s"), *ActualNamespace, *ActualName) :
+			 FString::Printf(TEXT("%s.%s.%s"), *ActualNamespace, *ActualName, *ActualVariant));
+		Response->SetBoolField(TEXT("success"), false);
+		Response->SetStringField(TEXT("error"), FString::Printf(TEXT("Node class '%s' not found in MetaSound registry"), *FullClassName));
+		Response->SetStringField(TEXT("errorCode"), TEXT("NODE_CLASS_NOT_FOUND"));
+		Response->SetStringField(TEXT("code"), TEXT("NODE_CLASS_NOT_FOUND"));
+	}
         
         #if MCP_HAS_METASOUND_FRONTEND_V2
         Builder.FinishBuilding();
@@ -785,6 +977,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         Response->SetBoolField(TEXT("success"), false);
         Response->SetStringField(TEXT("error"), FString::Printf(TEXT("Cannot add MetaSound node '%s' - Frontend Builder not available"), *NodeType));
         Response->SetStringField(TEXT("errorCode"), TEXT("METASOUND_FRONTEND_NOT_SUPPORTED"));
+        Response->SetStringField(TEXT("code"), TEXT("METASOUND_FRONTEND_NOT_SUPPORTED"));
         Response->SetStringField(TEXT("requiredVersion"), TEXT("UE 5.3+"));
         return Response;
 #else
@@ -844,21 +1037,50 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         TArray<const FMetasoundFrontendEdge*> CreatedEdges;
         bool bSuccess = Builder.AddNamedEdges(Edges, &CreatedEdges, true);
         
-        if (bSuccess && CreatedEdges.Num() > 0)
-        {
-            McpSafeAssetSave(MetaSound);
-            
-            Response->SetBoolField(TEXT("success"), true);
-            Response->SetStringField(TEXT("message"), TEXT("MetaSound nodes connected"));
-            Response->SetNumberField(TEXT("edgesCreated"), CreatedEdges.Num());
-            McpHandlerUtils::AddVerification(Response, MetaSound);
-        }
-        else
-        {
-            Response->SetBoolField(TEXT("success"), false);
-            Response->SetStringField(TEXT("error"), TEXT("Failed to create edge connection"));
-            Response->SetStringField(TEXT("errorCode"), TEXT("EDGE_FAILED"));
-        }
+	if (bSuccess && CreatedEdges.Num() > 0)
+	{
+		McpSafeAssetSave(MetaSound);
+
+		Response->SetBoolField(TEXT("success"), true);
+		Response->SetStringField(TEXT("message"), TEXT("MetaSound nodes connected"));
+		Response->SetNumberField(TEXT("edgesCreated"), CreatedEdges.Num());
+		McpHandlerUtils::AddVerification(Response, MetaSound);
+	}
+	else
+	{
+		Response->SetBoolField(TEXT("success"), false);
+		Response->SetStringField(TEXT("error"), TEXT("Failed to create edge connection"));
+		Response->SetStringField(TEXT("errorCode"), TEXT("EDGE_FAILED"));
+		Response->SetStringField(TEXT("code"), TEXT("EDGE_FAILED"));
+
+		TArray<TSharedPtr<FJsonValue>> NodeIdArray;
+#if MCP_HAS_METASOUND_FRONTEND_V2
+		const FMetasoundFrontendDocument& Doc = Builder.GetConstDocumentChecked();
+		Doc.RootGraph.IterateGraphPages([&NodeIdArray](const FMetasoundFrontendGraph& GraphPage)
+		{
+			for (const FMetasoundFrontendNode& Node : GraphPage.Nodes)
+			{
+				TSharedPtr<FJsonObject> NodeObj = McpHandlerUtils::CreateResultObject();
+				NodeObj->SetStringField(TEXT("nodeId"), Node.GetID().ToString());
+				NodeObj->SetStringField(TEXT("name"), Node.Name.ToString());
+				NodeIdArray.Add(MakeShared<FJsonValueObject>(NodeObj));
+			}
+		});
+#else
+		const FMetasoundFrontendDocument& DocN = Builder.GetConstDocument();
+		for (const FMetasoundFrontendNode& Node : DocN.RootGraph.Nodes)
+		{
+			TSharedPtr<FJsonObject> NodeObj = McpHandlerUtils::CreateResultObject();
+			NodeObj->SetStringField(TEXT("nodeId"), Node.GetID().ToString());
+			NodeObj->SetStringField(TEXT("name"), Node.Name.ToString());
+			NodeIdArray.Add(MakeShared<FJsonValueObject>(NodeObj));
+		}
+#endif
+		if (NodeIdArray.Num() > 0)
+		{
+			Response->SetArrayField(TEXT("availableNodes"), NodeIdArray);
+		}
+	}
         
         #if MCP_HAS_METASOUND_FRONTEND_V2
         Builder.FinishBuilding();
@@ -870,6 +1092,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         Response->SetBoolField(TEXT("success"), false);
         Response->SetStringField(TEXT("error"), TEXT("Cannot connect MetaSound nodes - Frontend Builder not available"));
         Response->SetStringField(TEXT("errorCode"), TEXT("METASOUND_FRONTEND_NOT_SUPPORTED"));
+        Response->SetStringField(TEXT("code"), TEXT("METASOUND_FRONTEND_NOT_SUPPORTED"));
         Response->SetStringField(TEXT("requiredVersion"), TEXT("UE 5.3+"));
         return Response;
 #else
@@ -937,6 +1160,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
             Response->SetBoolField(TEXT("success"), false);
             Response->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to add input '%s' - type '%s' may not be valid"), *InputName, *InputType));
             Response->SetStringField(TEXT("errorCode"), TEXT("INPUT_FAILED"));
+            Response->SetStringField(TEXT("code"), TEXT("INPUT_FAILED"));
         }
         
         #if MCP_HAS_METASOUND_FRONTEND_V2
@@ -1019,6 +1243,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
             Response->SetBoolField(TEXT("success"), false);
             Response->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to add output '%s' - type '%s' may not be valid"), *OutputName, *OutputType));
             Response->SetStringField(TEXT("errorCode"), TEXT("OUTPUT_FAILED"));
+            Response->SetStringField(TEXT("code"), TEXT("OUTPUT_FAILED"));
         }
         
         #if MCP_HAS_METASOUND_FRONTEND_V2
@@ -1119,6 +1344,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
             Response->SetBoolField(TEXT("success"), false);
             Response->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to set default for input '%s'"), *InputName));
             Response->SetStringField(TEXT("errorCode"), TEXT("SET_DEFAULT_FAILED"));
+            Response->SetStringField(TEXT("code"), TEXT("SET_DEFAULT_FAILED"));
         }
         
         #if MCP_HAS_METASOUND_FRONTEND_V2
@@ -1143,7 +1369,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
     if (SubAction == TEXT("create_sound_class"))
     {
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Classes")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Classes")), false);
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
         
         if (Name.IsEmpty())
@@ -1176,6 +1402,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         FString FullPath = NewClass->GetPathName();
         Response->SetStringField(TEXT("assetPath"), FullPath);
         McpHandlerUtils::AddVerification(Response, NewClass);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
@@ -1215,6 +1442,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         SaveAudioAsset(SoundClass, bSave);
         
         McpHandlerUtils::AddVerification(Response, SoundClass);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
@@ -1246,13 +1474,14 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         SaveAudioAsset(SoundClass, bSave);
         
         McpHandlerUtils::AddVerification(Response, SoundClass);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
     if (SubAction == TEXT("create_sound_mix"))
     {
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Mixes")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Mixes")), false);
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
         
         if (Name.IsEmpty())
@@ -1322,6 +1551,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         SaveAudioAsset(Mix, bSave);
         
         McpHandlerUtils::AddVerification(Response, Mix);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
@@ -1482,6 +1712,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         Response->SetObjectField(TEXT("eqSettings"), EQInfo);
         
         McpHandlerUtils::AddVerification(Response, Mix);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
@@ -1490,7 +1721,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
     if (SubAction == TEXT("create_attenuation_settings"))
     {
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Attenuation")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Attenuation")), false);
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
         
         if (Name.IsEmpty())
@@ -1577,6 +1808,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         SaveAudioAsset(Atten, bSave);
         
         McpHandlerUtils::AddVerification(Response, Atten);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
@@ -1610,6 +1842,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         SaveAudioAsset(Atten, bSave);
         
         McpHandlerUtils::AddVerification(Response, Atten);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
@@ -1643,6 +1876,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         SaveAudioAsset(Atten, bSave);
         
         McpHandlerUtils::AddVerification(Response, Atten);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
@@ -1680,6 +1914,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         SaveAudioAsset(Atten, bSave);
         
         McpHandlerUtils::AddVerification(Response, Atten);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     
@@ -1689,7 +1924,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
     {
 #if MCP_HAS_DIALOGUE && MCP_HAS_DIALOGUE_FACTORY
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Dialogue")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Dialogue")), false);
         FString Gender = McpHandlerUtils::GetOptionalString(Params, TEXT("gender"), TEXT("Masculine"));
         FString Plurality = McpHandlerUtils::GetOptionalString(Params, TEXT("plurality"), TEXT("Singular"));
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
@@ -1763,7 +1998,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
     {
 #if MCP_HAS_DIALOGUE && MCP_HAS_DIALOGUE_FACTORY
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Dialogue")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Dialogue")), false);
         FString SpokenText = McpHandlerUtils::GetOptionalString(Params, TEXT("spokenText"), TEXT(""));
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
         
@@ -1905,6 +2140,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         
         Response->SetNumberField(TEXT("contextCount"), Wave->ContextMappings.Num());
         McpHandlerUtils::AddVerification(Response, Wave);
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
 #else
         return McpHandlerUtils::BuildErrorResponse(TEXT("DIALOGUE_NOT_AVAILABLE"), TEXT("Dialogue system not available"));
@@ -1917,7 +2153,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
     {
 #if MCP_HAS_REVERB_EFFECT
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Effects")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Effects")), false);
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
         
         if (Name.IsEmpty())
@@ -1982,7 +2218,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
     {
 #if MCP_HAS_SOURCE_EFFECT
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Effects")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Effects")), false);
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
         
         if (Name.IsEmpty())
@@ -2018,7 +2254,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
 #else
         // Fallback: create a basic container but note that full effect chain requires AudioMixer
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Effects")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Effects")), false);
         
         if (Name.IsEmpty())
         {
@@ -2033,58 +2269,67 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
 #endif
     }
     
-    if (SubAction == TEXT("add_source_effect"))
-    {
+	if (SubAction == TEXT("add_source_effect"))
+	{
 #if MCP_HAS_SOURCE_EFFECT
-        FString AssetPath = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("assetPath"), TEXT("")));
-        FString EffectPresetPath = McpHandlerUtils::GetOptionalString(Params, TEXT("effectPresetPath"), TEXT(""));
-        FString EffectType = McpHandlerUtils::GetOptionalString(Params, TEXT("effectType"), TEXT(""));
-        bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
-        
-        if (AssetPath.IsEmpty())
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("MISSING_PATH"), TEXT("Asset path is required"));
-        }
-        
-        // Load the source effect chain
-        USoundEffectSourcePresetChain* Chain = Cast<USoundEffectSourcePresetChain>(
-            StaticLoadObject(USoundEffectSourcePresetChain::StaticClass(), nullptr, *AssetPath));
-        if (!Chain)
-        {
-            return McpHandlerUtils::BuildErrorResponse(TEXT("CHAIN_NOT_FOUND"), FString::Printf(TEXT("Could not load source effect chain: %s"), *AssetPath));
-        }
-        
-        // Load the effect preset if path provided
-        USoundEffectSourcePreset* EffectPreset = nullptr;
-        if (!EffectPresetPath.IsEmpty())
-        {
-            EffectPreset = Cast<USoundEffectSourcePreset>(
-                StaticLoadObject(USoundEffectSourcePreset::StaticClass(), nullptr, *NormalizeAudioPath(EffectPresetPath)));
-        }
-        
-        if (EffectPreset)
-        {
-            // Add the effect to the chain
-            FSourceEffectChainEntry NewEntry;
-            NewEntry.Preset = EffectPreset;
-            NewEntry.bBypass = McpHandlerUtils::GetOptionalBool(Params, TEXT("bypass"), false);
-            Chain->Chain.Add(NewEntry);
-            
-            McpSafeAssetSave(Chain);
-            
-            Response->SetNumberField(TEXT("effectCount"), Chain->Chain.Num());
-            Response->SetBoolField(TEXT("success"), true);
-            Response->SetStringField(TEXT("message"), TEXT("Source effect added to chain"));
-            McpHandlerUtils::AddVerification(Response, Chain);
-        }
-        else
-        {
-            Response->SetBoolField(TEXT("success"), false);
-            Response->SetStringField(TEXT("error"), TEXT("Effect preset path required or preset not found"));
-            Response->SetStringField(TEXT("errorCode"), TEXT("PRESET_NOT_FOUND"));
-        }
-        
-        return Response;
+		FString AssetPath = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("assetPath"), TEXT("")));
+		FString EffectPresetPath = McpHandlerUtils::GetOptionalString(Params, TEXT("effectPresetPath"), TEXT(""));
+		FString EffectType = McpHandlerUtils::GetOptionalString(Params, TEXT("effectType"), TEXT(""));
+		bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
+
+		if (AssetPath.IsEmpty())
+		{
+			return McpHandlerUtils::BuildErrorResponse(TEXT("MISSING_PATH"), TEXT("Asset path is required"));
+		}
+
+		// Load the source effect chain
+		USoundEffectSourcePresetChain* Chain = Cast<USoundEffectSourcePresetChain>(
+			StaticLoadObject(USoundEffectSourcePresetChain::StaticClass(), nullptr, *AssetPath));
+		if (!Chain)
+		{
+			return McpHandlerUtils::BuildErrorResponse(TEXT("CHAIN_NOT_FOUND"), FString::Printf(TEXT("Could not load source effect chain: %s"), *AssetPath));
+		}
+
+		// Load the effect preset if path provided
+		USoundEffectSourcePreset* EffectPreset = nullptr;
+		if (!EffectPresetPath.IsEmpty())
+		{
+			EffectPreset = Cast<USoundEffectSourcePreset>(
+				StaticLoadObject(USoundEffectSourcePreset::StaticClass(), nullptr, *NormalizeAudioPath(EffectPresetPath)));
+		}
+
+		// If no preset path, try creating one from the short effectType name
+#if MCP_HAS_SOURCE_EFFECT_PRESETS
+		if (!EffectPreset && !EffectType.IsEmpty())
+		{
+			EffectPreset = CreateSourceEffectPresetByType(EffectType, GetTransientPackage());
+		}
+#endif
+
+		if (EffectPreset)
+		{
+			// Add the effect to the chain
+			FSourceEffectChainEntry NewEntry;
+			NewEntry.Preset = EffectPreset;
+			NewEntry.bBypass = McpHandlerUtils::GetOptionalBool(Params, TEXT("bypass"), false);
+			Chain->Chain.Add(NewEntry);
+
+			McpSafeAssetSave(Chain);
+
+			Response->SetNumberField(TEXT("effectCount"), Chain->Chain.Num());
+			Response->SetBoolField(TEXT("success"), true);
+			Response->SetStringField(TEXT("message"), TEXT("Source effect added to chain"));
+			McpHandlerUtils::AddVerification(Response, Chain);
+		}
+		else
+		{
+			Response->SetBoolField(TEXT("success"), false);
+			Response->SetStringField(TEXT("error"), TEXT("Effect preset path required or preset not found"));
+			Response->SetStringField(TEXT("errorCode"), TEXT("PRESET_NOT_FOUND"));
+			Response->SetStringField(TEXT("code"), TEXT("PRESET_NOT_FOUND"));
+		}
+
+		return Response;
 #else
         FString AssetPath = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("assetPath"), TEXT("")));
         FString EffectType = McpHandlerUtils::GetOptionalString(Params, TEXT("effectType"), TEXT(""));
@@ -2101,7 +2346,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
 #if MCP_HAS_SUBMIX
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
         FString EffectType = McpHandlerUtils::GetOptionalString(Params, TEXT("effectType"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Effects")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Effects")), false);
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
         
         if (Name.IsEmpty())
@@ -2142,7 +2387,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
         return Response;
 #else
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Effects")));
+        FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Effects")), false);
         
         if (Name.IsEmpty())
         {
@@ -2217,6 +2462,7 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
             Response->SetStringField(TEXT("type"), TEXT("Unknown"));
         }
         
+        Response->SetBoolField(TEXT("success"), true);
         return Response;
     }
     

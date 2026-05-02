@@ -228,8 +228,11 @@ PublicDependencyModuleNames.AddRange(new string[]
             // BehaviorTreeEditor (optional plugin) - for Behavior Tree graph editing
             AddOptionalDynamicModule(Target, EngineDir, "BehaviorTreeEditor", "BehaviorTreeEditor");
 
-            // DataValidation (optional plugin) - for data validation
-            AddOptionalDynamicModule(Target, EngineDir, "DataValidation", "DataValidation");
+	// DataValidation (optional plugin) - for data validation
+		AddOptionalDynamicModule(Target, EngineDir, "DataValidation", "DataValidation");
+
+		// Synthesis (optional plugin) - for source effect presets (EQ, Chorus, Delay, etc.)
+		AddOptionalDynamicModule(Target, EngineDir, "Synthesis", "Synthesis");
 
             // Phase: IKRig and Vehicles (optional plugins)
             AddOptionalDynamicModule(Target, EngineDir, "IKRig", "IKRig");
