@@ -446,8 +446,9 @@ bool UMcpAutomationBridgeSubsystem::HandleAssetQueryAction(
         FString SearchText;
         Payload->TryGetStringField(TEXT("searchText"), SearchText);
 
-        // Parse recursion (default to false for safety, but true when searchText is provided)
-        bool bRecursivePaths = !SearchText.IsEmpty(); // default true for text search
+        // Parse recursion: default to true so that classNames-only / path-only searches
+        // traverse the full content tree. Callers can opt out with recursivePaths=false.
+        bool bRecursivePaths = true;
         if (Payload->HasField(TEXT("recursivePaths")))
         {
             Payload->TryGetBoolField(TEXT("recursivePaths"), bRecursivePaths);
