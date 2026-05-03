@@ -49,6 +49,44 @@ function buildSummaryText(toolName: string, payload: unknown): string {
   // Keys to skip (internal/redundant)
   const skipKeys = new Set(['requestId', 'type', 'data', 'result', 'warnings']);
 
+  const scalarToText = (value: unknown): string | undefined => {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+    return undefined;
+  };
+
+  const formatNestedValue = (value: unknown): string => {
+    const scalar = scalarToText(value);
+    if (scalar !== undefined) return scalar;
+    if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? '' : 's'}`;
+    if (isRecord(value)) return '{...}';
+    if (value === null) return 'null';
+    return String(value);
+  };
+
+  const formatRecordListItem = (record: Record<string, unknown>): string => {
+    const pinName = scalarToText(record.pinName);
+    if (pinName !== undefined) {
+      const pinParts = [`pinName=${pinName}`];
+      for (const key of ['direction', 'pinType', 'defaultValue']) {
+        const value = scalarToText(record[key]);
+        if (value !== undefined) pinParts.push(`${key}=${value}`);
+      }
+      if (Array.isArray(record.linkedTo)) pinParts.push(`linkedTo=${record.linkedTo.length}`);
+      return `{ ${pinParts.join(', ')} }`;
+    }
+
+    for (const key of ['name', 'path', 'id', 'nodeId', 'nodeName', 'className', 'displayName', 'type', 'assetPath', 'objectPath']) {
+      const value = scalarToText(record[key]);
+      if (value !== undefined && value.trim() !== '') return value;
+    }
+
+    const entries = Object.entries(record).filter(([, value]) => value !== undefined && value !== null).slice(0, 4);
+    if (entries.length === 0) return '{}';
+    const suffix = Object.keys(record).length > entries.length ? ' ...' : '';
+    return `{ ${entries.map(([key, value]) => `${key}=${formatNestedValue(value)}`).join(', ')}${suffix} }`;
+  };
+
   // Helper to format a value for display
   const formatValue = (val: unknown): string => {
     if (val === null || val === undefined) return '';
@@ -60,10 +98,7 @@ function buildSummaryText(toolName: string, payload: unknown): string {
       if (val.length === 0) return '[] (0)';
       const items = val.slice(0, 30).map(v => {
         if (isRecord(v)) {
-          // Try common identifier fields
-          return v.name || v.path || v.id || v.nodeId || v.nodeName || v.className ||
-            v.displayName || v.type || v.assetPath || v.objectPath ||
-            JSON.stringify(v).slice(0, 50);
+          return formatRecordListItem(v);
         }
         return String(v);
       });
@@ -84,7 +119,7 @@ function buildSummaryText(toolName: string, payload: unknown): string {
       // Generic object - show key=value pairs
       const entries = Object.entries(val).slice(0, 8);
       const formatted = entries.map(([k, v]) => {
-        const vStr = typeof v === 'object' ? JSON.stringify(v).slice(0, 40) : String(v);
+        const vStr = formatNestedValue(v);
         return `${k}=${vStr}`;
       });
       return `{ ${formatted.join(', ')}${keys.length > 8 ? ' ...' : ''} }`;

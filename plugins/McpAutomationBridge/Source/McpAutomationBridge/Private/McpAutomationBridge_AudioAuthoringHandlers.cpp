@@ -733,14 +733,22 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
             Cue->AttenuationSettings = nullptr;
         }
         
-        SaveAudioAsset(Cue, bSave);
-        
-        McpHandlerUtils::AddVerification(Response, Cue);
-        Response->SetBoolField(TEXT("success"), true);
-        return Response;
-    }
-    
-    if (SubAction == TEXT("set_cue_concurrency"))
+	SaveAudioAsset(Cue, bSave);
+
+	if (Cue->AttenuationSettings)
+	{
+		Response->SetStringField(TEXT("attenuationPath"), Cue->AttenuationSettings->GetPathName());
+	}
+	else
+	{
+		Response->SetStringField(TEXT("attenuationPath"), TEXT(""));
+	}
+	McpHandlerUtils::AddVerification(Response, Cue);
+	Response->SetBoolField(TEXT("success"), true);
+	return Response;
+}
+
+	if (SubAction == TEXT("set_cue_concurrency"))
     {
         FString AssetPath = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("assetPath"), TEXT("")));
         FString ConcurrencyPath = McpHandlerUtils::GetOptionalString(Params, TEXT("concurrencyPath"), TEXT(""));
@@ -767,14 +775,15 @@ static TSharedPtr<FJsonObject> HandleAudioAuthoringRequest(const TSharedPtr<FJso
             Cue->ConcurrencySet.Empty();
         }
         
-        SaveAudioAsset(Cue, bSave);
-        
-        McpHandlerUtils::AddVerification(Response, Cue);
-        Response->SetBoolField(TEXT("success"), true);
-        return Response;
-    }
-    
-    // ===== 11.2 MetaSounds =====
+	SaveAudioAsset(Cue, bSave);
+
+	Response->SetNumberField(TEXT("concurrencyCount"), Cue->ConcurrencySet.Num());
+	McpHandlerUtils::AddVerification(Response, Cue);
+	Response->SetBoolField(TEXT("success"), true);
+	return Response;
+}
+
+	// ===== 11.2 MetaSounds =====
     
 if (SubAction == TEXT("create_metasound"))
 	{
@@ -1439,14 +1448,17 @@ if (SubAction == TEXT("create_metasound"))
             SoundClass->Properties.VoiceCenterChannelVolume = static_cast<float>(McpHandlerUtils::GetOptionalFloat(Params, TEXT("voiceCenterChannelVolume"), 0.0));
         }
         
-        SaveAudioAsset(SoundClass, bSave);
-        
-        McpHandlerUtils::AddVerification(Response, SoundClass);
-        Response->SetBoolField(TEXT("success"), true);
-        return Response;
-    }
-    
-    if (SubAction == TEXT("set_class_parent"))
+	SaveAudioAsset(SoundClass, bSave);
+
+	Response->SetNumberField(TEXT("volume"), SoundClass->Properties.Volume);
+	Response->SetNumberField(TEXT("pitch"), SoundClass->Properties.Pitch);
+	Response->SetNumberField(TEXT("lowPassFilterFrequency"), SoundClass->Properties.LowPassFilterFrequency);
+	McpHandlerUtils::AddVerification(Response, SoundClass);
+	Response->SetBoolField(TEXT("success"), true);
+	return Response;
+}
+
+	if (SubAction == TEXT("set_class_parent"))
     {
         FString AssetPath = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("assetPath"), TEXT("")));
         FString ParentPath = McpHandlerUtils::GetOptionalString(Params, TEXT("parentPath"), TEXT(""));
@@ -1471,14 +1483,22 @@ if (SubAction == TEXT("create_metasound"))
             SoundClass->ParentClass = nullptr;
         }
         
-        SaveAudioAsset(SoundClass, bSave);
-        
-        McpHandlerUtils::AddVerification(Response, SoundClass);
-        Response->SetBoolField(TEXT("success"), true);
-        return Response;
-    }
-    
-    if (SubAction == TEXT("create_sound_mix"))
+	SaveAudioAsset(SoundClass, bSave);
+
+	if (SoundClass->ParentClass)
+	{
+		Response->SetStringField(TEXT("parentPath"), SoundClass->ParentClass->GetPathName());
+	}
+	else
+	{
+		Response->SetStringField(TEXT("parentPath"), TEXT(""));
+	}
+	McpHandlerUtils::AddVerification(Response, SoundClass);
+	Response->SetBoolField(TEXT("success"), true);
+	return Response;
+}
+
+	if (SubAction == TEXT("create_sound_mix"))
     {
         FString Name = McpHandlerUtils::GetOptionalString(Params, TEXT("name"), TEXT(""));
         FString Path = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("path"), TEXT("/Game/Audio/Mixes")), false);
@@ -1546,14 +1566,19 @@ if (SubAction == TEXT("create_metasound"))
         // Note: FadeInTime and FadeOutTime are properties of USoundMix, not FSoundClassAdjuster in UE 5.7+
         // Use Mix->FadeInTime and Mix->FadeOutTime if you need to control mix fade timing
         
-        Mix->SoundClassEffects.Add(Adjuster);
-        
-        SaveAudioAsset(Mix, bSave);
-        
-        McpHandlerUtils::AddVerification(Response, Mix);
-        Response->SetBoolField(TEXT("success"), true);
-        return Response;
-    }
+	Mix->SoundClassEffects.Add(Adjuster);
+
+	SaveAudioAsset(Mix, bSave);
+
+	Response->SetStringField(TEXT("soundClassPath"), SoundClassPath);
+	Response->SetNumberField(TEXT("volumeAdjuster"), VolumeAdjust);
+	Response->SetNumberField(TEXT("pitchAdjuster"), PitchAdjust);
+	Response->SetBoolField(TEXT("applyToChildren"), bApplyToChildren);
+	Response->SetNumberField(TEXT("modifierCount"), Mix->SoundClassEffects.Num());
+	McpHandlerUtils::AddVerification(Response, Mix);
+	Response->SetBoolField(TEXT("success"), true);
+	return Response;
+}
     
     if (SubAction == TEXT("configure_mix_eq"))
     {
@@ -1839,14 +1864,27 @@ if (SubAction == TEXT("create_metasound"))
             }
         }
         
-        SaveAudioAsset(Atten, bSave);
-        
-        McpHandlerUtils::AddVerification(Response, Atten);
-        Response->SetBoolField(TEXT("success"), true);
-        return Response;
-    }
-    
-    if (SubAction == TEXT("configure_occlusion"))
+	SaveAudioAsset(Atten, bSave);
+
+	Response->SetBoolField(TEXT("spatialize"), Atten->Attenuation.bSpatialize);
+	{
+		FString AlgoName = TEXT("panner");
+		switch (Atten->Attenuation.SpatializationAlgorithm)
+		{
+		case ESoundSpatializationAlgorithm::SPATIALIZATION_HRTF:
+			AlgoName = TEXT("HRTF");
+			break;
+		default:
+			break;
+		}
+		Response->SetStringField(TEXT("spatializationAlgorithm"), AlgoName);
+	}
+	McpHandlerUtils::AddVerification(Response, Atten);
+	Response->SetBoolField(TEXT("success"), true);
+	return Response;
+}
+
+	if (SubAction == TEXT("configure_occlusion"))
     {
         FString AssetPath = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("assetPath"), TEXT("")));
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
@@ -1873,14 +1911,18 @@ if (SubAction == TEXT("create_metasound"))
             Atten->Attenuation.OcclusionInterpolationTime = static_cast<float>(McpHandlerUtils::GetOptionalFloat(Params, TEXT("occlusionInterpolationTime"), 0.5));
         }
         
-        SaveAudioAsset(Atten, bSave);
-        
-        McpHandlerUtils::AddVerification(Response, Atten);
-        Response->SetBoolField(TEXT("success"), true);
-        return Response;
-    }
-    
-    if (SubAction == TEXT("configure_reverb_send"))
+	SaveAudioAsset(Atten, bSave);
+
+	Response->SetBoolField(TEXT("enableOcclusion"), Atten->Attenuation.bEnableOcclusion);
+	Response->SetNumberField(TEXT("occlusionLowPassFilterFrequency"), Atten->Attenuation.OcclusionLowPassFilterFrequency);
+	Response->SetNumberField(TEXT("occlusionVolumeAttenuation"), Atten->Attenuation.OcclusionVolumeAttenuation);
+	Response->SetNumberField(TEXT("occlusionInterpolationTime"), Atten->Attenuation.OcclusionInterpolationTime);
+	McpHandlerUtils::AddVerification(Response, Atten);
+	Response->SetBoolField(TEXT("success"), true);
+	return Response;
+}
+
+	if (SubAction == TEXT("configure_reverb_send"))
     {
         FString AssetPath = NormalizeAudioPath(McpHandlerUtils::GetOptionalString(Params, TEXT("assetPath"), TEXT("")));
         bool bSave = McpHandlerUtils::GetOptionalBool(Params, TEXT("save"), true);
@@ -1911,14 +1953,19 @@ if (SubAction == TEXT("create_metasound"))
             Atten->Attenuation.ReverbDistanceMax = static_cast<float>(McpHandlerUtils::GetOptionalFloat(Params, TEXT("reverbDistanceMax"), 0.0));
         }
         
-        SaveAudioAsset(Atten, bSave);
-        
-        McpHandlerUtils::AddVerification(Response, Atten);
-        Response->SetBoolField(TEXT("success"), true);
-        return Response;
-    }
-    
-    // ===== 11.5 Dialogue System =====
+	SaveAudioAsset(Atten, bSave);
+
+	Response->SetBoolField(TEXT("enableReverbSend"), Atten->Attenuation.bEnableReverbSend);
+	Response->SetNumberField(TEXT("reverbWetLevelMin"), Atten->Attenuation.ReverbWetLevelMin);
+	Response->SetNumberField(TEXT("reverbWetLevelMax"), Atten->Attenuation.ReverbWetLevelMax);
+	Response->SetNumberField(TEXT("reverbDistanceMin"), Atten->Attenuation.ReverbDistanceMin);
+	Response->SetNumberField(TEXT("reverbDistanceMax"), Atten->Attenuation.ReverbDistanceMax);
+	McpHandlerUtils::AddVerification(Response, Atten);
+	Response->SetBoolField(TEXT("success"), true);
+	return Response;
+}
+
+	// ===== 11.5 Dialogue System =====
     
     if (SubAction == TEXT("create_dialogue_voice"))
     {

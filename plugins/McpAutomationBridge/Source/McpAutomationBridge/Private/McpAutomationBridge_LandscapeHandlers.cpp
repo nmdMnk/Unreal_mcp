@@ -363,12 +363,7 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateLandscape(
   const FString CaptMaterialPath = MaterialPath;
   const FString CaptName = NameOverride;
 
-  // Debug log to confirm name capture
-  UE_LOG(LogMcpLandscapeHandlers, Display,
-         TEXT("HandleCreateLandscape: Captured name '%s' (from override '%s')"),
-         *CaptName, *NameOverride);
-
-  TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakSubsystem(this);
+	TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakSubsystem(this);
 
   // Execute on Game Thread to ensure thread safety for Actor spawning and
   // Landscape operations
@@ -510,13 +505,8 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateLandscape(
             0,     // Stride (0 = use default)
             true   // Calc normals
         );
-        LandscapeEdit.Flush();
-
-        UE_LOG(LogMcpLandscapeHandlers, Display,
-               TEXT("HandleCreateLandscape: Applied height data via "
-                    "FLandscapeEditDataInterface (%d vertices)"),
-               HeightArray.Num());
-      }
+		LandscapeEdit.Flush();
+	}
 
 #elif ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
       // UE 5.5-5.6: Use FLandscapeEditDataInterface to avoid deprecated Import() warning
@@ -551,11 +541,9 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateLandscape(
     if (CaptName.IsEmpty()) {
       Landscape->SetActorLabel(FString::Printf(
           TEXT("Landscape_%dx%d"), CaptComponentsX, CaptComponentsY));
-    } else {
-      Landscape->SetActorLabel(CaptName);
-      UE_LOG(LogMcpLandscapeHandlers, Display,
-             TEXT("HandleCreateLandscape: Set ActorLabel to '%s'"), *CaptName);
-    }
+	} else {
+		Landscape->SetActorLabel(CaptName);
+	}
 
     if (!CaptMaterialPath.IsEmpty()) {
       UMaterialInterface *Mat =
@@ -1390,10 +1378,7 @@ bool UMcpAutomationBridgeSubsystem::HandlePaintLandscapeLayer(
     }
 
     // Auto-create layer if it doesn't exist (matches UE Landscape Editor behavior)
-    if (!LayerInfo) {
-      UE_LOG(LogMcpLandscapeHandlers, Display,
-             TEXT("HandlePaintLandscapeLayer: Layer '%s' not found, auto-creating..."),
-             *LayerName);
+	if (!LayerInfo) {
 
       // Create a new layer info object
       ULandscapeLayerInfoObject* NewLayerInfo = NewObject<ULandscapeLayerInfoObject>(
@@ -1418,12 +1403,8 @@ bool UMcpAutomationBridgeSubsystem::HandlePaintLandscapeLayer(
         FLandscapeInfoLayerSettings NewLayerSettings(NewLayerInfo, Landscape);
         LandscapeInfo->Layers.Add(NewLayerSettings);
 
-        LayerInfo = NewLayerInfo;
-
-        UE_LOG(LogMcpLandscapeHandlers, Display,
-               TEXT("HandlePaintLandscapeLayer: Auto-created layer '%s'"),
-               *LayerName);
-      } else {
+		LayerInfo = NewLayerInfo;
+	} else {
         Subsystem->SendAutomationError(
             RequestingSocket, RequestId,
             FString::Printf(TEXT("Failed to create layer '%s'"),

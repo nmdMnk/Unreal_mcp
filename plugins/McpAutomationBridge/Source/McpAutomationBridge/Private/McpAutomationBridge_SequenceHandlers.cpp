@@ -1216,11 +1216,8 @@ bool UMcpAutomationBridgeSubsystem::HandleSequenceSetPlaybackSpeed(
       // Note: dynamic_cast doesn't work with /GR- compiler flag in UE 5.7+
       if (ILevelSequenceEditorToolkit *LSEditor =
               static_cast<ILevelSequenceEditorToolkit *>(Editor)) {
-        if (LSEditor->GetSequencer().IsValid()) {
-          UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-                 TEXT("HandleSequenceSetPlaybackSpeed: Setting speed to %.2f"),
-                 Speed);
-          LSEditor->GetSequencer()->SetPlaybackSpeed(static_cast<float>(Speed));
+		if (LSEditor->GetSequencer().IsValid()) {
+				LSEditor->GetSequencer()->SetPlaybackSpeed(static_cast<float>(Speed));
           Subsystem->SendAutomationResponse(
               Socket, RequestIdArg, true,
               FString::Printf(TEXT("Playback speed set to %.2f"), Speed),

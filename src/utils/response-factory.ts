@@ -1,8 +1,5 @@
 import { StandardActionResponse } from '../types/tool-interfaces.js';
-import { Logger } from './logger.js';
 import { cleanObject } from './safe-json.js';
-
-const log = new Logger('ResponseFactory');
 
 /** Error response with custom code and optional extra fields */
 export interface ErrorResponse {
@@ -32,9 +29,6 @@ export class ResponseFactory {
      */
     static error(error: unknown, defaultMessage: string = 'Operation failed'): StandardActionResponse {
         const errorMessage = error instanceof Error ? error.message : String(error || defaultMessage);
-
-        // Log the full error for debugging (internal logs) but return a clean message to the client
-        log.error('[ResponseFactory] Error:', error);
 
         return {
             success: false,

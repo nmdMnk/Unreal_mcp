@@ -24,6 +24,20 @@ function hasBlueprintPathTraversal(path: string | undefined): boolean {
   return path.split('/').some((segment) => segment === '..');
 }
 
+function promoteScalarResultFields(response: Record<string, unknown>): Record<string, unknown> {
+  const result = response.result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return response;
+
+  const promoted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(result)) {
+    if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+      promoted[key] = value;
+    }
+  }
+
+  return { ...response, ...promoted };
+}
+
 export async function handleBlueprintTools(action: string, args: HandlerArgs, tools: ITools): Promise<Record<string, unknown>> {
   const argsTyped = args as BlueprintArgs;
   const argsRecord = args as Record<string, unknown>;
@@ -297,20 +311,33 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
         throw new Error('CallFunction node requires functionName parameter');
       }
 
-      // Map common node aliases to K2Node types
+      // Map common node aliases to K2Node types (kept in sync with graph-handlers.ts BLUEPRINT_NODE_ALIASES)
       const nodeAliases: Record<string, string> = {
         'CallFunction': 'K2Node_CallFunction',
         'VariableGet': 'K2Node_VariableGet',
         'VariableSet': 'K2Node_VariableSet',
         'If': 'K2Node_IfThenElse',
         'Branch': 'K2Node_IfThenElse',
-        'Switch': 'K2Node_Switch',
+        'Switch': 'K2Node_SwitchInteger',
         'Select': 'K2Node_Select',
         'Cast': 'K2Node_DynamicCast',
         'CustomEvent': 'K2Node_CustomEvent',
         'Event': 'K2Node_Event',
         'MakeArray': 'K2Node_MakeArray',
-        'ForEach': 'K2Node_ForEachElementInEnum' // Note: ForEachLoop is a macro, this is different
+        'ForEach': 'K2Node_ForEachElementInEnum',
+        'Sequence': 'K2Node_ExecutionSequence',
+        'ExecutionSequence': 'K2Node_ExecutionSequence',
+        'ForEachLoop': 'K2Node_ForEachElementInEnum',
+        'ForLoop': 'K2Node_ForLoop',
+        'ForLoopWithBreak': 'K2Node_ForLoopWithBreak',
+        'WhileLoop': 'K2Node_WhileLoop',
+        'Gate': 'K2Node_Gate',
+        'DoOnce': 'K2Node_DoOnce',
+        'FlipFlop': 'K2Node_FlipFlop',
+        'MultiGate': 'K2Node_MultiGate',
+        'Delay': 'K2Node_CallFunction',
+        'PrintString': 'K2Node_CallFunction',
+        'SetTimer': 'K2Node_CallFunction',
       };
 
       const resolvedNodeType = (argsTyped.nodeType && nodeAliases[argsTyped.nodeType]) || argsTyped.nodeType || 'K2Node_CallFunction';
@@ -341,7 +368,9 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
         parameters: argsRecord.parameters as { name: string; type: string }[] | undefined,
         timeoutMs: argsRecord.timeoutMs as number | undefined
       }) as Record<string, unknown>;
-      return cleanObject(res);
+      // Promote scalar identifiers to top-level for captureResult without
+      // duplicating nested arrays/objects like pins and nodes in responses.
+      return cleanObject(promoteScalarResultFields(res));
     }
     case 'add_scs_component': {
       const res = await executeAutomationRequest(tools, 'add_scs_component', {
@@ -421,61 +450,6 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
         timeoutMs: argsRecord.timeoutMs as number | undefined
       }) as Record<string, unknown>;
       return cleanObject(res);
-    }
-    case 'connect_pins':
-    case 'break_pin_links':
-    case 'delete_node':
-    case 'create_reroute_node':
-    case 'set_node_property':
-    case 'get_node_details':
-    case 'get_pin_details':
-    case 'get_graph_details':
-    case 'create_node':
-    case 'list_node_types':
-    case 'set_pin_default_value': {
-      // Normalize blueprintPath to assetPath for C++ handler compatibility
-      const blueprintPath = argsTyped.blueprintPath || (argsRecord.path as string | undefined) || argsTyped.name;
-      
-      // Map TypeScript parameter names to C++ expected names
-      // C++ expects: nodeId, fromNodeId, toNodeId, fromPinName, toPinName, value
-      // TS uses: nodeGuid, sourceNode, targetNode, sourcePin, targetPin, defaultValue
-      const mappedArgs: Record<string, unknown> = { ...args };
-      
-      // nodeGuid -> nodeId (for delete_node, break_pin_links, set_node_property, get_node_details, get_pin_details, set_pin_default_value)
-      if (argsRecord.nodeGuid !== undefined) {
-        mappedArgs.nodeId = argsRecord.nodeGuid;
-      }
-      
-      // sourceNode -> fromNodeId, targetNode -> toNodeId (for connect_pins)
-      if (argsRecord.sourceNode !== undefined) {
-        mappedArgs.fromNodeId = argsRecord.sourceNode;
-      }
-      if (argsRecord.targetNode !== undefined) {
-        mappedArgs.toNodeId = argsRecord.targetNode;
-      }
-      
-      // sourcePin -> fromPinName, targetPin -> toPinName (for connect_pins)
-      if (argsRecord.sourcePin !== undefined) {
-        mappedArgs.fromPinName = argsRecord.sourcePin;
-      }
-      if (argsRecord.targetPin !== undefined) {
-        mappedArgs.toPinName = argsRecord.targetPin;
-      }
-      
-      // defaultValue -> value (for set_pin_default_value)
-      if (argsRecord.defaultValue !== undefined) {
-        mappedArgs.value = argsRecord.defaultValue;
-      }
-      
-      const processedArgs = {
-        ...mappedArgs,
-        subAction: action,
-        // Ensure both blueprintPath and assetPath are set for C++ compatibility
-        blueprintPath,
-        assetPath: argsRecord.assetPath || blueprintPath
-      };
-      const res = await executeAutomationRequest(tools, 'manage_blueprint_graph', processedArgs, 'Automation bridge not available for blueprint graph operations');
-      return cleanObject(res) as Record<string, unknown>;
     }
     default: {
       // Translate applyAndSave to compile/save flags for modify_scs action

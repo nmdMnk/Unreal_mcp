@@ -216,22 +216,44 @@ static UDynamicMesh* GetOrCreateDynamicMesh(UObject* Outer)
 
 // Helper to spawn DynamicMeshActor and assign mesh - REDUCES CODE DUPLICATION
 static AActor* SpawnDynamicMeshActorWithMesh(
-    UEditorActorSubsystem* ActorSS,
     const FTransform& Transform,
     const FString& Name,
     UDynamicMesh* DynMesh,
     FString& OutError)
 {
-    if (!ActorSS)
+    UWorld* World = nullptr;
+    if (GEditor && GEditor->PlayWorld)
     {
-        OutError = TEXT("EditorActorSubsystem unavailable");
+        World = GEditor->PlayWorld.Get();
+    }
+    else if (GEditor)
+    {
+        World = GEditor->GetEditorWorldContext().World();
+    }
+
+    if (!World)
+    {
+        OutError = TEXT("Editor world unavailable");
         return nullptr;
     }
+
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.SpawnCollisionHandlingOverride =
+        ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+    SpawnParams.ObjectFlags |= RF_Transactional;
+    if (!GEditor->PlayWorld)
+    {
+        SpawnParams.OverrideLevel = World->GetCurrentLevel();
+        World->Modify();
+    }
     
-    AActor* NewActor = ActorSS->SpawnActorFromClass(
+    const FVector SpawnLocation = Transform.GetLocation();
+    const FRotator SpawnRotation = Transform.Rotator();
+    AActor* NewActor = World->SpawnActor(
         ADynamicMeshActor::StaticClass(),
-        Transform.GetLocation(),
-        Transform.Rotator());
+        &SpawnLocation,
+        &SpawnRotation,
+        SpawnParams);
     
     if (!NewActor)
     {
@@ -239,6 +261,10 @@ static AActor* SpawnDynamicMeshActorWithMesh(
         return nullptr;
     }
     
+    NewActor->Modify();
+    NewActor->SetActorLocationAndRotation(SpawnLocation,
+                                          SpawnRotation, false, nullptr,
+                                          ETeleportType::TeleportPhysics);
     NewActor->SetActorLabel(Name);
     
     if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
@@ -341,33 +367,16 @@ static bool HandleCreateBox(UMcpAutomationBridgeSubsystem* Self, const FString& 
         nullptr
     );
 
-    // Spawn actor with dynamic mesh component
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        DynMesh->MarkAsGarbage(); // Clean up DynamicMesh on error
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    // Spawn actor with dynamic mesh component. Use direct world spawning so
+    // headless/NullRHI automation does not enter viewport hit-proxy placement.
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
         DynMesh->MarkAsGarbage(); // Clean up DynamicMesh on error
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-
-    // Get DynamicMeshComponent and set mesh
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent();
-        if (DMComp)
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -407,30 +416,14 @@ static bool HandleCreateSphere(UMcpAutomationBridgeSubsystem* Self, const FStrin
         nullptr
     );
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        DynMesh->MarkAsGarbage(); // Clean up DynamicMesh on error
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
         DynMesh->MarkAsGarbage(); // Clean up DynamicMesh on error
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -470,29 +463,14 @@ static bool HandleCreateCylinder(UMcpAutomationBridgeSubsystem* Self, const FStr
         nullptr
     );
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        DynMesh->MarkAsGarbage(); // Clean up DynamicMesh on error
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
         DynMesh->MarkAsGarbage(); // Clean up DynamicMesh on error
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor for cylinder"), TEXT("SPAWN_FAILED"));
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor for cylinder") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -532,24 +510,14 @@ double BaseRadius = GetNumberFieldGeom(Payload, TEXT("baseRadius"), 50.0);
         nullptr
     );
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    AActor* NewActor = ActorSS ? ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator()) : nullptr;
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
 
-    if (NewActor)
-    {
-        NewActor->SetActorLabel(Name);
-        if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-        {
-            if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-            {
-                DMComp->SetDynamicMesh(DynMesh);
-            }
-        }
-    }
-    else
+    if (!NewActor)
     {
         DynMesh->MarkAsGarbage(); // Clean up DynamicMesh on error
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor for cone"), TEXT("SPAWN_FAILED"));
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor for cone") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
     }
 
@@ -591,24 +559,14 @@ double Length = GetNumberFieldGeom(Payload, TEXT("length"), 100.0);
         nullptr
     );
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    AActor* NewActor = ActorSS ? ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator()) : nullptr;
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
 
-    if (NewActor)
-    {
-        NewActor->SetActorLabel(Name);
-        if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-        {
-            if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-            {
-                DMComp->SetDynamicMesh(DynMesh);
-            }
-        }
-    }
-    else
+    if (!NewActor)
     {
         DynMesh->MarkAsGarbage(); // Clean up DynamicMesh on error
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor for capsule"), TEXT("SPAWN_FAILED"));
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor for capsule") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
     }
 
@@ -648,27 +606,14 @@ double MajorRadius = GetNumberFieldGeom(Payload, TEXT("majorRadius"), 50.0);
         nullptr
     );
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -713,27 +658,14 @@ static bool HandleCreatePlane(UMcpAutomationBridgeSubsystem* Self, const FString
         nullptr
     );
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -778,27 +710,14 @@ static bool HandleCreateDisc(UMcpAutomationBridgeSubsystem* Self, const FString&
         nullptr   // Debug
     );
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -1527,27 +1446,14 @@ float StepWidth = GetNumberFieldGeom(Payload, TEXT("stepWidth"), 100.0f);
     UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendLinearStairs(
         DynMesh, Options, Transform, StepWidth, StepHeight, StepDepth, NumSteps, bFloating, nullptr);
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -1581,27 +1487,14 @@ float StepWidth = GetNumberFieldGeom(Payload, TEXT("stepWidth"), 100.0f);
     UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendCurvedStairs(
         DynMesh, Options, Transform, StepWidth, StepHeight, InnerRadius, CurveAngle, NumSteps, bFloating, nullptr);
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -1631,27 +1524,14 @@ double OuterRadius = GetNumberFieldGeom(Payload, TEXT("outerRadius"), 50.0);
     UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendDisc(
         DynMesh, Options, Transform, OuterRadius, Segments, 0, 0.0f, 360.0f, InnerRadius, nullptr);
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -2935,27 +2815,14 @@ double MajorRadius = GetNumberFieldGeom(Payload, TEXT("majorRadius"), 100.0);
         DynMesh, Options, Transform, RevolveOptions, MajorRadius, MinorRadius, MajorSteps, MinorSteps,
         EGeometryScriptPrimitiveOriginMode::Center, nullptr);
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -2999,27 +2866,14 @@ double OuterRadius = GetNumberFieldGeom(Payload, TEXT("outerRadius"), 50.0);
         DynMesh, FTransform::Identity, InnerMesh, FTransform::Identity,
         EGeometryScriptBooleanOperation::Subtract, BoolOptions, nullptr);
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -3055,27 +2909,14 @@ double Width = GetNumberFieldGeom(Payload, TEXT("width"), 100.0);
         DynMesh, Options, Transform, RampPolygon, Width, 0, true,
         EGeometryScriptPrimitiveOriginMode::Base, nullptr);
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -3513,27 +3354,14 @@ double X = GetNumberFieldGeom(PointObj, TEXT("x"), 0.0);
     UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendRevolvePath(
         DynMesh, Options, Transform, ProfilePoints, RevolveOptions, Steps, bCapped, nullptr);
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
-    }
-
-    NewActor->SetActorLabel(Name);
-    if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
-    {
-        if (UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent())
-        {
-            DMComp->SetDynamicMesh(DynMesh);
-        }
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -5215,21 +5043,16 @@ static bool HandleCreateProceduralMesh(UMcpAutomationBridgeSubsystem* Self, cons
     FTransform Transform = ReadTransformFromPayload(Payload);
     bool bEnableCollision = GetBoolFieldGeom(Payload, TEXT("enableCollision"), false);
 
-    UEditorActorSubsystem* ActorSS = GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (!ActorSS)
-    {
-        Self->SendAutomationError(Socket, RequestId, TEXT("EditorActorSubsystem unavailable"), TEXT("EDITOR_SUBSYSTEM_MISSING"));
-        return true;
-    }
-
-    AActor* NewActor = ActorSS->SpawnActorFromClass(ADynamicMeshActor::StaticClass(), Transform.GetLocation(), Transform.Rotator());
+    UDynamicMesh* DynMesh = GetOrCreateDynamicMesh(GetTransientPackage());
+    FString SpawnError;
+    AActor* NewActor = SpawnDynamicMeshActorWithMesh(Transform, Name, DynMesh,
+                                                     SpawnError);
     if (!NewActor)
     {
-        Self->SendAutomationError(Socket, RequestId, TEXT("Failed to spawn DynamicMeshActor"), TEXT("SPAWN_FAILED"));
+        DynMesh->MarkAsGarbage();
+        Self->SendAutomationError(Socket, RequestId, SpawnError.IsEmpty() ? TEXT("Failed to spawn DynamicMeshActor") : SpawnError, TEXT("SPAWN_FAILED"));
         return true;
     }
-
-    NewActor->SetActorLabel(Name);
 
     // Initialize with an empty dynamic mesh
     if (ADynamicMeshActor* DMActor = Cast<ADynamicMeshActor>(NewActor))
@@ -5237,8 +5060,6 @@ static bool HandleCreateProceduralMesh(UMcpAutomationBridgeSubsystem* Self, cons
         UDynamicMeshComponent* DMComp = DMActor->GetDynamicMeshComponent();
         if (DMComp)
         {
-            UDynamicMesh* DynMesh = GetOrCreateDynamicMesh(GetTransientPackage());
-            DMComp->SetDynamicMesh(DynMesh);
             DMComp->SetGenerateOverlapEvents(bEnableCollision);
         }
     }

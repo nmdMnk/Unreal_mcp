@@ -316,6 +316,47 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     return nullptr;
   };
 
+  auto FindPinByName = [](UEdGraphNode *Node, const FString &PinName) -> UEdGraphPin * {
+    if (!Node || PinName.IsEmpty()) {
+      return nullptr;
+    }
+
+    FString CleanPinName;
+    if (!PinName.Split(TEXT("."), nullptr, &CleanPinName)) {
+      CleanPinName = PinName;
+    }
+
+    auto MatchPin = [Node](const FString &Candidate) -> UEdGraphPin * {
+      if (UEdGraphPin *Pin = Node->FindPin(*Candidate)) {
+        return Pin;
+      }
+
+      for (UEdGraphPin *Pin : Node->Pins) {
+        if (!Pin) {
+          continue;
+        }
+        if (Pin->PinName.ToString().Equals(Candidate, ESearchCase::IgnoreCase) ||
+            Pin->GetDisplayName().ToString().Equals(Candidate, ESearchCase::IgnoreCase)) {
+          return Pin;
+        }
+      }
+
+      return nullptr;
+    };
+
+    if (UEdGraphPin *Pin = MatchPin(CleanPinName)) {
+      return Pin;
+    }
+
+    FString UnderscorePinName = CleanPinName;
+    UnderscorePinName.ReplaceCharInline(TEXT(' '), TEXT('_'));
+    if (!UnderscorePinName.Equals(CleanPinName, ESearchCase::CaseSensitive)) {
+      return MatchPin(UnderscorePinName);
+    }
+
+    return nullptr;
+  };
+
   if (SubAction == TEXT("create_node")) {
     const FScopedTransaction Transaction(
         FText::FromString(TEXT("Create Blueprint Node")));
@@ -1154,21 +1195,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
       ToPinClean = ToPinName;
     }
 
-    // Try exact match first, then case-insensitive, skipping any null pins
-    auto FindPinCaseInsensitive = [](UEdGraphNode* Node, const FString& PinName) -> UEdGraphPin* {
-      UEdGraphPin* Pin = Node->FindPin(*PinName);
-      if (Pin) return Pin;
-      for (UEdGraphPin* P : Node->Pins) {
-        if (!P) continue;
-        if (P->PinName.ToString().Equals(PinName, ESearchCase::IgnoreCase)) {
-          return P;
-        }
-      }
-      return nullptr;
-    };
-
-    UEdGraphPin *FromPin = FindPinCaseInsensitive(FromNode, FromPinClean);
-    UEdGraphPin *ToPin = FindPinCaseInsensitive(ToNode, ToPinClean);
+    UEdGraphPin *FromPin = FindPinByName(FromNode, FromPinClean);
+    UEdGraphPin *ToPin = FindPinByName(ToNode, ToPinClean);
 
     if (!FromPin || !ToPin) {
       // Log the available pins for debugging, skipping null pins
@@ -1291,7 +1319,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
       return true;
     }
 
-    UEdGraphPin *Pin = TargetNode->FindPin(*PinName);
+    UEdGraphPin *Pin = FindPinByName(TargetNode, PinName);
     if (!Pin) {
       SendAutomationError(RequestingSocket, RequestId, TEXT("Pin not found."),
                           TEXT("PIN_NOT_FOUND"));
@@ -1563,7 +1591,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
 
     TArray<UEdGraphPin *> PinsToReport;
     if (!PinName.IsEmpty()) {
-      UEdGraphPin *Pin = TargetNode->FindPin(*PinName);
+      UEdGraphPin *Pin = FindPinByName(TargetNode, PinName);
       if (!Pin) {
         SendAutomationError(RequestingSocket, RequestId, TEXT("Pin not found."),
                             TEXT("PIN_NOT_FOUND"));
@@ -1674,7 +1702,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
       return true;
     }
 
-    UEdGraphPin *Pin = TargetNode->FindPin(*PinName);
+    UEdGraphPin *Pin = FindPinByName(TargetNode, PinName);
     if (!Pin) {
       SendAutomationError(RequestingSocket, RequestId, TEXT("Pin not found."),
                           TEXT("PIN_NOT_FOUND"));

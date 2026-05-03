@@ -13,6 +13,20 @@ interface ProcessedGraphArgs extends GraphArgs {
     [key: string]: unknown;
 }
 
+function promoteScalarResultFields(response: AutomationResponse): Record<string, unknown> {
+    const result = response.result;
+    if (!result || typeof result !== 'object' || Array.isArray(result)) return response as Record<string, unknown>;
+
+    const promoted: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(result)) {
+        if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+            promoted[key] = value;
+        }
+    }
+
+    return { ...response, ...promoted } as Record<string, unknown>;
+}
+
 // Blueprint node type aliases: map human-friendly names to K2Node class names
 // NOTE: These aliases are applied in TS before sending to C++. The C++ plugin has
 // its own fallback alias map (McpAutomationBridge_BlueprintGraphHandlers.cpp) which
@@ -96,6 +110,7 @@ export async function handleGraphTools(toolName: string, action: string, args: G
 
 async function handleBlueprintGraph(action: string, args: GraphArgs, tools: ITools): Promise<Record<string, unknown>> {
     const processedArgs: ProcessedGraphArgs = { ...args, subAction: action };
+    const processedRecord = processedArgs as Record<string, unknown>;
 
     // Default graphName
     if (!processedArgs.graphName) {
@@ -131,8 +146,25 @@ async function handleBlueprintGraph(action: string, args: GraphArgs, tools: IToo
         if (!processedArgs.targetClass) processedArgs.targetClass = processedArgs.memberClass || processedArgs.componentClass;
     }
 
-    // Fix Issue 6: Support connect_pins parameter mapping
-    // Input: nodeId, pinName, linkedTo (TargetNode.Pin)
+    if (processedRecord.nodeGuid !== undefined && !processedArgs.nodeId) {
+        processedArgs.nodeId = processedRecord.nodeGuid as string;
+    }
+    if (processedRecord.sourceNode !== undefined && !processedArgs.fromNodeId) {
+        processedArgs.fromNodeId = processedRecord.sourceNode as string;
+    }
+    if (processedRecord.targetNode !== undefined && !processedArgs.toNodeId) {
+        processedArgs.toNodeId = processedRecord.targetNode as string;
+    }
+    if (processedRecord.sourcePin !== undefined && !processedArgs.fromPinName) {
+        processedArgs.fromPinName = processedRecord.sourcePin as string;
+    }
+    if (processedRecord.targetPin !== undefined && !processedArgs.toPinName) {
+        processedArgs.toPinName = processedRecord.targetPin as string;
+    }
+    if (processedRecord.defaultValue !== undefined && processedRecord.value === undefined) {
+        processedRecord.value = processedRecord.defaultValue;
+    }
+
     if (action === 'connect_pins') {
         // Map source
         if (!processedArgs.fromNodeId && processedArgs.nodeId) {
@@ -167,7 +199,7 @@ async function handleBlueprintGraph(action: string, args: GraphArgs, tools: IToo
     }
 
     const res = await executeAutomationRequest(tools, 'manage_blueprint_graph', processedArgs as HandlerArgs, 'Automation bridge not available') as AutomationResponse;
-    return cleanObject({ ...res, ...(res.result || {}) }) as Record<string, unknown>;
+    return cleanObject(promoteScalarResultFields(res)) as Record<string, unknown>;
 }
 
 async function handleNiagaraGraph(action: string, args: GraphArgs, tools: ITools): Promise<Record<string, unknown>> {
@@ -183,7 +215,7 @@ async function handleNiagaraGraph(action: string, args: GraphArgs, tools: ITools
         payload.assetPath = args.system as string;
     }
     const res = await executeAutomationRequest(tools, 'manage_niagara_graph', payload as HandlerArgs, 'Automation bridge not available') as AutomationResponse;
-    return cleanObject({ ...res, ...(res.result || {}) }) as Record<string, unknown>;
+    return cleanObject(promoteScalarResultFields(res)) as Record<string, unknown>;
 }
 
 async function handleMaterialGraph(action: string, args: GraphArgs, tools: ITools): Promise<Record<string, unknown>> {
@@ -209,7 +241,7 @@ async function handleMaterialGraph(action: string, args: GraphArgs, tools: ITool
     }
 
     const res = await executeAutomationRequest(tools, 'manage_material_graph', payload as HandlerArgs, 'Automation bridge not available') as AutomationResponse;
-    return cleanObject({ ...res, ...(res.result || {}) }) as Record<string, unknown>;
+    return cleanObject(promoteScalarResultFields(res)) as Record<string, unknown>;
 }
 
 async function handleBehaviorTree(action: string, args: GraphArgs, tools: ITools): Promise<Record<string, unknown>> {
@@ -226,5 +258,5 @@ async function handleBehaviorTree(action: string, args: GraphArgs, tools: ITools
     }
     
     const res = await executeAutomationRequest(tools, 'manage_behavior_tree', processedArgs as HandlerArgs, 'Automation bridge not available') as AutomationResponse;
-    return cleanObject({ ...res, ...(res.result || {}) }) as Record<string, unknown>;
+    return cleanObject(promoteScalarResultFields(res)) as Record<string, unknown>;
 }

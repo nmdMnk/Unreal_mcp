@@ -315,99 +315,68 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSpawn(
     return true;
   }
 
-  UEditorActorSubsystem *ActorSS =
-      GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
   AActor *Spawned = nullptr;
 
-  // Support PIE spawning
-  UWorld *TargetWorld = (GEditor->PlayWorld) ? GEditor->PlayWorld : nullptr;
-
-  if (TargetWorld) {
-    // PIE Path
-    FActorSpawnParameters SpawnParams;
-    SpawnParams.SpawnCollisionHandlingOverride =
-        ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-
-    UClass *ClassToSpawn =
-        ResolvedClass
-            ? ResolvedClass
-            : (bSpawnStaticMeshActor ? AStaticMeshActor::StaticClass()
-                                     : (bSpawnSkeletalMeshActor
-                                            ? ASkeletalMeshActor::StaticClass()
-                                            : AActor::StaticClass()));
-    Spawned = TargetWorld->SpawnActor(ClassToSpawn, &Location, &Rotation,
-                                      SpawnParams);
-
-    if (Spawned) {
-      if (bSpawnStaticMeshActor) {
-        if (AStaticMeshActor *StaticMeshActor =
-                Cast<AStaticMeshActor>(Spawned)) {
-          if (UStaticMeshComponent *MeshComponent =
-                  StaticMeshActor->GetStaticMeshComponent()) {
-            if (ResolvedStaticMesh) {
-              MeshComponent->SetStaticMesh(ResolvedStaticMesh);
-            }
-            MeshComponent->SetMobility(EComponentMobility::Movable);
-            // PIE actors don't need MarkRenderStateDirty in the same way, but
-            // it doesn't hurt
-          }
-        }
-      } else if (bSpawnSkeletalMeshActor) {
-        if (ASkeletalMeshActor *SkelActor = Cast<ASkeletalMeshActor>(Spawned)) {
-          if (USkeletalMeshComponent *SkelComp =
-                  SkelActor->GetSkeletalMeshComponent()) {
-            if (ResolvedSkeletalMesh) {
-              SkelComp->SetSkeletalMesh(ResolvedSkeletalMesh);
-            }
-            SkelComp->SetMobility(EComponentMobility::Movable);
-          }
-        }
-      }
-    }
+  // Use direct world spawning for both PIE and editor worlds. EditorActorSubsystem
+  // routes through viewport placement and hit-proxy rendering, which crashes
+  // under NullRHI even when automation provides an explicit transform.
+  UWorld *TargetWorld = nullptr;
+  if (GEditor->PlayWorld) {
+    TargetWorld = GEditor->PlayWorld.Get();
   } else {
-    // Editor Path
+    TargetWorld = GEditor->GetEditorWorldContext().World();
+  }
+
+  if (!TargetWorld) {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("WORLD_NOT_FOUND"),
+                              TEXT("Editor world not available"));
+    return true;
+  }
+
+  FActorSpawnParameters SpawnParams;
+  SpawnParams.SpawnCollisionHandlingOverride =
+      ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+  SpawnParams.ObjectFlags |= RF_Transactional;
+  if (!GEditor->PlayWorld) {
+    SpawnParams.OverrideLevel = TargetWorld->GetCurrentLevel();
+    TargetWorld->Modify();
+  }
+
+  UClass *ClassToSpawn =
+      ResolvedClass
+          ? ResolvedClass
+          : (bSpawnStaticMeshActor ? AStaticMeshActor::StaticClass()
+                                   : (bSpawnSkeletalMeshActor
+                                          ? ASkeletalMeshActor::StaticClass()
+                                          : AActor::StaticClass()));
+  Spawned = TargetWorld->SpawnActor(ClassToSpawn, &Location, &Rotation,
+                                    SpawnParams);
+
+  if (Spawned) {
+    Spawned->Modify();
+    Spawned->SetActorLocationAndRotation(Location, Rotation, false, nullptr,
+                                         ETeleportType::TeleportPhysics);
     if (bSpawnStaticMeshActor) {
-      Spawned = ActorSS->SpawnActorFromClass(
-          ResolvedClass ? ResolvedClass : AStaticMeshActor::StaticClass(),
-          Location, Rotation);
-      if (Spawned) {
-        Spawned->SetActorLocationAndRotation(Location, Rotation, false, nullptr,
-                                             ETeleportType::TeleportPhysics);
-        if (AStaticMeshActor *StaticMeshActor =
-                Cast<AStaticMeshActor>(Spawned)) {
-          if (UStaticMeshComponent *MeshComponent =
-                  StaticMeshActor->GetStaticMeshComponent()) {
-            if (ResolvedStaticMesh) {
-              MeshComponent->SetStaticMesh(ResolvedStaticMesh);
-            }
-            MeshComponent->SetMobility(EComponentMobility::Movable);
-            MeshComponent->MarkRenderStateDirty();
+      if (AStaticMeshActor *StaticMeshActor = Cast<AStaticMeshActor>(Spawned)) {
+        if (UStaticMeshComponent *MeshComponent =
+                StaticMeshActor->GetStaticMeshComponent()) {
+          if (ResolvedStaticMesh) {
+            MeshComponent->SetStaticMesh(ResolvedStaticMesh);
           }
+          MeshComponent->SetMobility(EComponentMobility::Movable);
+          MeshComponent->MarkRenderStateDirty();
         }
       }
     } else if (bSpawnSkeletalMeshActor) {
-      Spawned = ActorSS->SpawnActorFromClass(
-          ResolvedClass ? ResolvedClass : ASkeletalMeshActor::StaticClass(),
-          Location, Rotation);
-      if (Spawned) {
-        Spawned->SetActorLocationAndRotation(Location, Rotation, false, nullptr,
-                                             ETeleportType::TeleportPhysics);
-        if (ASkeletalMeshActor *SkelActor = Cast<ASkeletalMeshActor>(Spawned)) {
-          if (USkeletalMeshComponent *SkelComp =
-                  SkelActor->GetSkeletalMeshComponent()) {
-            if (ResolvedSkeletalMesh) {
-              SkelComp->SetSkeletalMesh(ResolvedSkeletalMesh);
-            }
-            SkelComp->SetMobility(EComponentMobility::Movable);
-            SkelComp->MarkRenderStateDirty();
+      if (ASkeletalMeshActor *SkelActor = Cast<ASkeletalMeshActor>(Spawned)) {
+        if (USkeletalMeshComponent *SkelComp =
+                SkelActor->GetSkeletalMeshComponent()) {
+          if (ResolvedSkeletalMesh) {
+            SkelComp->SetSkeletalMesh(ResolvedSkeletalMesh);
           }
+          SkelComp->SetMobility(EComponentMobility::Movable);
+          SkelComp->MarkRenderStateDirty();
         }
-      }
-    } else {
-      Spawned = ActorSS->SpawnActorFromClass(ResolvedClass, Location, Rotation);
-      if (Spawned) {
-        Spawned->SetActorLocationAndRotation(Location, Rotation, false, nullptr,
-                                             ETeleportType::TeleportPhysics);
       }
     }
   }
@@ -478,12 +447,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSpawn(
   Data->SetArrayField(TEXT("scale"), MakeVectorArray(Spawned->GetActorScale3D()));
   
   // Add verification data
-  McpHandlerUtils::AddVerification(Data, Spawned);
+	McpHandlerUtils::AddVerification(Data, Spawned);
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Spawned actor '%s'"), *Spawned->GetActorLabel());
-
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Actor spawned"), Data);
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Actor spawned"), Data);
   return true;
 
 #else
@@ -552,35 +518,34 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSpawnBlueprint(
     return true;
   }
 
-  UEditorActorSubsystem *ActorSS =
-      GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-
-  // Debug log the received location
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("spawn_blueprint: Location=(%f, %f, %f) Rotation=(%f, %f, %f)"),
-         Location.X, Location.Y, Location.Z, Rotation.Pitch, Rotation.Yaw,
-         Rotation.Roll);
-
   AActor *Spawned = nullptr;
-  UWorld *TargetWorld = (GEditor->PlayWorld) ? GEditor->PlayWorld : nullptr;
-
-  if (TargetWorld) {
-    // PIE Path
-    FActorSpawnParameters SpawnParams;
-    SpawnParams.SpawnCollisionHandlingOverride =
-        ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-    Spawned = TargetWorld->SpawnActor(ResolvedClass, &Location, &Rotation,
-                                      SpawnParams);
-    // Ensure physics/teleport if needed, though SpawnActor should handle it.
+  UWorld *TargetWorld = nullptr;
+  if (GEditor->PlayWorld) {
+    TargetWorld = GEditor->PlayWorld.Get();
   } else {
-    // Editor Path
-    Spawned = ActorSS->SpawnActorFromClass(ResolvedClass, Location, Rotation);
-    // Explicitly set location and rotation in case SpawnActorFromClass didn't
-    // apply them correctly (legacy fix)
-    if (Spawned) {
-      Spawned->SetActorLocationAndRotation(Location, Rotation, false, nullptr,
-                                           ETeleportType::TeleportPhysics);
-    }
+    TargetWorld = GEditor->GetEditorWorldContext().World();
+  }
+
+  if (!TargetWorld) {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("WORLD_NOT_FOUND"),
+                              TEXT("Editor world not available"), nullptr);
+    return true;
+  }
+
+  FActorSpawnParameters SpawnParams;
+  SpawnParams.SpawnCollisionHandlingOverride =
+      ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+  SpawnParams.ObjectFlags |= RF_Transactional;
+  if (!GEditor->PlayWorld) {
+    SpawnParams.OverrideLevel = TargetWorld->GetCurrentLevel();
+    TargetWorld->Modify();
+  }
+  Spawned = TargetWorld->SpawnActor(ResolvedClass, &Location, &Rotation,
+                                    SpawnParams);
+  if (Spawned) {
+    Spawned->Modify();
+    Spawned->SetActorLocationAndRotation(Location, Rotation, false, nullptr,
+                                         ETeleportType::TeleportPhysics);
   }
 
   if (!Spawned) {
@@ -620,12 +585,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSpawnBlueprint(
   Resp->SetArrayField(TEXT("scale"), MakeVectorArray(Spawned->GetActorScale3D()));
   
   // Add verification data
-  McpHandlerUtils::AddVerification(Resp, Spawned);
-  
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Spawned blueprint '%s'"),
-         *Spawned->GetActorLabel());
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Blueprint spawned"),
+	McpHandlerUtils::AddVerification(Resp, Spawned);
+
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Blueprint spawned"),
                          Resp, FString());
   return true;
 #else
@@ -676,10 +638,8 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorDelete(
       Missing.Add(Name);
       continue;
     }
-    if (ActorSS->DestroyActor(Found)) {
-      UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-             TEXT("ControlActor: Deleted actor '%s'"), *Name);
-      Deleted.Add(Name);
+	if (ActorSS->DestroyActor(Found)) {
+			Deleted.Add(Name);
     } else
       Missing.Add(Name);
   }
@@ -820,11 +780,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorApplyForce(
   }
 
   // Add verification data
-  McpHandlerUtils::AddVerification(Data, Found);
+	McpHandlerUtils::AddVerification(Data, Found);
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Applied force to '%s'"), *Found->GetActorLabel());
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Force applied"), Data);
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Force applied"), Data);
   return true;
 #else
   return false;
@@ -897,11 +855,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetTransform(
   }
 
   // Add verification data
-  McpHandlerUtils::AddVerification(Data, Found);
+	McpHandlerUtils::AddVerification(Data, Found);
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Set transform for '%s'"), *Found->GetActorLabel());
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Actor transform updated"), Data);
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Actor transform updated"), Data);
   return true;
 #else
   return false;
@@ -1013,12 +969,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetVisibility(
   }
 
   // Add verification data
-  McpHandlerUtils::AddVerification(Data, Found);
+	McpHandlerUtils::AddVerification(Data, Found);
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Set visibility to %s for '%s'"),
-         bVisible ? TEXT("True") : TEXT("False"), *Found->GetActorLabel());
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Actor visibility updated"), Data);
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Actor visibility updated"), Data);
   return true;
 #else
   return false;
@@ -1153,11 +1106,8 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorAddComponent(
     for (const FString &Warning : PropertyWarnings)
       WarnArray.Add(MakeShared<FJsonValueString>(Warning));
     Resp->SetArrayField(TEXT("warnings"), WarnArray);
-  }
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Added component '%s' to '%s'"),
-         *NewComponent->GetName(), *Found->GetActorLabel());
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Component added"), Resp,
+	}
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Component added"), Resp,
                          FString());
   return true;
 #else
@@ -1238,18 +1188,14 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
                 EnumVal);
         if (Val != INDEX_NONE) {
           SC->SetMobility((EComponentMobility::Type)Val);
-          AppliedProperties.Add(MobilityKey);
-          UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-                 TEXT("Explicitly set Mobility to %s"), *EnumVal);
-        }
-      } else {
-        double Val;
-        if ((*MobilityVal)->TryGetNumber(Val)) {
-          SC->SetMobility((EComponentMobility::Type)(int32)Val);
-          AppliedProperties.Add(MobilityKey);
-          UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-                 TEXT("Explicitly set Mobility to %d"), (int32)Val);
-        }
+		AppliedProperties.Add(MobilityKey);
+		}
+	} else {
+		double Val;
+		if ((*MobilityVal)->TryGetNumber(Val)) {
+			SC->SetMobility((EComponentMobility::Type)(int32)Val);
+			AppliedProperties.Add(MobilityKey);
+		}
       }
     }
   }
@@ -1266,12 +1212,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
               Cast<UPrimitiveComponent>(TargetComponent)) {
         bool bVal = false;
         if (Pair.Value->TryGetBool(bVal)) {
-          Prim->SetSimulatePhysics(bVal);
-          AppliedProperties.Add(Pair.Key);
-          UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-                 TEXT("Explicitly set SimulatePhysics to %s"),
-                 bVal ? TEXT("True") : TEXT("False"));
-          continue;
+			Prim->SetSimulatePhysics(bVal);
+				AppliedProperties.Add(Pair.Key);
+				continue;
         }
       }
     }
@@ -1307,13 +1250,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
   }
 
   // Add verification data
-  McpHandlerUtils::AddVerification(Data, Found);
+	McpHandlerUtils::AddVerification(Data, Found);
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Updated properties for component '%s' on '%s'"),
-         *TargetComponent->GetName(), *Found->GetActorLabel());
-
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Component properties updated"), Data);
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Component properties updated"), Data);
   return true;
 #else
   return false;
@@ -1459,10 +1398,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorDuplicate(
   OffsetArray.Add(MakeShared<FJsonValueNumber>(Offset.Z));
   Data->SetArrayField(TEXT("offset"), OffsetArray);
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Duplicated '%s' to '%s'"), *Found->GetActorLabel(),
-         *Duplicated->GetActorLabel());
-  SendStandardSuccessResponse(this, Socket, RequestId, TEXT("Actor duplicated"),
+	SendStandardSuccessResponse(this, Socket, RequestId, TEXT("Actor duplicated"),
                               Data);
   return true;
 #else
@@ -1533,12 +1469,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorAttach(
   }
 
   // Add verification data for the child actor
-  McpHandlerUtils::AddVerification(Data, Child);
+	McpHandlerUtils::AddVerification(Data, Child);
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Attached '%s' to '%s'"), *Child->GetActorLabel(),
-         *Parent->GetActorLabel());
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Actor attached"), Data);
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Actor attached"), Data);
   return true;
 #else
   return false;
@@ -1595,11 +1528,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorDetach(
   }
 
   // Add verification data
-  McpHandlerUtils::AddVerification(Data, Found);
+	McpHandlerUtils::AddVerification(Data, Found);
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Detached '%s'"), *Found->GetActorLabel());
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Actor detached"), Data);
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Actor detached"), Data);
   return true;
 #else
   return false;
@@ -1724,12 +1655,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorAddTag(
   Data->SetStringField(TEXT("tag"), TagName.ToString());
 
   // Add verification data
-  McpHandlerUtils::AddVerification(Data, Found);
+	McpHandlerUtils::AddVerification(Data, Found);
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Added tag '%s' to '%s'"), *TagName.ToString(),
-         *Found->GetActorLabel());
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Tag applied to actor"), Data);
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Tag applied to actor"), Data);
   return true;
 #else
   return false;
@@ -2173,12 +2101,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorRemoveTag(
   Data->SetStringField(TEXT("tag"), TagValue);
 
   // Add verification data
-  McpHandlerUtils::AddVerification(Data, Found);
+	McpHandlerUtils::AddVerification(Data, Found);
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("ControlActor: Removed tag '%s' from '%s'"), *TagValue,
-         *Found->GetActorLabel());
-  SendAutomationResponse(Socket, RequestId, true, TEXT("Tag removed from actor"), Data);
+	SendAutomationResponse(Socket, RequestId, true, TEXT("Tag removed from actor"), Data);
   return true;
 #else
   return false;
@@ -2506,9 +2431,6 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorAction(
   Payload->TryGetStringField(TEXT("action"), SubAction);
   const FString LowerSub = SubAction.ToLower();
 
-  UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-         TEXT("HandleControlActorAction: %s RequestId=%s"), *LowerSub,
-         *RequestId);
 
 #if WITH_EDITOR
   if (!GEditor) {

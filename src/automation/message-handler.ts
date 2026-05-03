@@ -126,6 +126,11 @@ export class MessageHandler {
         if (reqId) {
             const pending = this.requestTracker.getPendingRequest(reqId);
             if (pending) {
+                if (!pending.waitForEvent) {
+                    this.log.debug(`Received automation_event for ${reqId} while waiting for automation_response; ignoring event=${String(evt.event || '')}`);
+                    return;
+                }
+
                 try {
                     const baseSuccess = (pending.initialResponse && typeof pending.initialResponse.success === 'boolean') ? pending.initialResponse.success : undefined;
                     const evtSuccess = (evt.result && typeof evt.result.success === 'boolean') ? !!evt.result.success : undefined;

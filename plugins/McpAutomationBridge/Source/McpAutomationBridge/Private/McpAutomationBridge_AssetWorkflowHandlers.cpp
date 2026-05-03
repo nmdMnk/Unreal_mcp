@@ -1657,12 +1657,8 @@ bool UMcpAutomationBridgeSubsystem::HandleDuplicateAsset(
     if (ParentDir.IsEmpty() || ParentDir == TEXT("/"))
       ParentDir = TEXT("/Game");
 
-    DestinationPath = ParentDir / DestinationPath;
-    UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-           TEXT("HandleDuplicateAsset: Auto-resolved simple name destination "
-                "to '%s'"),
-           *DestinationPath);
-  }
+		DestinationPath = ParentDir / DestinationPath;
+		}
 
   // If the source path is a directory, perform a deep duplication of all
   // assets under that folder into the destination folder, preserving

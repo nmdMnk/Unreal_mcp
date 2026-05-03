@@ -67,6 +67,27 @@ describe('cleanObject', () => {
         expect(() => cleanObject(obj, 5)).not.toThrow();
     });
 
+    it('preserves repeated non-circular references as full values', () => {
+        const shared = { pinName: 'then_0', direction: 'Output' };
+        const input = { result: { pins: [shared] }, pins: [shared] };
+
+        const result = cleanObject(input);
+
+        expect(result).toEqual({
+            result: { pins: [{ pinName: 'then_0', direction: 'Output' }] },
+            pins: [{ pinName: 'then_0', direction: 'Output' }]
+        });
+    });
+
+    it('marks actual circular references', () => {
+        const input: Record<string, unknown> = { a: 1 };
+        input.self = input;
+
+        const result = cleanObject(input);
+
+        expect(result.self).toBe('[Circular Reference]');
+    });
+
     it('handles Date objects (converts to empty object)', () => {
         const date = new Date('2024-01-01');
         const input = { created: date };

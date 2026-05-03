@@ -1960,15 +1960,10 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
     FString FoundClassName;
 
     // If actorName provided, try to find the actor and get its skeletal mesh
-    if (!bMeshProvided && !bSkeletonProvided && bActorProvided) {
-      UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-             TEXT("Attempting to find actor by name: '%s'"), *ActorName);
-      AActor *FoundActor = FindActorByName(ActorName);
-      if (FoundActor) {
-        UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-               TEXT("Found actor: '%s' (Label: '%s')"), *FoundActor->GetName(),
-               *FoundActor->GetActorLabel());
-        // Try to get skeletal mesh component
+	if (!bMeshProvided && !bSkeletonProvided && bActorProvided) {
+		AActor *FoundActor = FindActorByName(ActorName);
+	if (FoundActor) {
+			// Try to get skeletal mesh component
         if (USkeletalMeshComponent *SkelComp =
                 FoundActor->FindComponentByClass<USkeletalMeshComponent>()) {
 #if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 1
@@ -1976,11 +1971,7 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
 #else
           TargetMesh = SkelComp->SkeletalMesh;
 #endif
-          if (TargetMesh) {
-            UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-                   TEXT("Found skeletal mesh asset: '%s'"),
-                   *TargetMesh->GetName());
-          } else {
+			if (!TargetMesh) {
             Message =
                 FString::Printf(TEXT("Actor '%s' has a SkeletalMeshComponent "
                                      "but no SkeletalMesh asset assigned."),

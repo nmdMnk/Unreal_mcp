@@ -175,6 +175,9 @@ function registerDefaultHandlers() {
   // 2. BLUEPRINT MANAGER (includes merged manage_blueprint_graph - Phase 53)
   toolRegistry.register('manage_blueprint', async (args, tools) => {
     const action = getAction(args);
+    if (action === 'create_blueprint') {
+      return await handleBlueprintTools('create', args, tools);
+    }
     if (action === 'get_blueprint') {
       return await handleBlueprintGet(args, tools);
     }
@@ -476,7 +479,6 @@ export async function handleConsolidatedToolCall(
 ) {
   const logger = new Logger('ConsolidatedToolHandler');
   const startTime = Date.now();
-  logger.info(`Starting execution of ${name} at ${new Date().toISOString()}`);
 
   try {
     const normalized = normalizeToolCall(name, args);

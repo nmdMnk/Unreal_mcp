@@ -505,15 +505,11 @@ bool FBlueprintCreationHandlers::HandleBlueprintCreate(
                                      TEXT("Blueprint already exists"),
                                      ResultPayload, FString());
       }
-      GBlueprintCreateInflight.Remove(CreateKey);
-      GBlueprintCreateInflightTs.Remove(CreateKey);
-      UE_LOG(LogMcpAutomationBridgeSubsystem, Log,
-             TEXT("blueprint_create RequestId=%s completed (existing blueprint "
-                  "found early)."),
-             *RequestId);
-    } else {
-      Self->SendAutomationResponse(RequestingSocket, RequestId, true,
-                                   TEXT("Blueprint already exists"),
+		GBlueprintCreateInflight.Remove(CreateKey);
+		GBlueprintCreateInflightTs.Remove(CreateKey);
+	} else {
+		Self->SendAutomationResponse(RequestingSocket, RequestId, true,
+			TEXT("Blueprint already exists"),
                                    ResultPayload, FString());
     }
 
@@ -674,15 +670,11 @@ bool FBlueprintCreationHandlers::HandleBlueprintCreate(
                                        TEXT("Blueprint already exists"),
                                        ResultPayload, FString());
         }
-        GBlueprintCreateInflight.Remove(CreateKey);
-        GBlueprintCreateInflightTs.Remove(CreateKey);
-        UE_LOG(LogMcpAutomationBridgeSubsystem, Log,
-               TEXT("blueprint_create RequestId=%s completed (existing "
-                    "blueprint)."),
-               *RequestId);
-      } else {
-        Self->SendAutomationResponse(RequestingSocket, RequestId, true,
-                                     TEXT("Blueprint already exists"),
+	GBlueprintCreateInflight.Remove(CreateKey);
+	GBlueprintCreateInflightTs.Remove(CreateKey);
+	} else {
+		Self->SendAutomationResponse(RequestingSocket, RequestId, true,
+			TEXT("Blueprint already exists"),
                                      ResultPayload, FString());
       }
 

@@ -2361,33 +2361,44 @@ ApplyJsonValueToProperty(void *TargetContainer, FProperty *Property,
     // FJsonObjectConverter when the incoming text is valid JSON. Older
     // engine versions that provide ImportText on UScriptStruct are
     // supported via a guarded fallback for legacy builds.
-    if (ValueField->Type == EJson::String) {
-      const FString Txt = ValueField->AsString();
-      if (SP->Struct) {
-        // First attempt: parse the string as JSON and convert to struct
-        // using the robust JsonObjectConverter which avoids relying on
-        // engine-private textual import semantics.
-        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Txt);
-        TSharedPtr<FJsonObject> ParsedObj;
-        if (FJsonSerializer::Deserialize(Reader, ParsedObj) &&
-            ParsedObj.IsValid()) {
-          if (FJsonObjectConverter::JsonObjectToUStruct(
-                  ParsedObj.ToSharedRef(), SP->Struct,
-                  SP->ContainerPtrToValuePtr<void>(TargetContainer), 0, 0)) {
-            return true;
-          }
-        }
+		if (ValueField->Type == EJson::String) {
+			const FString Txt = ValueField->AsString();
+			if (SP->Struct) {
+				// First attempt: parse the string as JSON and convert to struct
+				// using the robust JsonObjectConverter which avoids relying on
+				// engine-private textual import semantics.
+				TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Txt);
+				TSharedPtr<FJsonObject> ParsedObj;
+				if (FJsonSerializer::Deserialize(Reader, ParsedObj) &&
+					ParsedObj.IsValid()) {
+					if (FJsonObjectConverter::JsonObjectToUStruct(
+						ParsedObj.ToSharedRef(), SP->Struct,
+						SP->ContainerPtrToValuePtr<void>(TargetContainer), 0, 0)) {
+						return true;
+					}
+				}
 
-        // NOTE: ImportText-based struct parsing is intentionally omitted
-        // because engine textual import signatures differ across engine
-        // revisions and can produce fragile compilation failures. If a
-        // non-JSON textual import format is required in the future we
-        // can implement a safe parser here or add an explicit engine
-        // compatibility shim guarded by a feature macro.
-      }
-    }
+				// NOTE: ImportText-based struct parsing is intentionally omitted
+				// because engine textual import signatures differ across engine
+				// revisions and can produce fragile compilation failures. If a
+				// non-JSON textual import format is required in the future we
+				// can implement a safe parser here or add an explicit engine
+				// compatibility shim guarded by a feature macro.
+			}
+		}
 
-    OutError = TEXT("Unsupported JSON type for struct property");
+		if (ValueField->Type == EJson::Object) {
+			const TSharedPtr<FJsonObject> Object = ValueField->AsObject();
+			if (Object.IsValid() && SP->Struct) {
+				if (FJsonObjectConverter::JsonObjectToUStruct(
+					Object.ToSharedRef(), SP->Struct,
+					SP->ContainerPtrToValuePtr<void>(TargetContainer), 0, 0)) {
+					return true;
+				}
+			}
+		}
+
+		OutError = TEXT("Unsupported JSON type for struct property");
     return false;
   }
 
@@ -3198,15 +3209,15 @@ static inline void SendStandardErrorResponse(
 // ROBUST ACTOR SPAWNING HELPER
 // ============================================================================
 //
-// SpawnActorInActiveWorld solves the "transient actor" issue where actors
-// spawned via EditorActorSubsystem->SpawnActorFromClass may end up in the
-// /Engine/Transient package, making them invisible in the World Outliner.
+// SpawnActorInActiveWorld solves the "transient actor" issue while avoiding
+// editor viewport placement. EditorActorSubsystem->SpawnActorFromClass can
+// route through hit-proxy rendering and crash under -NullRHI automation.
 //
 // This helper properly handles both PIE (Play-In-Editor) and regular Editor
 // modes by:
 // 1. Checking if GEditor->PlayWorld is active (PIE mode)
 // 2. Using TargetWorld->SpawnActor for PIE (proper world context)
-// 3. Using EditorActorSubsystem for Editor mode with explicit transform
+// 3. Using Editor world SpawnActor for Editor mode with explicit transform
 // 4. Optionally setting an actor label for easy identification
 //
 // Usage:
@@ -3242,28 +3253,26 @@ SpawnActorInActiveWorld(UClass *ActorClass, const FVector &Location,
 
   AActor *Spawned = nullptr;
 
-  // Check if PIE is active
-  UWorld *TargetWorld = GEditor->PlayWorld;
+  UWorld *TargetWorld = GEditor->PlayWorld ? GEditor->PlayWorld.Get()
+                                           : GEditor->GetEditorWorldContext().World();
+  if (!TargetWorld)
+    return nullptr;
 
-  if (TargetWorld) {
-    // PIE Path: Use World->SpawnActor for proper world context
-    FActorSpawnParameters SpawnParams;
-    SpawnParams.SpawnCollisionHandlingOverride =
-        ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-    Spawned =
-        TargetWorld->SpawnActor(ActorClass, &Location, &Rotation, SpawnParams);
-  } else {
-    // Editor Path: Use EditorActorSubsystem with explicit transform
-    UEditorActorSubsystem *ActorSS =
-        GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-    if (ActorSS) {
-      Spawned = ActorSS->SpawnActorFromClass(ActorClass, Location, Rotation);
-      if (Spawned) {
-        // Explicit transform to ensure proper placement and registration
-        Spawned->SetActorLocationAndRotation(Location, Rotation, false, nullptr,
-                                             ETeleportType::TeleportPhysics);
-      }
-    }
+  FActorSpawnParameters SpawnParams;
+  SpawnParams.SpawnCollisionHandlingOverride =
+      ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+  SpawnParams.ObjectFlags |= RF_Transactional;
+  if (!GEditor->PlayWorld) {
+    SpawnParams.OverrideLevel = TargetWorld->GetCurrentLevel();
+    TargetWorld->Modify();
+  }
+
+  Spawned = TargetWorld->SpawnActor(ActorClass, &Location, &Rotation,
+                                    SpawnParams);
+  if (Spawned) {
+    Spawned->Modify();
+    Spawned->SetActorLocationAndRotation(Location, Rotation, false, nullptr,
+                                         ETeleportType::TeleportPhysics);
   }
 
   // Set optional label for easy identification in World Outliner

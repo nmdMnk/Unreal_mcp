@@ -294,9 +294,7 @@ bool UMcpAutomationBridgeSubsystem::HandlePaintFoliage(
       if (UEditorAssetLibrary::DoesAssetExist(AutoFTPath)) {
         FoliageType = LoadObject<UFoliageType>(nullptr, *AutoFTPath);
         if (FoliageType) {
-          FoliageTypePath = AutoFTPath;
-          UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-                 TEXT("HandlePaintFoliage: Using existing auto-created FoliageType: %s"), *FoliageTypePath);
+			FoliageTypePath = AutoFTPath;
         }
       } else {
         // Issue 5 fix: Add null check for CreatePackage
@@ -310,9 +308,7 @@ bool UMcpAutomationBridgeSubsystem::HandlePaintFoliage(
             AutoFT->ReapplyDensity = true;
             McpSafeAssetSave(AutoFT);
             FoliageType = AutoFT;
-            FoliageTypePath = AutoFT->GetPathName();
-            UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-                   TEXT("HandlePaintFoliage: Auto-created FoliageType from StaticMesh: %s"), *FoliageTypePath);
+			FoliageTypePath = AutoFT->GetPathName();
           }
         }
       }
@@ -1033,9 +1029,7 @@ bool UMcpAutomationBridgeSubsystem::HandleAddFoliageInstances(
         AutoFT->ReapplyDensity = true;
         McpSafeAssetSave(AutoFT);
         FoliageType = AutoFT;
-        FoliageTypePath = AutoFT->GetPathName();
-        UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-               TEXT("HandleAddFoliageInstances: Auto-created FoliageType from StaticMesh: %s"), *FoliageTypePath);
+				FoliageTypePath = AutoFT->GetPathName();
       }
     }
   }

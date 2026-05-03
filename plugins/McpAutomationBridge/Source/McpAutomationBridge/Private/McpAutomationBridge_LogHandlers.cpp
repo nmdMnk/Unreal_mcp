@@ -188,10 +188,8 @@ bool UMcpAutomationBridgeSubsystem::HandleLogAction(
         {
             // Create and register log capture device
             LogCaptureDevice = MakeShared<FMcpLogOutputDevice>(this);
-            GLog->AddOutputDevice(LogCaptureDevice.Get());
-            UE_LOG(LogMcpAutomationBridgeSubsystem, Display, 
-                TEXT("Log streaming enabled by client request."));
-        }
+		GLog->AddOutputDevice(LogCaptureDevice.Get());
+		}
 
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("action"), TEXT("subscribe"));
@@ -210,11 +208,9 @@ bool UMcpAutomationBridgeSubsystem::HandleLogAction(
         if (LogCaptureDevice.IsValid())
         {
             // Remove and destroy log capture device
-            GLog->RemoveOutputDevice(LogCaptureDevice.Get());
-            LogCaptureDevice.Reset();
-            UE_LOG(LogMcpAutomationBridgeSubsystem, Display, 
-                TEXT("Log streaming disabled by client request."));
-        }
+		GLog->RemoveOutputDevice(LogCaptureDevice.Get());
+			LogCaptureDevice.Reset();
+		}
 
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("action"), TEXT("unsubscribe"));
