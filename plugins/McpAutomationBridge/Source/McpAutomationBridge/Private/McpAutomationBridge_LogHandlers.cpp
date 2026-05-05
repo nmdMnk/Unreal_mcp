@@ -31,6 +31,7 @@
 // Core Includes
 // -----------------------------------------------------------------------------
 #include "McpAutomationBridgeSubsystem.h"
+#include "McpBridgeWebSocket.h"
 #include "McpAutomationBridgeHelpers.h"
 #include "McpAutomationBridgeGlobals.h"
 #include "McpHandlerUtils.h"
@@ -41,6 +42,8 @@
 #include "Dom/JsonObject.h"
 #include "Misc/OutputDevice.h"
 #include "Async/Async.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 
 // =============================================================================
 // FMcpLogOutputDevice - Custom Log Capture Device
@@ -179,24 +182,60 @@ bool UMcpAutomationBridgeSubsystem::HandleLogAction(
     // Extract subaction
     const FString SubAction = GetJsonStringField(Payload, TEXT("subAction"));
 
+    auto SendLogSubscriptionResponse = [this, RequestingSocket, &RequestId](
+        const FString& ResponseAction,
+        const bool bSubscribed,
+        const bool bWasAlreadySubscribed,
+        const FString& Message) -> void
+    {
+        TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("success"), true);
+        Result->SetStringField(TEXT("action"), TEXT("manage_logs"));
+        Result->SetStringField(TEXT("subAction"), ResponseAction);
+        Result->SetBoolField(TEXT("subscribed"), bSubscribed);
+        if (ResponseAction == TEXT("subscribe"))
+        {
+            Result->SetBoolField(TEXT("wasAlreadySubscribed"), bWasAlreadySubscribed);
+        }
+
+        TSharedRef<FJsonObject> Response = MakeShared<FJsonObject>();
+        Response->SetStringField(TEXT("type"), TEXT("automation_response"));
+        Response->SetStringField(TEXT("requestId"), RequestId);
+        Response->SetBoolField(TEXT("success"), true);
+        Response->SetStringField(TEXT("message"), Message);
+        Response->SetStringField(TEXT("error"), TEXT(""));
+        Response->SetObjectField(TEXT("result"), Result);
+
+        FString Serialized;
+        const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Serialized);
+        FJsonSerializer::Serialize(Response, Writer);
+
+        if (RequestingSocket.IsValid() && RequestingSocket->IsConnected())
+        {
+            RequestingSocket->Send(Serialized);
+            return;
+        }
+
+        SendRawMessage(Serialized);
+    };
+
     // -------------------------------------------------------------------------
     // subscribe: Enable log streaming
     // -------------------------------------------------------------------------
     if (SubAction == TEXT("subscribe"))
     {
+        const bool bWasAlreadySubscribed = LogCaptureDevice.IsValid();
+        SendLogSubscriptionResponse(TEXT("subscribe"), true, bWasAlreadySubscribed,
+            TEXT("Subscribed to editor logs."));
+
         if (!LogCaptureDevice.IsValid())
         {
-            // Create and register log capture device
+            // Register only after the request response is sent. Adding the output
+            // device first can capture response-side logging and starve the
+            // waiting bridge client under high log volume.
             LogCaptureDevice = MakeShared<FMcpLogOutputDevice>(this);
-		GLog->AddOutputDevice(LogCaptureDevice.Get());
-		}
-
-        TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
-        Result->SetStringField(TEXT("action"), TEXT("subscribe"));
-        Result->SetBoolField(TEXT("subscribed"), true);
-
-        SendAutomationResponse(RequestingSocket, RequestId, true, 
-            TEXT("Subscribed to editor logs."), Result);
+            GLog->AddOutputDevice(LogCaptureDevice.Get());
+        }
         return true;
     }
 
@@ -205,19 +244,15 @@ bool UMcpAutomationBridgeSubsystem::HandleLogAction(
     // -------------------------------------------------------------------------
     if (SubAction == TEXT("unsubscribe"))
     {
+        SendLogSubscriptionResponse(TEXT("unsubscribe"), false, LogCaptureDevice.IsValid(),
+            TEXT("Unsubscribed from editor logs."));
+
         if (LogCaptureDevice.IsValid())
         {
             // Remove and destroy log capture device
 		GLog->RemoveOutputDevice(LogCaptureDevice.Get());
 			LogCaptureDevice.Reset();
 		}
-
-        TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
-        Result->SetStringField(TEXT("action"), TEXT("unsubscribe"));
-        Result->SetBoolField(TEXT("subscribed"), false);
-
-        SendAutomationResponse(RequestingSocket, RequestId, true, 
-            TEXT("Unsubscribed from editor logs."), Result);
         return true;
     }
 

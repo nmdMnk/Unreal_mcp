@@ -3404,11 +3404,20 @@ bool UMcpAutomationBridgeSubsystem::HandleManageWidgetAuthoringAction(
             {
                 Clipping = EWidgetClipping::OnDemand;
             }
-	Widget->SetClipping(Clipping);
-	if (!McpSafeAssetSave(WidgetBP)) {
-		SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to save widget blueprint after clipping change"), TEXT("SAVE_FAILED"));
-		return true;
-	}
+            Widget->SetClipping(Clipping);
+            WidgetBP->MarkPackageDirty();
+            const bool bSaveSucceeded = McpSafeAssetSave(WidgetBP);
+
+            ResultJson->SetStringField(TEXT("mode"), TEXT("write"));
+            ResultJson->SetStringField(TEXT("propertyName"), TEXT("Clipping"));
+            ResultJson->SetStringField(TEXT("value"), ClippingStr);
+            ResultJson->SetStringField(TEXT("widgetName"), SlotName);
+            ResultJson->SetStringField(TEXT("widgetClass"), Widget->GetClass()->GetName());
+            ResultJson->SetBoolField(TEXT("saveSucceeded"), bSaveSucceeded);
+            if (!bSaveSucceeded)
+            {
+                ResultJson->SetStringField(TEXT("warning"), TEXT("Clipping changed in editor memory, but package save did not complete in the current headless session."));
+            }
         }
         else if (SubAction.Equals(TEXT("set_style"), ESearchCase::IgnoreCase))
         {
@@ -5028,11 +5037,15 @@ bool UMcpAutomationBridgeSubsystem::HandleManageWidgetAuthoringAction(
             return true;
         }
 
-        // Note: Actually creating the binding requires modifying the widget graph
-        // This is a complex operation - for now we document what binding to create
-        
         FBlueprintEditorUtils::MarkBlueprintAsModified(WidgetBP);
-        McpSafeAssetSave(WidgetBP);
+        const bool bSaveSucceeded = McpSafeAssetSave(WidgetBP);
+        if (!bSaveSucceeded)
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                TEXT("Widget binding target was verified, but the widget blueprint could not be saved."),
+                TEXT("SAVE_FAILED"));
+            return true;
+        }
 
         ResultJson->SetBoolField(TEXT("success"), true);
         ResultJson->SetStringField(TEXT("widgetPath"), WidgetPath);
@@ -5040,11 +5053,9 @@ bool UMcpAutomationBridgeSubsystem::HandleManageWidgetAuthoringAction(
         ResultJson->SetStringField(TEXT("property"), PropertyName);
         ResultJson->SetStringField(TEXT("functionName"), FunctionName);
         ResultJson->SetStringField(TEXT("bindingType"), BindingType);
-        ResultJson->SetStringField(TEXT("note"), FString::Printf(
-            TEXT("Create a function '%s' returning %s, then bind to %s.%s in the Widget Designer."),
-            *FunctionName, *BindingType, *TargetWidget, *PropertyName));
-
-        SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Widget binding configured"), ResultJson);
+        ResultJson->SetBoolField(TEXT("targetVerified"), true);
+        ResultJson->SetBoolField(TEXT("saved"), true);
+        SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Widget binding target verified"), ResultJson);
         return true;
     }
 
@@ -5803,7 +5814,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageWidgetAuthoringAction(
         UUniformGridPanel* InventoryGrid = CreateAndRegisterWidget<UUniformGridPanel>(WidgetBP, WidgetBP->WidgetTree, TEXT("InventoryGrid"));
         BackgroundPanel->AddChild(InventoryGrid);
 
-        // Add slot placeholders
+        // Add visible inventory slot widgets
         for (int32 Row = 0; Row < GridRows; ++Row)
         {
             for (int32 Col = 0; Col < GridColumns; ++Col)
