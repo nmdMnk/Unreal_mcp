@@ -195,10 +195,10 @@ export async function handleAudioAuthoringTools(
 
     case 'connect_metasound_nodes': {
       requireNonEmptyString(argsRecord.assetPath, 'assetPath', 'Missing required parameter: assetPath');
-      requireNonEmptyString(argsRecord.sourceNode, 'sourceNode', 'Missing required parameter: sourceNode');
-      requireNonEmptyString(argsRecord.sourcePin, 'sourcePin', 'Missing required parameter: sourcePin');
-      requireNonEmptyString(argsRecord.targetNode, 'targetNode', 'Missing required parameter: targetNode');
-      requireNonEmptyString(argsRecord.targetPin, 'targetPin', 'Missing required parameter: targetPin');
+      requireNonEmptyString(argsRecord.sourceNodeId ?? argsRecord.sourceNode, 'sourceNodeId', 'Missing required parameter: sourceNodeId');
+      requireNonEmptyString(argsRecord.sourceOutputName ?? argsRecord.sourcePin, 'sourceOutputName', 'Missing required parameter: sourceOutputName');
+      requireNonEmptyString(argsRecord.targetNodeId ?? argsRecord.targetNode, 'targetNodeId', 'Missing required parameter: targetNodeId');
+      requireNonEmptyString(argsRecord.targetInputName ?? argsRecord.targetPin, 'targetInputName', 'Missing required parameter: targetInputName');
       return sendRequest('connect_metasound_nodes');
     }
 

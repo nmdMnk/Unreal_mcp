@@ -888,7 +888,18 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         const assetPath = extractString(params, 'assetPath');
         const res = await executeAutomationRequest(tools, 'rebuild_material', {
           assetPath
-        });
+        }) as AssetOperationResponse;
+        if (res && typeof res.success === 'boolean' && res.success === false) {
+          const errorCode = typeof res.error === 'string' ? res.error.toUpperCase() : 'REBUILD_FAILED';
+          const message = typeof res.message === 'string' ? res.message : 'Material rebuild failed';
+          return cleanObject({
+            success: false,
+            error: errorCode,
+            message,
+            assetPath,
+            data: res
+          });
+        }
         return ResponseFactory.success(res, 'Material rebuilt successfully');
       }
       case 'bulk_rename': {

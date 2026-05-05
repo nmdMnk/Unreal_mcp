@@ -2,7 +2,7 @@ import { getAdditionalPathPrefixes } from '../config.js';
 
 export function sanitizePath(path: string, allowedRoots?: string[]): string {
     // Default roots: all standard UE paths plus configured additional prefixes
-    const defaultRoots = ['/Game', '/Engine', '/Script', '/Temp'];
+    const defaultRoots = ['/Game', '/Engine', '/Script', '/Temp', '/Niagara'];
     const sourceRoots = allowedRoots ?? [
         ...defaultRoots,
         ...getAdditionalPathPrefixes().map(p => p.replace(/\/$/, '')),

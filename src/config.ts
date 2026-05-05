@@ -2,14 +2,18 @@ import { z } from 'zod';
 import { Logger } from './utils/logger.js';
 import dotenv from 'dotenv';
 
-// Suppress dotenv output to avoid corrupting MCP stdout stream
-const originalWrite = process.stdout.write;
- 
-process.stdout.write = function () { return true; } as typeof process.stdout.write;
-try {
-  dotenv.config();
-} finally {
-  process.stdout.write = originalWrite;
+// Suppress dotenv output to avoid corrupting MCP stdout stream.
+// Unit tests assert schema defaults and must not inherit developer-local .env values.
+const shouldLoadDotenv = process.env.NODE_ENV !== 'test' && process.env.VITEST !== 'true' && process.env.VITEST_WORKER_ID === undefined;
+if (shouldLoadDotenv) {
+  const originalWrite = process.stdout.write;
+
+  process.stdout.write = function () { return true; } as typeof process.stdout.write;
+  try {
+    dotenv.config();
+  } finally {
+    process.stdout.write = originalWrite;
+  }
 }
 
 const log = new Logger('Config');

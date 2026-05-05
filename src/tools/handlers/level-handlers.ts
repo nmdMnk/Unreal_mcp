@@ -278,7 +278,7 @@ export async function handleLevelTools(action: string, args: HandlerArgs, tools:
     case 'delete_level': {
       const levelPaths = Array.isArray(argsTyped.levelPaths)
         ? argsTyped.levelPaths.filter((p): p is string => typeof p === 'string')
-        : (argsTyped.levelPath ? [argsTyped.levelPath] : []);
+        : (argsTyped.levelPath || argsTyped.path ? [argsTyped.levelPath || argsTyped.path] : []);
       // Validate at least one path is provided for delete
       if (levelPaths.length === 0) {
         return cleanObject({
@@ -288,11 +288,31 @@ export async function handleLevelTools(action: string, args: HandlerArgs, tools:
           action
         });
       }
-      const res = await executeAutomationRequest(tools, 'manage_level', {
-        action: 'delete_levels',
-        levelPaths
-      }) as Record<string, unknown>;
-      return cleanObject(res);
+      if (levelPaths.length === 1) {
+        const res = await executeAutomationRequest(tools, 'manage_level', {
+          action: 'delete_level',
+          levelPath: levelPaths[0]
+        }) as Record<string, unknown>;
+        return cleanObject(res);
+      }
+
+      const results: Record<string, unknown>[] = [];
+      for (const levelPath of levelPaths) {
+        const result = await executeAutomationRequest(tools, 'manage_level', {
+          action: 'delete_level',
+          levelPath
+        }) as Record<string, unknown>;
+        results.push(cleanObject(result));
+      }
+
+      const failed = results.find(result => result.success === false || result.isError === true);
+      return cleanObject({
+        success: !failed,
+        deletedCount: results.filter(result => result.success !== false && result.isError !== true).length,
+        results,
+        error: failed ? 'DELETE_FAILED' : undefined,
+        message: failed ? 'One or more level deletes failed' : 'Levels deleted'
+      });
     }
     case 'rename_level': {
       const sourcePath = argsTyped.levelPath || argsTyped.sourcePath;

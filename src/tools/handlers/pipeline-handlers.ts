@@ -73,6 +73,14 @@ function tokenizeArgs(extraArgs: string): string[] {
   return args;
 }
 
+/** Return true only when the final path segment is literally "Engine". */
+function isEngineDirectoryPath(enginePath: string): boolean {
+  const trimmed = enginePath.replace(/[\\/]+$/, '');
+  const segments = trimmed.split(/[\\/]/);
+  const lastSegment = segments[segments.length - 1];
+  return typeof lastSegment === 'string' && lastSegment.toLowerCase() === 'engine';
+}
+
 /**
  * Probe a concrete UBT file path for existence + executability.
  * Returns the path if valid, undefined otherwise.
@@ -108,7 +116,7 @@ async function findUbtExecutable(): Promise<string> {
     undefined;
 
   if (enginePath) {
-    const endsWithEngine = /Engine[\\/]*$/i.test(enginePath.replace(/\//g, '\\'));
+    const endsWithEngine = isEngineDirectoryPath(enginePath);
 
     const roots: string[] = endsWithEngine
       ? [enginePath]
@@ -239,6 +247,42 @@ async function findUbtExecutable(): Promise<string> {
   return '';
 }
 
+/** Return Unreal's bundled .NET runtime folder for the current platform, if present. */
+async function findBundledDotNetRoot(ubtPath: string): Promise<string | undefined> {
+  const ubtDir = path.dirname(ubtPath);
+  const engineDir = path.resolve(ubtDir, '..', '..', '..');
+  const dotNetBase = path.join(engineDir, 'Binaries', 'ThirdParty', 'DotNet');
+
+  const platformFolder = (() => {
+    if (process.platform === 'win32') {
+      return process.arch === 'arm64' ? 'win-arm64' : 'win-x64';
+    }
+    if (process.platform === 'darwin') {
+      return process.arch === 'arm64' ? 'mac-arm64' : 'mac-x64';
+    }
+    return process.arch === 'arm64' ? 'linux-arm64' : 'linux-x64';
+  })();
+
+  try {
+    const entries = await fs.promises.readdir(dotNetBase, { withFileTypes: true });
+    const versionDirs = entries
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+
+    for (const versionDir of versionDirs) {
+      const candidateRoot = path.join(dotNetBase, versionDir, platformFolder);
+      const dotnetExecutable = path.join(candidateRoot, process.platform === 'win32' ? 'dotnet.exe' : 'dotnet');
+      const hit = await tryUbtpath(dotnetExecutable);
+      if (hit) {
+        return candidateRoot;
+      }
+    }
+  } catch { /* bundled runtime unavailable */ }
+
+  return undefined;
+}
+
 /** Dispatch pipeline actions (run_ubt, etc.) to local UBT or the C++ bridge. */
 export async function handlePipelineTools(action: string, args: PipelineArgs, tools: ITools) {
   switch (action) {
@@ -290,7 +334,7 @@ export async function handlePipelineTools(action: string, args: PipelineArgs, to
         }
       }
 
-      const projectArg = `-Project="${uprojectFile}"`;
+      const projectArg = `-Project=${uprojectFile}`;
       const extraTokens = tokenizeArgs(extraArgs);
 
       const cmdArgs = [
@@ -306,9 +350,18 @@ export async function handlePipelineTools(action: string, args: PipelineArgs, to
       const isDll = discoveredUbtPath.endsWith('.dll');
       const executable = isDll ? 'dotnet' : discoveredUbtPath;
       const actualArgs = isDll ? [discoveredUbtPath, ...cmdArgs] : cmdArgs;
+      const bundledDotNetRoot = await findBundledDotNetRoot(discoveredUbtPath);
+      const childEnv = bundledDotNetRoot
+        ? {
+          ...process.env,
+          DOTNET_ROOT: bundledDotNetRoot,
+          DOTNET_MULTILEVEL_LOOKUP: '0',
+          PATH: `${bundledDotNetRoot}${path.delimiter}${process.env.PATH ?? ''}`,
+        }
+        : process.env;
 
       return new Promise((resolve) => {
-        const child = spawn(executable, actualArgs, { shell: false });
+        const child = spawn(executable, actualArgs, { shell: false, env: childEnv });
 
         const MAX_OUTPUT_SIZE = 20 * 1024; // 20KB cap
         let stdout = '';

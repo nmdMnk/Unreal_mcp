@@ -117,8 +117,11 @@ async function resolveComponentObjectPathFromArgs(args: HandlerArgs, tools: IToo
     // 1. Exact Name/Path Match
     let match = components.find((c) => String(c?.name || '').toLowerCase() === needle)
       ?? components.find((c) => String(c?.objectPath || '').toLowerCase() === needle)
+      ?? components.find((c) => String(c?.path || '').toLowerCase() === needle)
       ?? components.find((c) => String(c?.objectPath || '').toLowerCase().endsWith(`:${needle}`))
-      ?? components.find((c) => String(c?.objectPath || '').toLowerCase().endsWith(`.${needle}`));
+      ?? components.find((c) => String(c?.objectPath || '').toLowerCase().endsWith(`.${needle}`))
+      ?? components.find((c) => String(c?.path || '').toLowerCase().endsWith(`:${needle}`))
+      ?? components.find((c) => String(c?.path || '').toLowerCase().endsWith(`.${needle}`));
 
     // 2. Fuzzy/StartsWith Match (e.g. "StaticMeshComponent" -> "StaticMeshComponent0")
     if (!match) {
@@ -131,6 +134,9 @@ async function resolveComponentObjectPathFromArgs(args: HandlerArgs, tools: IToo
     if (match) {
       if (typeof match.objectPath === 'string' && match.objectPath.trim().length > 0) {
         return match.objectPath.trim();
+      }
+      if (typeof match.path === 'string' && match.path.trim().length > 0) {
+        return match.path.trim();
       }
       if (typeof match.name === 'string' && match.name.trim().length > 0) {
         // Construct path from the MATCHED name, not the requested name
@@ -449,52 +455,85 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       return cleanObject(res);
     }
     case 'get_component_property': {
-      const componentObjectPath = await resolveComponentObjectPathFromArgs(args, tools);
+      const actorName = await resolveObjectPath(args, tools, { pathKeys: [], actorKeys: ['actorName', 'name', 'objectPath'] });
       const params = normalizeArgs(args, [
+        { key: 'componentName', required: true },
         { key: 'propertyName', aliases: ['propertyPath'], required: true }
       ]);
+      if (!actorName) {
+        throw new Error('Invalid actorName: required to resolve componentName');
+      }
+      const componentName = extractString(params, 'componentName');
       const propertyName = extractString(params, 'propertyName');
 
-      const res = await executeAutomationRequest(tools, 'inspect', {
-        action: 'get_property',
-        objectPath: componentObjectPath,
+      const res = await executeAutomationRequest(tools, 'control_actor', {
+        action: 'get_component_property',
+        actorName,
+        componentName,
         propertyName
       }) as Record<string, unknown>;
       return cleanObject(res);
     }
     case 'set_component_property': {
-      const componentObjectPath = await resolveComponentObjectPathFromArgs(args, tools);
+      const actorName = await resolveObjectPath(args, tools, { pathKeys: [], actorKeys: ['actorName', 'name', 'objectPath'] });
       const params = normalizeArgs(args, [
+        { key: 'componentName', required: true },
         { key: 'propertyName', aliases: ['propertyPath'], required: true },
         { key: 'value' }
       ]);
+      if (!actorName) {
+        throw new Error('Invalid actorName: required to resolve componentName');
+      }
+      const componentName = extractString(params, 'componentName');
       const propertyName = extractString(params, 'propertyName');
       const value = params.value;
 
-      const res = await executeAutomationRequest(tools, 'inspect', {
-        action: 'set_property',
-        objectPath: componentObjectPath,
-        propertyName,
-        value
+      const res = await executeAutomationRequest(tools, 'control_actor', {
+        action: 'set_component_property',
+        actorName,
+        componentName,
+        properties: {
+          [propertyName]: value
+        }
       }) as Record<string, unknown>;
       return cleanObject(res);
     }
     case 'get_component_details': {
-      // Get component details by inspecting the component object
-      const componentObjectPath = await resolveComponentObjectPathFromArgs(args, tools);
-      
+      const actorName = await resolveObjectPath(args, tools, { pathKeys: [], actorKeys: ['actorName', 'name', 'objectPath'] });
+      const params = normalizeArgs(args, [
+        { key: 'componentName', required: true }
+      ]);
+      if (!actorName) {
+        throw new Error('Invalid actorName: required to resolve componentName');
+      }
+      const componentName = extractString(params, 'componentName');
+
       const res = await executeAutomationRequest(
         tools,
-        'inspect',
+        'control_actor',
         {
-          action: 'inspect_object',
-          objectPath: componentObjectPath,
-          detailed: true
+          action: 'get_components',
+          actorName
         },
         'Failed to get component details'
       ) as InspectResponse;
-      
-      return cleanObject(res);
+
+      const resultData = res.result as Record<string, unknown> | undefined;
+      const components = Array.isArray(res.components) ? res.components :
+        (resultData && Array.isArray(resultData.components)) ? resultData.components as ComponentInfo[] :
+        [];
+      const needle = componentName.toLowerCase();
+      const component = components.find((c) => String(c.name || '').toLowerCase() === needle);
+      if (!component) {
+        throw new Error(`Component not found: ${componentName}`);
+      }
+
+      return cleanObject({
+        success: true,
+        actorName,
+        componentName,
+        component
+      });
     }
     case 'get_metadata': {
       const actorName = await resolveObjectPath(args, tools);

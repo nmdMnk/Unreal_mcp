@@ -107,7 +107,9 @@ export async function handleAnimationTools(action: string, args: HandlerArgs, to
             if (!meshPath && meshComp.skeletalMesh) meshPath = meshComp.skeletalMesh;
           }
         }
-      } catch (_e) { }
+      } catch (_e) {
+        // Actor component lookup is best-effort; explicit skeletonPath/meshPath inputs still drive the request.
+      }
     }
 
     const payload = {

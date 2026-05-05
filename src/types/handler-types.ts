@@ -255,6 +255,7 @@ export interface EditorArgs extends HandlerArgs {
 
 export interface LevelArgs extends HandlerArgs {
     levelPath?: string;
+    path?: string;
     levelName?: string;
     levelPaths?: string[];
     destinationPath?: string;
@@ -1348,4 +1349,3 @@ export interface VolumesArgs extends HandlerArgs {
     // Save option
     save?: boolean;
 }
-

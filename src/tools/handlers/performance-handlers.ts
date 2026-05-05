@@ -161,7 +161,10 @@ export async function handlePerformanceTools(action: string, args: HandlerArgs, 
         const res = await executeAutomationRequest(tools, TOOL_ACTIONS.MERGE_ACTORS, {
           enableInstancing: mergeParams.enableInstancing as boolean | undefined,
           mergeActors: true,
-          actors: actors
+          actors,
+          replaceSourceActors: mergeParams.replaceSourceActors as boolean | undefined,
+          packageName: typeof mergeParams.packageName === 'string' ? mergeParams.packageName : undefined,
+          outputPath: typeof mergeParams.outputPath === 'string' ? mergeParams.outputPath : undefined
         }) as Record<string, unknown>;
         return cleanObject(res);
       }

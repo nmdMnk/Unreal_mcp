@@ -379,7 +379,7 @@ export class ToolRegistry {
                                         source: 'disk'
                                     };
                                 } catch (_diskErr) {
-                                    // Ignore and fall through to stub
+                                    // Ignore and fall through to an explicit unavailable response
                                 }
                             }
 

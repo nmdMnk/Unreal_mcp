@@ -233,9 +233,10 @@ async function handleMaterialGraph(action: string, args: GraphArgs, tools: ITool
             }
         }
         
-        if (payload.toPin && !payload.inputName) {
-            if (typeof payload.toPin === 'string') {
-                payload.inputName = payload.toPin.replace(/\s+/g, '');
+        const targetInput = payload.toPin ?? payload.targetPin;
+        if (targetInput && !payload.inputName) {
+            if (typeof targetInput === 'string') {
+                payload.inputName = targetInput.replace(/\s+/g, '');
             }
         }
     }

@@ -138,6 +138,8 @@ async function setSoundAttenuation(tools: ITools, args: AudioArgs): Promise<Reco
 
   const payload = {
     name: args.name ?? '',
+    path: toStringValue(args.path ?? args.savePath),
+    save: toBoolean(args.save),
     innerRadius: toNumber(args.innerRadius),
     falloffDistance: toNumber(args.falloffDistance),
     attenuationShape: toStringValue(args.attenuationShape),

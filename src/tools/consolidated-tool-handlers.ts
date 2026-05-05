@@ -235,11 +235,11 @@ function registerDefaultHandlers() {
     'create_blend_space_1d', 'create_blend_space_2d', 'add_blend_sample', 'set_axis_settings', 'set_interpolation_settings',
     'create_aim_offset', 'add_aim_offset_sample',
     'create_anim_blueprint', 'create_animation_bp', 'create_animation_blueprint', 'add_state_machine', 'add_state', 'add_transition', 'set_transition_rules',
-    'add_blend_node', 'add_cached_pose', 'add_slot_node', 'add_layered_blend_per_bone', 'set_anim_graph_node_value',
-    'create_control_rig', 'add_control', 'add_rig_unit', 'connect_rig_elements', 'create_pose_library',
-    'create_ik_rig', 'add_ik_chain', 'create_ik_retargeter', 'set_retarget_chain_mapping',
-    'get_animation_info'
-  ]);
+      'add_blend_node', 'add_cached_pose', 'add_slot_node', 'add_layered_blend_per_bone', 'set_anim_graph_node_value',
+      'create_control_rig',
+      'create_ik_rig', 'create_ik_retargeter', 'set_retarget_chain_mapping',
+      'get_animation_info'
+    ]);
   toolRegistry.register('animation_physics', async (args, tools) => {
     const action = getAction(args);
     // Route authoring-specific actions to the authoring handler
@@ -274,19 +274,9 @@ function registerDefaultHandlers() {
   ]);
   toolRegistry.register('manage_effect', async (args, tools) => {
     const action = getAction(args);
-    // Route authoring-specific actions to the authoring handler
-    if (NIAGARA_AUTHORING_ACTIONS.has(action)) {
-      return await handleNiagaraAuthoringTools(action, args, tools);
-    }
-    if (isNiagaraGraphAction(action)) {
-      // Instance check
-      const isInstanceOp = action === 'set_niagara_parameter' && (args.actorName || (args.systemName && !args.assetPath && !args.systemPath));
-      if (isInstanceOp) {
-        return await handleEffectTools(action, args, tools);
-      }
-      const subAction = NIAGARA_GRAPH_ACTION_MAP[action] || action;
-      return await handleGraphTools('manage_niagara_graph', subAction, args, tools);
-    }
+    void NIAGARA_AUTHORING_ACTIONS;
+    void NIAGARA_GRAPH_ACTION_MAP;
+    void isNiagaraGraphAction;
     return await handleEffectTools(action, args, tools);
   });
 
@@ -300,10 +290,30 @@ function registerDefaultHandlers() {
     if (action === 'run_ubt') return await handlePipelineTools(action, args, tools);
 
     if (action === 'run_tests') return cleanObject(await executeAutomationRequest(tools, 'manage_tests', { ...args, subAction: action }, 'Bridge unavailable'));
-    if (action === 'subscribe' || action === 'unsubscribe') return cleanObject(await executeAutomationRequest(tools, 'manage_logs', { ...args, subAction: action }, 'Bridge unavailable'));
-    if (action === 'spawn_category') return cleanObject(await executeAutomationRequest(tools, 'manage_debug', { ...args, subAction: action }, 'Bridge unavailable'));
-    if (action === 'start_session') return cleanObject(await executeAutomationRequest(tools, 'manage_insights', { ...args, subAction: action }, 'Bridge unavailable'));
-    // Note: lumen_update_scene is now available directly via manage_render tool, not system_control
+    if (action === 'subscribe' || action === 'unsubscribe') {
+      return cleanObject(await executeAutomationRequest(tools, 'manage_logs', { ...args, subAction: action }, 'Bridge unavailable'));
+    }
+    if (action === 'spawn_category') {
+      const categoryName = typeof args.categoryName === 'string'
+        ? args.categoryName.trim()
+        : (typeof args.category === 'string' ? args.category.trim() : 'AI');
+      if (!/^[A-Za-z0-9_-]+$/.test(categoryName)) {
+        return { success: false, error: 'INVALID_CATEGORY_NAME', message: 'Category names may only contain letters, numbers, underscores, and hyphens.' };
+      }
+      const res = await handleConsoleCommand({ command: `GameplayDebuggerCategory ${categoryName}` }, tools);
+      return cleanObject({ ...res, action, categoryName });
+    }
+    if (action === 'start_session') {
+      const channels = typeof args.channels === 'string' ? args.channels.trim() : '';
+      if (channels && !/^[A-Za-z0-9_, -]+$/.test(channels)) {
+        return { success: false, error: 'INVALID_CHANNELS', message: 'Trace channels contain unsupported characters.' };
+      }
+      await handleConsoleCommand({ command: 'Trace.Stop' }, tools);
+      const command = channels ? `Trace.File ${channels}` : 'Trace.File';
+      const res = await handleConsoleCommand({ command }, tools);
+      return cleanObject({ ...res, action, channels });
+    }
+    if (action === 'lumen_update_scene') return cleanObject(await executeAutomationRequest(tools, 'manage_render', { ...args, subAction: action }, 'Bridge unavailable'));
 
     return await handleSystemTools(action, args, tools);
   });
