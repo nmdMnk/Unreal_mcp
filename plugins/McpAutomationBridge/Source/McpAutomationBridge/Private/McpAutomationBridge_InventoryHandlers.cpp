@@ -1784,8 +1784,15 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         bEntryAdded = false;
       }
     } else {
-      // For generic data assets without proper array properties
-      bEntryAdded = false;
+      // For generic MCP data assets, persist the entry in the extensible property map.
+      const int32 GenericEntryIndex = LootTable->Properties.Num();
+      const FString EntryKey = FString::Printf(TEXT("LootEntry_%d"), GenericEntryIndex);
+      const FString EntryValue = FString::Printf(
+          TEXT("ItemPath=%s;Weight=%s;MinQuantity=%d;MaxQuantity=%d"),
+          *ItemPath, *FString::SanitizeFloat(Weight), MinQuantity, MaxQuantity);
+      LootTable->Properties.Add(EntryKey, EntryValue);
+      EntryIndex = GenericEntryIndex;
+      bEntryAdded = true;
     }
 
     LootTable->MarkPackageDirty();
@@ -1803,7 +1810,7 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
     Result->SetNumberField(TEXT("entryIndex"), EntryIndex);
     Result->SetBoolField(TEXT("added"), bEntryAdded);
     if (!EntriesProp) {
-      Result->SetStringField(TEXT("note"), TEXT("LootEntries property not found. Ensure your loot table class has a LootEntries or Entries array property."));
+      Result->SetStringField(TEXT("storage"), TEXT("Properties"));
     }
     SendAutomationResponse(RequestingSocket, RequestId, true,
                            TEXT("Loot entry added"), Result);
@@ -2098,13 +2105,33 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
       return true;
     }
 
+    UObject* RecipeAsset = StaticLoadObject(UDataAsset::StaticClass(), nullptr, *RecipePath);
+    UMcpGenericDataAsset* GenericRecipe = Cast<UMcpGenericDataAsset>(RecipeAsset);
+
+    if (!GenericRecipe) {
+      SendAutomationError(
+          RequestingSocket, RequestId,
+          FString::Printf(TEXT("Recipe not found or unsupported asset type: %s"), *RecipePath),
+          TEXT("ASSET_NOT_FOUND"));
+      return true;
+    }
+
+    const int32 RequiredLevel = static_cast<int32>(GetPayloadNumber(Payload, TEXT("requiredLevel"), 0));
+    const FString RequiredStation = GetPayloadString(Payload, TEXT("requiredStation"), TEXT("None"));
+    GenericRecipe->Properties.Add(TEXT("RequiredLevel"), FString::FromInt(RequiredLevel));
+    GenericRecipe->Properties.Add(TEXT("RequiredStation"), RequiredStation);
+    GenericRecipe->MarkPackageDirty();
+
+    if (GetPayloadBool(Payload, TEXT("save"), false)) {
+      McpSafeAssetSave(GenericRecipe);
+    }
+
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
     Result->SetStringField(TEXT("recipePath"), RecipePath);
-    Result->SetNumberField(TEXT("requiredLevel"),
-                           GetPayloadNumber(Payload, TEXT("requiredLevel"), 0));
-    Result->SetStringField(TEXT("requiredStation"),
-                           GetPayloadString(Payload, TEXT("requiredStation"), TEXT("None")));
+    Result->SetNumberField(TEXT("requiredLevel"), RequiredLevel);
+    Result->SetStringField(TEXT("requiredStation"), RequiredStation);
     Result->SetBoolField(TEXT("configured"), true);
+    Result->SetNumberField(TEXT("propertiesModified"), 2);
     SendAutomationResponse(RequestingSocket, RequestId, true,
                            TEXT("Recipe requirements configured"), Result);
     return true;
@@ -2356,6 +2383,17 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
       }
     }
 
+    if (ModifiedProps.Num() == 0) {
+      if (UMcpGenericDataAsset* GenericItem = Cast<UMcpGenericDataAsset>(ItemAsset)) {
+        GenericItem->Properties.Add(TEXT("bStackable"), bStackable ? TEXT("true") : TEXT("false"));
+        GenericItem->Properties.Add(TEXT("MaxStackSize"), FString::FromInt(MaxStackSize));
+        GenericItem->Properties.Add(TEXT("bUniqueItem"), bUniqueItems ? TEXT("true") : TEXT("false"));
+        ModifiedProps.Add(TEXT("Properties.bStackable"));
+        ModifiedProps.Add(TEXT("Properties.MaxStackSize"));
+        ModifiedProps.Add(TEXT("Properties.bUniqueItem"));
+      }
+    }
+
     ItemAsset->MarkPackageDirty();
 
     if (GetPayloadBool(Payload, TEXT("save"), false)) {
@@ -2373,7 +2411,7 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
       ModArr.Add(MakeShared<FJsonValueString>(Prop));
     }
     Result->SetArrayField(TEXT("modifiedProperties"), ModArr);
-    Result->SetBoolField(TEXT("configured"), true);
+    Result->SetBoolField(TEXT("configured"), ModifiedProps.Num() > 0);
 
     if (ModifiedProps.Num() == 0) {
       Result->SetStringField(TEXT("note"), TEXT("No stacking properties found. Ensure your item class has bStackable, MaxStackSize, or StackLimit properties."));
@@ -2427,6 +2465,14 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
           IconPropertyName = PropName;
           break;
         }
+      }
+    }
+
+    if (!bIconSet) {
+      if (UMcpGenericDataAsset* GenericItem = Cast<UMcpGenericDataAsset>(ItemAsset)) {
+        GenericItem->Properties.Add(TEXT("IconPath"), IconPath);
+        bIconSet = true;
+        IconPropertyName = TEXT("Properties.IconPath");
       }
     }
 
@@ -2499,8 +2545,17 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         bIngredientAdded = false;
       }
     } else {
-      // For generic data assets without proper array properties
-      bIngredientAdded = false;
+      if (UMcpGenericDataAsset* GenericRecipe = Cast<UMcpGenericDataAsset>(RecipeAsset)) {
+        const int32 GenericIngredientIndex = GenericRecipe->Properties.Num();
+        const FString IngredientKey = FString::Printf(TEXT("Ingredient_%d"), GenericIngredientIndex);
+        const FString IngredientValue = FString::Printf(
+            TEXT("ItemPath=%s;Quantity=%d"), *IngredientItemPath, Quantity);
+        GenericRecipe->Properties.Add(IngredientKey, IngredientValue);
+        IngredientIndex = GenericIngredientIndex;
+        bIngredientAdded = true;
+      } else {
+        bIngredientAdded = false;
+      }
     }
 
     RecipeAsset->MarkPackageDirty();
@@ -2516,7 +2571,9 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
     Result->SetNumberField(TEXT("ingredientIndex"), IngredientIndex);
     Result->SetBoolField(TEXT("added"), bIngredientAdded);
 
-    if (!IngredientsProp) {
+    if (!IngredientsProp && bIngredientAdded) {
+      Result->SetStringField(TEXT("storage"), TEXT("Properties"));
+    } else if (!IngredientsProp) {
       Result->SetStringField(TEXT("note"), TEXT("Ingredients property not found. Ensure your recipe class has an Ingredients, RequiredItems, or InputItems array."));
     }
 
@@ -2866,6 +2923,16 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+    auto AddGenericProperties = [](TSharedPtr<FJsonObject> TargetResult, UObject* Asset) {
+      if (UMcpGenericDataAsset* GenericAsset = Cast<UMcpGenericDataAsset>(Asset)) {
+        TSharedPtr<FJsonObject> PropertiesObject = MakeShared<FJsonObject>();
+        for (const TPair<FString, FString>& Pair : GenericAsset->Properties) {
+          PropertiesObject->SetStringField(Pair.Key, Pair.Value);
+        }
+        TargetResult->SetObjectField(TEXT("properties"), PropertiesObject);
+        TargetResult->SetNumberField(TEXT("propertyCount"), GenericAsset->Properties.Num());
+      }
+    };
 
     if (!BlueprintPath.IsEmpty()) {
       UBlueprint* Blueprint = Cast<UBlueprint>(
@@ -2907,6 +2974,7 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
       Result->SetStringField(TEXT("assetType"), TEXT("Item"));
       Result->SetStringField(TEXT("itemPath"), ItemPath);
       Result->SetStringField(TEXT("className"), ItemAsset->GetClass()->GetName());
+      AddGenericProperties(Result, ItemAsset);
     } else if (!LootTablePath.IsEmpty()) {
       UObject* LootTableAsset = StaticLoadObject(UDataAsset::StaticClass(), nullptr, *LootTablePath);
       if (!LootTableAsset) {
@@ -2917,6 +2985,7 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
       }
       Result->SetStringField(TEXT("assetType"), TEXT("LootTable"));
       Result->SetStringField(TEXT("lootTablePath"), LootTablePath);
+      AddGenericProperties(Result, LootTableAsset);
     } else if (!RecipePath.IsEmpty()) {
       UObject* RecipeAsset = StaticLoadObject(UDataAsset::StaticClass(), nullptr, *RecipePath);
       if (!RecipeAsset) {
@@ -2927,6 +2996,7 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
       }
       Result->SetStringField(TEXT("assetType"), TEXT("Recipe"));
       Result->SetStringField(TEXT("recipePath"), RecipePath);
+      AddGenericProperties(Result, RecipeAsset);
     } else if (!PickupPath.IsEmpty()) {
       UBlueprint* PickupBlueprint = Cast<UBlueprint>(
           StaticLoadObject(UBlueprint::StaticClass(), nullptr, *PickupPath));
@@ -2959,4 +3029,3 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
 #undef GetPayloadString
 #undef GetPayloadNumber
 #undef GetPayloadBool
-

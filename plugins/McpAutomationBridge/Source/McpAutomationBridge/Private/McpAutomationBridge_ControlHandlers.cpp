@@ -56,6 +56,7 @@
 #include "McpAutomationBridgeHelpers.h"
 #include "McpHandlerUtils.h"
 #include "McpAutomationBridgeSubsystem.h"
+#include "Misc/CommandLine.h"
 #include "Misc/ScopeExit.h"
 
 #if WITH_EDITOR
@@ -2964,6 +2965,20 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorOpenAsset(
     return true;
   }
 
+  if (FParse::Param(FCommandLine::Get(), TEXT("NullRHI"))) {
+    TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+    Resp->SetBoolField(TEXT("success"), true);
+    Resp->SetStringField(TEXT("assetPath"), AssetPath);
+    Resp->SetStringField(TEXT("assetClass"), Asset->GetClass()->GetName());
+    Resp->SetBoolField(TEXT("loaded"), true);
+    Resp->SetBoolField(TEXT("editorOpened"), false);
+    Resp->SetBoolField(TEXT("headlessSafe"), true);
+    SendAutomationResponse(Socket, RequestId, true,
+                           TEXT("Asset loaded; editor window skipped under NullRHI"), Resp,
+                           FString());
+    return true;
+  }
+
   const bool bOpened = AssetEditorSS->OpenEditorForAsset(Asset);
 
   TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
@@ -3655,6 +3670,19 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorCloseAsset(
     return true;
   }
 
+  if (FParse::Param(FCommandLine::Get(), TEXT("NullRHI"))) {
+    TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+    Resp->SetBoolField(TEXT("success"), true);
+    Resp->SetStringField(TEXT("assetPath"), AssetPath);
+    Resp->SetBoolField(TEXT("loaded"), true);
+    Resp->SetBoolField(TEXT("editorClosed"), false);
+    Resp->SetBoolField(TEXT("headlessSafe"), true);
+    SendAutomationResponse(Socket, RequestId, true,
+                           TEXT("Asset verified; editor close skipped under NullRHI"), Resp,
+                           FString());
+    return true;
+  }
+
   AssetEditorSS->CloseAllEditorsForAsset(Asset);
 
   TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
@@ -4035,20 +4063,35 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorOpenLevel(
     return true;
   }
   
-  bool bOpened = McpSafeLoadMap(MapPathToLoad);
+  TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakThis(this);
+  FTSTicker::GetCoreTicker().AddTicker(
+      FTickerDelegate::CreateLambda([WeakThis, Socket, RequestId, LevelPath,
+                                     MapPathToLoad](float) {
+        if (!WeakThis.IsValid()) {
+          return false;
+        }
 
-  TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-  Resp->SetBoolField(TEXT("success"), bOpened);
-  Resp->SetStringField(TEXT("levelPath"), LevelPath);
-  Resp->SetStringField(TEXT("loadedPath"), MapPathToLoad);
-  
-  if (bOpened) {
-    UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
-           TEXT("OpenLevel: Successfully opened level: %s"), *MapPathToLoad);
-    SendAutomationResponse(Socket, RequestId, true, TEXT("Level opened"), Resp, FString());
-  } else {
-    SendStandardErrorResponse(this, Socket, RequestId, TEXT("OPEN_FAILED"), TEXT("Failed to open level"), Resp);
-  }
+        bool bOpened = McpSafeLoadMap(MapPathToLoad);
+
+        TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+        Resp->SetBoolField(TEXT("success"), bOpened);
+        Resp->SetStringField(TEXT("levelPath"), LevelPath);
+        Resp->SetStringField(TEXT("loadedPath"), MapPathToLoad);
+
+        if (bOpened) {
+          UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
+                 TEXT("OpenLevel: Successfully opened level: %s"), *MapPathToLoad);
+          WeakThis->SendAutomationResponse(Socket, RequestId, true,
+                                           TEXT("Level opened"), Resp, FString());
+        } else {
+          SendStandardErrorResponse(WeakThis.Get(), Socket, RequestId,
+                                    TEXT("OPEN_FAILED"),
+                                    TEXT("Failed to open level"), Resp);
+        }
+
+        return false;
+      }),
+      0.0f);
   return true;
 #else
   return false;

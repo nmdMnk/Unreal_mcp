@@ -3303,7 +3303,9 @@ if (SubAction == TEXT("add_montage_notify"))
             ANIM_ERROR_RESPONSE(TEXT("controlName is required"), TEXT("MISSING_CONTROL_NAME"));
         }
         
-        ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("Control '%s' added (requires manual rig setup)"), *ControlName));
+        ANIM_ERROR_RESPONSE(
+            TEXT("add_control is handled by the animation_physics runtime authoring route; call animation_physics with action=add_control."),
+            TEXT("WRONG_HANDLER_ROUTE"));
 #else
         ANIM_ERROR_RESPONSE(TEXT("Control Rig module not available"), TEXT("NOT_SUPPORTED"));
 #endif
@@ -3316,7 +3318,9 @@ if (SubAction == TEXT("add_montage_notify"))
         FString AssetPath = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("assetPath"), TEXT("")));
         FString UnitType = GetStringFieldAnimAuth(Params, TEXT("unitType"), TEXT(""));
         
-        ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("Rig unit '%s' added (requires manual rig setup)"), *UnitType));
+        ANIM_ERROR_RESPONSE(
+            TEXT("add_rig_unit is handled by the animation_physics runtime authoring route; call animation_physics with action=add_rig_unit."),
+            TEXT("WRONG_HANDLER_ROUTE"));
 #else
         ANIM_ERROR_RESPONSE(TEXT("Control Rig module not available"), TEXT("NOT_SUPPORTED"));
 #endif
@@ -3326,7 +3330,9 @@ if (SubAction == TEXT("add_montage_notify"))
     if (SubAction == TEXT("connect_rig_elements"))
     {
 #if MCP_HAS_CONTROLRIG
-        ANIM_SUCCESS_RESPONSE(TEXT("Rig elements connected (requires manual rig setup)"));
+        ANIM_ERROR_RESPONSE(
+            TEXT("connect_rig_elements is handled by the animation_physics runtime authoring route; call animation_physics with action=connect_rig_elements."),
+            TEXT("WRONG_HANDLER_ROUTE"));
 #else
         ANIM_ERROR_RESPONSE(TEXT("Control Rig module not available"), TEXT("NOT_SUPPORTED"));
 #endif
@@ -3352,9 +3358,9 @@ if (SubAction == TEXT("add_montage_notify"))
             ANIM_ERROR_RESPONSE(FString::Printf(TEXT("Could not load skeleton: %s"), *SkeletonPath), TEXT("SKELETON_NOT_FOUND"));
         }
         
-        FString FullPath = Path / Name;
-        Response->SetStringField(TEXT("assetPath"), FullPath);
-        ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("Pose library '%s' creation requires manual setup"), *Name));
+        ANIM_ERROR_RESPONSE(
+            TEXT("create_pose_library is handled by the animation_physics runtime authoring route; call animation_physics with action=create_pose_library."),
+            TEXT("WRONG_HANDLER_ROUTE"));
 #else
         ANIM_ERROR_RESPONSE(TEXT("Pose Asset not available in this engine version"), TEXT("NOT_SUPPORTED"));
 #endif
@@ -3435,12 +3441,9 @@ if (SubAction == TEXT("create_ik_rig"))
     Response->SetStringField(TEXT("assetPath"), IKRig->GetPathName());
     ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("IK Rig '%s' created successfully"), *Name));
 #elif MCP_HAS_IKRIG
-    // Factory not available, fall back to informative message
-    FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
-    FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Retargeting")));
-    FString FullPath = Path / Name;
-    Response->SetStringField(TEXT("assetPath"), FullPath);
-    ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("IK Rig '%s' creation requires IKRigEditor module"), *Name));
+    ANIM_ERROR_RESPONSE(
+        TEXT("create_ik_rig requires the IKRigEditor factory module in this build"),
+        TEXT("IKRIG_FACTORY_UNAVAILABLE"));
 #else
     ANIM_ERROR_RESPONSE(TEXT("IK Rig module not available"), TEXT("NOT_SUPPORTED"));
 #endif
@@ -3458,7 +3461,9 @@ if (SubAction == TEXT("create_ik_rig"))
             ANIM_ERROR_RESPONSE(TEXT("chainName is required"), TEXT("MISSING_CHAIN_NAME"));
         }
         
-        ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("IK chain '%s' added (requires manual setup)"), *ChainName));
+        ANIM_ERROR_RESPONSE(
+            TEXT("add_ik_chain is handled by the animation_physics runtime authoring route; call animation_physics with action=add_ik_chain."),
+            TEXT("WRONG_HANDLER_ROUTE"));
 #else
         ANIM_ERROR_RESPONSE(TEXT("IK Rig module not available"), TEXT("NOT_SUPPORTED"));
 #endif
@@ -3553,12 +3558,9 @@ Retargeter->TargetIKRigAsset = TargetRig;
         Response->SetStringField(TEXT("assetPath"), Retargeter->GetPathName());
         ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("IK Retargeter '%s' created successfully"), *Name));
 #elif MCP_HAS_IKRETARGETER
-        // Factory not available, fall back to informative message
-        FString Name = GetStringFieldAnimAuth(Params, TEXT("name"), TEXT(""));
-        FString Path = NormalizeAnimPath(GetStringFieldAnimAuth(Params, TEXT("path"), TEXT("/Game/Retargeting")));
-        FString FullPath = Path / Name;
-        Response->SetStringField(TEXT("assetPath"), FullPath);
-        ANIM_SUCCESS_RESPONSE(FString::Printf(TEXT("IK Retargeter '%s' creation requires IKRigEditor module"), *Name));
+        ANIM_ERROR_RESPONSE(
+            TEXT("create_ik_retargeter requires the IKRigEditor factory module in this build"),
+            TEXT("IKRETARGET_FACTORY_UNAVAILABLE"));
 #else
         ANIM_ERROR_RESPONSE(TEXT("IK Retargeter module not available"), TEXT("NOT_SUPPORTED"));
 #endif
@@ -3707,4 +3709,3 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAnimationAuthoringAction(
 #undef GetBoolFieldAnimAuth
 
 #endif // WITH_EDITOR
-

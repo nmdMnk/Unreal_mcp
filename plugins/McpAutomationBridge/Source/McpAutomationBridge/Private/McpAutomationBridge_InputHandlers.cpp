@@ -232,9 +232,21 @@ bool UMcpAutomationBridgeSubsystem::HandleInputAction(
         const FString FullPath = FString::Printf(TEXT("%s/%s"), *SanitizedPath, *Name);
         if (UEditorAssetLibrary::DoesAssetExist(FullPath))
         {
-            SendAutomationError(RequestingSocket, RequestId,
-                FString::Printf(TEXT("Asset already exists at %s"), *FullPath),
-                TEXT("ASSET_EXISTS"));
+            UInputAction* ExistingAction = Cast<UInputAction>(UEditorAssetLibrary::LoadAsset(FullPath));
+            if (!ExistingAction)
+            {
+                SendAutomationError(RequestingSocket, RequestId,
+                    FString::Printf(TEXT("Asset already exists at %s but is not an InputAction"), *FullPath),
+                    TEXT("ASSET_TYPE_MISMATCH"));
+                return true;
+            }
+
+            TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+            Result->SetStringField(TEXT("assetPath"), ExistingAction->GetPathName());
+            McpHandlerUtils::AddVerification(Result, ExistingAction);
+
+            SendAutomationResponse(RequestingSocket, RequestId, true,
+                TEXT("Input Action already exists."), Result);
             return true;
         }
 
@@ -304,9 +316,21 @@ bool UMcpAutomationBridgeSubsystem::HandleInputAction(
         const FString FullPath = FString::Printf(TEXT("%s/%s"), *SanitizedPath, *Name);
         if (UEditorAssetLibrary::DoesAssetExist(FullPath))
         {
-            SendAutomationError(RequestingSocket, RequestId,
-                FString::Printf(TEXT("Asset already exists at %s"), *FullPath),
-                TEXT("ASSET_EXISTS"));
+            UInputMappingContext* ExistingContext = Cast<UInputMappingContext>(UEditorAssetLibrary::LoadAsset(FullPath));
+            if (!ExistingContext)
+            {
+                SendAutomationError(RequestingSocket, RequestId,
+                    FString::Printf(TEXT("Asset already exists at %s but is not an InputMappingContext"), *FullPath),
+                    TEXT("ASSET_TYPE_MISMATCH"));
+                return true;
+            }
+
+            TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+            Result->SetStringField(TEXT("assetPath"), ExistingContext->GetPathName());
+            McpHandlerUtils::AddVerification(Result, ExistingContext);
+
+            SendAutomationResponse(RequestingSocket, RequestId, true,
+                TEXT("Input Mapping Context already exists."), Result);
             return true;
         }
 

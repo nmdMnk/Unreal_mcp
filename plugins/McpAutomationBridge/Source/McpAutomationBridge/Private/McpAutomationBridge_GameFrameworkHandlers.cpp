@@ -1018,8 +1018,10 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGameFrameworkAction(
 
         if (Payload->HasField(TEXT("startPlayersNeeded")))
         {
-            // This would typically be a custom property - log for user info
-            UE_LOG(LogMcpGameFrameworkHandlers, Log, TEXT("startPlayersNeeded would require custom variable in Blueprint"));
+            SendAutomationError(RequestingSocket, RequestId,
+                TEXT("startPlayersNeeded is not a native GameMode property and is not implemented as a generated Blueprint variable."),
+                TEXT("UNSUPPORTED_FIELD"));
+            return true;
         }
 
         if (bModified)

@@ -2348,6 +2348,15 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
         Payload->TryGetArrayField(TEXT("retargetAssets"), AssetsArray);
       }
 
+      if (!AssetsArray || AssetsArray->Num() == 0) {
+        bSuccess = false;
+        Message = TEXT("setup_retargeting requires at least one animation asset to retarget");
+        ErrorCode = TEXT("MISSING_RETARGET_ASSETS");
+        Resp->SetStringField(TEXT("error"), Message);
+        Resp->SetStringField(TEXT("sourceSkeleton"), SourceSkeletonPath);
+        Resp->SetStringField(TEXT("targetSkeleton"), TargetSkeletonPath);
+      } else {
+
       FString SavePath;
       Payload->TryGetStringField(TEXT("savePath"), SavePath);
       if (!SavePath.IsEmpty()) {
@@ -2420,36 +2429,44 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
               SkippedAssets.Add(SourceAssetPath);
               continue;
             }
-          } else if (!UEditorAssetLibrary::DuplicateAsset(
-                         SourceAssetPath, DestinationObjectPath)) {
+            if (!UEditorAssetLibrary::DeleteAsset(DestinationObjectPath)) {
+              WarningArray.Add(MakeShared<FJsonValueString>(FString::Printf(
+                  TEXT("Failed to delete existing retarget destination: %s"),
+                  *DestinationObjectPath)));
+              SkippedAssets.Add(SourceAssetPath);
+              continue;
+            }
+          }
+
+          UPackage *DestinationPackage = CreatePackage(*DestinationObjectPath);
+          if (!DestinationPackage) {
             WarningArray.Add(MakeShared<FJsonValueString>(FString::Printf(
-                TEXT("Failed to duplicate asset: %s"), *SourceAssetPath)));
+                TEXT("Failed to create destination package: %s"),
+                *DestinationObjectPath)));
             SkippedAssets.Add(SourceAssetPath);
             continue;
           }
 
-          UAnimSequence *DestinationSequence =
-              LoadObject<UAnimSequence>(nullptr, *DestinationObjectPath);
+          UAnimSequence *DestinationSequence = Cast<UAnimSequence>(
+              StaticDuplicateObject(SourceSequence, DestinationPackage,
+                                    *DestinationAssetName));
           if (!DestinationSequence) {
             WarningArray.Add(MakeShared<FJsonValueString>(
-                FString::Printf(TEXT("Failed to load duplicated asset: %s"),
+                FString::Printf(TEXT("Failed to duplicate animation asset: %s"),
                                 *DestinationObjectPath)));
             SkippedAssets.Add(SourceAssetPath);
             continue;
           }
 
+          DestinationSequence->SetFlags(RF_Public | RF_Standalone);
           DestinationSequence->Modify();
           DestinationSequence->SetSkeleton(TargetSkeleton);
+          DestinationPackage->MarkPackageDirty();
+          FAssetRegistryModule::AssetCreated(DestinationSequence);
           McpSafeAssetSave(DestinationSequence);
 
-          TArray<UAnimSequence *> SourceList;
-          SourceList.Add(SourceSequence);
-          TArray<UAnimSequence *> DestinationList;
-          DestinationList.Add(DestinationSequence);
-
           // Animation retargeting in UE5 requires IK Rig system
-          // For now, just use the duplicated asset (created above) without full
-          // retargeting
+          // Use a duplicated AnimSequence with the target skeleton assigned.
           UE_LOG(LogMcpAutomationBridgeSubsystem, Log,
                  TEXT("Animation asset copied (retargeting requires IK Rig "
                       "setup)"));
@@ -2458,10 +2475,14 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
         }
       }
 
-      bSuccess = true;
-      Message = RetargetedAssets.Num() > 0
+      bSuccess = RetargetedAssets.Num() > 0;
+      Message = bSuccess
                     ? TEXT("Retargeting completed")
-                    : TEXT("Retargeting completed - no assets processed");
+                    : TEXT("Retargeting failed - no assets processed");
+      if (!bSuccess) {
+        ErrorCode = TEXT("NO_ASSETS_RETARGETED");
+        Resp->SetStringField(TEXT("error"), Message);
+      }
 
       TArray<TSharedPtr<FJsonValue>> RetargetedArray;
       for (const FString &Path : RetargetedAssets) {
@@ -2494,6 +2515,7 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
                            SourceSkeleton->GetPathName());
       Resp->SetStringField(TEXT("targetSkeleton"),
                            TargetSkeleton->GetPathName());
+      }
     }
   } else if (LowerSub == TEXT("play_montage") ||
              LowerSub == TEXT("play_anim_montage")) {

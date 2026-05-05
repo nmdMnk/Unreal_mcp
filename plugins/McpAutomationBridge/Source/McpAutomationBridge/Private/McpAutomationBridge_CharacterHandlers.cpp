@@ -174,7 +174,7 @@
 // REFACTORING NOTES:
 // ------------------
 // - Security validation via IsValidAssetPath() for all blueprint paths.
-// - Blueprint variable defaults use SetBPVarDefaultValue() stub (manual editor setting).
+// - Blueprint variable defaults use SetBPVarDefaultValue() with Blueprint metadata and CDO reflection.
 // - SavePackageHelperChar() uses McpSafeAssetSave for UE 5.7+ compatibility.
 // - #define aliases (GetStringFieldChar, etc.) for backward-compatible JSON helpers.
 // - AddBlueprintVariableChar in anonymous namespace to avoid Unity build collisions.
@@ -412,8 +412,8 @@ static void AddPlayerViewStateReportChar(UWorld* World, TSharedPtr<FJsonObject> 
 /**
  * SetBPVarDefaultValue - Set blueprint variable default value (multi-version compatible)
  * 
- * SetBlueprintVariableDefaultValue doesn't exist in UE 5.6 or 5.7.
- * The variable will use its type default. Users can set defaults in the Blueprint editor.
+ * SetBlueprintVariableDefaultValue doesn't exist in UE 5.6 or 5.7, so defaults are persisted by
+ * updating the Blueprint variable description and importing the value into the generated CDO.
  * 
  * @param Blueprint     Target blueprint
  * @param VarName       Variable name to set default for
@@ -421,12 +421,52 @@ static void AddPlayerViewStateReportChar(UWorld* World, TSharedPtr<FJsonObject> 
  */
 static void SetBPVarDefaultValue(UBlueprint* Blueprint, FName VarName, const FString& DefaultValue)
 {
-    // Setting Blueprint variable default values requires version-specific approaches
-    // that are not universally available. The variable will use its type default.
-    // Users can set defaults manually in the Blueprint editor.
-    UE_LOG(LogMcpCharacterHandlers, Log, 
-           TEXT("Variable '%s' created. Set default value in Blueprint editor if needed."), 
-           *VarName.ToString());
+#if WITH_EDITOR
+    if (!Blueprint)
+    {
+        return;
+    }
+
+    bool bUpdatedVariableDescription = false;
+    for (FBPVariableDescription& VarDesc : Blueprint->NewVariables)
+    {
+        if (VarDesc.VarName == VarName)
+        {
+            VarDesc.DefaultValue = DefaultValue;
+            bUpdatedVariableDescription = true;
+            break;
+        }
+    }
+
+    bool bAppliedToCDO = false;
+    McpSafeCompileBlueprint(Blueprint);
+    if (Blueprint->GeneratedClass)
+    {
+        if (UObject* CDO = Blueprint->GeneratedClass->GetDefaultObject())
+        {
+            if (FProperty* Property = FindFProperty<FProperty>(Blueprint->GeneratedClass, VarName))
+            {
+                void* ValuePtr = Property->ContainerPtrToValuePtr<void>(CDO);
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
+                Property->ImportText_Direct(*DefaultValue, ValuePtr, CDO, 0);
+#else
+                Property->ImportText(*DefaultValue, ValuePtr, PPF_None, CDO);
+#endif
+                bAppliedToCDO = true;
+            }
+        }
+    }
+
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    Blueprint->MarkPackageDirty();
+
+    if (!bUpdatedVariableDescription && !bAppliedToCDO)
+    {
+        UE_LOG(LogMcpCharacterHandlers, Warning,
+               TEXT("Variable '%s' default value could not be applied; variable was not found on Blueprint '%s'."),
+               *VarName.ToString(), *Blueprint->GetName());
+    }
+#endif
 }
 
 #if WITH_EDITOR

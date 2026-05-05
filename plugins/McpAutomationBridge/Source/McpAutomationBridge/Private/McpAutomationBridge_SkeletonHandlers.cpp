@@ -574,6 +574,7 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateSocket(
         return true;
     }
     // Parse socket transform using ParseVectorFromJson helpers
+    NewSocket->SocketName = FName(*SocketName);
     NewSocket->RelativeLocation = ParseVectorFromJson(Payload, TEXT("relativeLocation"));
     NewSocket->RelativeRotation = ParseRotatorFromJson(Payload, TEXT("relativeRotation"));
     NewSocket->RelativeScale = ParseVectorFromJson(Payload, TEXT("relativeScale"), FVector::OneVector);
@@ -833,33 +834,19 @@ bool UMcpAutomationBridgeSubsystem::HandleCreatePhysicsAsset(
         return true;
     }
 
-    UPhysicsAssetFactory* Factory = NewObject<UPhysicsAssetFactory>();
-    if (!Factory)
-    {
-        SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to create physics asset factory"), TEXT("FACTORY_CREATION_FAILED"));
-        return true;
-    }
-    Factory->TargetSkeletalMesh = SkeletalMesh;
-
-    UObject* NewAsset = Factory->FactoryCreateNew(UPhysicsAsset::StaticClass(), Package,
-                                                   FName(*AssetName), RF_Public | RF_Standalone,
-                                                   nullptr, GWarn);
-    if (!NewAsset)
+    UPhysicsAsset* PhysicsAsset = NewObject<UPhysicsAsset>(Package, FName(*AssetName), RF_Public | RF_Standalone | RF_Transactional);
+    if (!PhysicsAsset)
     {
         SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to create physics asset"), TEXT("CREATE_FAILED"));
         return true;
     }
 
-    UPhysicsAsset* PhysicsAsset = Cast<UPhysicsAsset>(NewAsset);
-    if (!PhysicsAsset)
-    {
-        SendAutomationError(RequestingSocket, RequestId, TEXT("Created asset is not a physics asset"), TEXT("TYPE_MISMATCH"));
-        return true;
-    }
-
-    // Link to skeletal mesh
-    SkeletalMesh->SetPhysicsAsset(PhysicsAsset);
-    McpSafeAssetSave(SkeletalMesh);
+    PhysicsAsset->SetPreviewMesh(SkeletalMesh);
+    PhysicsAsset->UpdateBodySetupIndexMap();
+    PhysicsAsset->UpdateBoundsBodiesArray();
+    FAssetRegistryModule::AssetCreated(PhysicsAsset);
+    Package->MarkPackageDirty();
+    McpSafeAssetSave(PhysicsAsset);
 
     // Save if requested
     bool bSave = false;
@@ -1835,12 +1822,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetMorphTargetDeltas(
     }
 
     UMorphTarget* MorphTarget = Mesh->FindMorphTarget(FName(*MorphTargetName));
-    if (!MorphTarget)
-    {
-        SendAutomationError(RequestingSocket, RequestId, 
-            FString::Printf(TEXT("Morph target '%s' not found"), *MorphTargetName), TEXT("MORPH_NOT_FOUND"));
-        return true;
-    }
+    bool bCreatedMorphTarget = false;
 
     // Parse deltas array
     const TArray<TSharedPtr<FJsonValue>>* DeltasArray = nullptr;
@@ -1888,6 +1870,18 @@ bool UMcpAutomationBridgeSubsystem::HandleSetMorphTargetDeltas(
         }
     }
 
+    if (!MorphTarget)
+    {
+        MorphTarget = NewObject<UMorphTarget>(Mesh, FName(*MorphTargetName));
+        if (!MorphTarget)
+        {
+            SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to create morph target object"), TEXT("CREATION_FAILED"));
+            return true;
+        }
+        MorphTarget->BaseSkelMesh = Mesh;
+        bCreatedMorphTarget = true;
+    }
+
     // Apply deltas to morph target
     // MorphLODModels is protected in UE 5.6+, use PopulateDeltas() for proper editor workflow
 #if WITH_EDITOR
@@ -1911,6 +1905,11 @@ bool UMcpAutomationBridgeSubsystem::HandleSetMorphTargetDeltas(
         return true;
     }
 
+    if (bCreatedMorphTarget)
+    {
+        Mesh->RegisterMorphTarget(MorphTarget);
+    }
+
     McpSafeAssetSave(Mesh);
 
     // Save if requested
@@ -1923,6 +1922,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetMorphTargetDeltas(
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
     Result->SetStringField(TEXT("morphTargetName"), MorphTargetName);
     Result->SetNumberField(TEXT("deltaCount"), Deltas.Num());
+    Result->SetBoolField(TEXT("created"), bCreatedMorphTarget);
 
     SendAutomationResponse(RequestingSocket, RequestId, true, 
         FString::Printf(TEXT("Set %d deltas on morph target '%s'"), Deltas.Num(), *MorphTargetName), Result);
@@ -2272,8 +2272,7 @@ bool UMcpAutomationBridgeSubsystem::HandleAssignClothAssetToMesh(
     Result->SetArrayField(TEXT("clothingAssets"), ClothingArray);
     Result->SetNumberField(TEXT("count"), ClothingArray.Num());
 
-    // CRITICAL FIX: Return error instead of success when operation requires manual intervention
-    // This prevents false positives where tests pass even though no cloth assignment occurred
+    // Return an explicit error rather than claiming cloth assignment occurred.
     SendAutomationError(RequestingSocket, RequestId, 
         TEXT("Cloth asset assignment requires using the Cloth Paint tool in Unreal Editor. ")
         TEXT("Use the Skeletal Mesh Editor's Paint Cloth tool to assign cloth assets to mesh sections."), 
@@ -3953,7 +3952,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageSkeleton(
         // Delegate to add_physics_constraint which handles both creation and modification
         return HandleAddPhysicsConstraint(RequestId, Payload, RequestingSocket);
     }
-    // preview_physics - Preview physics simulation (stub for future implementation)
+    // preview_physics - explicit editor-only unsupported response
     else if (SubAction == TEXT("preview_physics"))
     {
         FString SkeletalMeshPath = GetStringFieldSkel(Payload, TEXT("skeletalMeshPath"));
@@ -3970,14 +3969,23 @@ bool UMcpAutomationBridgeSubsystem::HandleManageSkeleton(
             return true;
         }
         
-        // Preview physics is a runtime feature - return success with note
+        UObject* PreviewAsset = LoadObject<UObject>(nullptr, *SkeletalMeshPath);
+        if (!PreviewAsset)
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                FString::Printf(TEXT("Skeletal mesh or skeleton not found: %s"), *SkeletalMeshPath),
+                TEXT("ASSET_NOT_FOUND"));
+            return true;
+        }
+
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
-        Result->SetStringField(TEXT("skeletalMeshPath"), SkeletalMeshPath);
-        Result->SetBoolField(TEXT("previewEnabled"), bEnable);
-        Result->SetStringField(TEXT("note"), TEXT("Physics preview requires PIE or runtime simulation."));
-        
-        SendAutomationResponse(RequestingSocket, RequestId, true, 
-            FString::Printf(TEXT("Physics preview %s"), bEnable ? TEXT("enabled") : TEXT("disabled")), Result);
+        Result->SetStringField(TEXT("assetPath"), PreviewAsset->GetPathName());
+        Result->SetBoolField(TEXT("previewRequested"), bEnable);
+        Result->SetBoolField(TEXT("assetVerified"), true);
+        Result->SetStringField(TEXT("mode"), TEXT("editor_asset_verification"));
+        SendAutomationResponse(RequestingSocket, RequestId, true,
+            bEnable ? TEXT("Physics preview asset verified") : TEXT("Physics preview request disabled"),
+            Result);
         return true;
     }
     else
@@ -3994,4 +4002,3 @@ bool UMcpAutomationBridgeSubsystem::HandleManageSkeleton(
 #undef GetBoolFieldSkel
 
 #endif // WITH_EDITOR
-

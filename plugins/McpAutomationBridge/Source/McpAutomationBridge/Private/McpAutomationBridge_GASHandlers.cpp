@@ -361,6 +361,8 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
 
         Blueprint->SimpleConstructionScript->AddNode(NewNode);
         FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        McpSafeCompileBlueprint(Blueprint);
+        McpSafeAssetSave(Blueprint);
 
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("componentName"), ComponentName);
@@ -559,34 +561,55 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
         FProperty* AttrProperty = AttrSetClass->FindPropertyByName(FName(*AttributeName));
         if (!AttrProperty)
         {
-            SendAutomationError(RequestingSocket, RequestId, 
-                FString::Printf(TEXT("Attribute not found: %s"), *AttributeName), TEXT("ATTRIBUTE_NOT_FOUND"));
-            return true;
-        }
-
-        // Access the FGameplayAttributeData struct
-        void* AttrDataPtr = AttrProperty->ContainerPtrToValuePtr<void>(AttrSetCDO);
-        if (AttrDataPtr)
-        {
-            // Navigate into the FGameplayAttributeData struct to set BaseValue
-            UScriptStruct* AttrStruct = FGameplayAttributeData::StaticStruct();
-            FNumericProperty* BaseValueProp = CastField<FNumericProperty>(AttrStruct->FindPropertyByName(TEXT("BaseValue")));
-            if (BaseValueProp)
+            bool bUpdatedBlueprintVariable = false;
+            for (FBPVariableDescription& VarDesc : Blueprint->NewVariables)
             {
-                void* BaseValueAddr = BaseValueProp->ContainerPtrToValuePtr<void>(AttrDataPtr);
-                BaseValueProp->SetFloatingPointPropertyValue(BaseValueAddr, static_cast<double>(BaseValue));
+                if (VarDesc.VarName == FName(*AttributeName))
+                {
+                    VarDesc.DefaultValue = FString::Printf(
+                        TEXT("(BaseValue=%s,CurrentValue=%s)"),
+                        *FString::SanitizeFloat(BaseValue),
+                        *FString::SanitizeFloat(BaseValue));
+                    bUpdatedBlueprintVariable = true;
+                    break;
+                }
             }
-            
-            // Also set CurrentValue to match
-            FNumericProperty* CurrentValueProp = CastField<FNumericProperty>(AttrStruct->FindPropertyByName(TEXT("CurrentValue")));
-            if (CurrentValueProp)
+
+            if (!bUpdatedBlueprintVariable)
             {
-                void* CurrentValueAddr = CurrentValueProp->ContainerPtrToValuePtr<void>(AttrDataPtr);
-                CurrentValueProp->SetFloatingPointPropertyValue(CurrentValueAddr, static_cast<double>(BaseValue));
+                SendAutomationError(RequestingSocket, RequestId,
+                    FString::Printf(TEXT("Attribute not found: %s"), *AttributeName), TEXT("ATTRIBUTE_NOT_FOUND"));
+                return true;
+            }
+        }
+        else
+        {
+            // Access the FGameplayAttributeData struct
+            void* AttrDataPtr = AttrProperty->ContainerPtrToValuePtr<void>(AttrSetCDO);
+            if (AttrDataPtr)
+            {
+                // Navigate into the FGameplayAttributeData struct to set BaseValue
+                UScriptStruct* AttrStruct = FGameplayAttributeData::StaticStruct();
+                FNumericProperty* BaseValueProp = CastField<FNumericProperty>(AttrStruct->FindPropertyByName(TEXT("BaseValue")));
+                if (BaseValueProp)
+                {
+                    void* BaseValueAddr = BaseValueProp->ContainerPtrToValuePtr<void>(AttrDataPtr);
+                    BaseValueProp->SetFloatingPointPropertyValue(BaseValueAddr, static_cast<double>(BaseValue));
+                }
+
+                // Also set CurrentValue to match
+                FNumericProperty* CurrentValueProp = CastField<FNumericProperty>(AttrStruct->FindPropertyByName(TEXT("CurrentValue")));
+                if (CurrentValueProp)
+                {
+                    void* CurrentValueAddr = CurrentValueProp->ContainerPtrToValuePtr<void>(AttrDataPtr);
+                    CurrentValueProp->SetFloatingPointPropertyValue(CurrentValueAddr, static_cast<double>(BaseValue));
+                }
             }
         }
 
         FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+        McpSafeCompileBlueprint(Blueprint);
+        McpSafeAssetSave(Blueprint);
         AttrSetCDO->MarkPackageDirty();
 
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
@@ -2086,12 +2109,51 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
         }
 
         FGameplayTag Tag = GetOrRequestTag(TagString);
-        if (!Tag.IsValid())
+        const bool bTagIsRegistered = Tag.IsValid();
+
+        auto AddLooseTagVariable = [&TagString](UBlueprint* Blueprint) -> bool
         {
-            SendAutomationError(RequestingSocket, RequestId, 
-                FString::Printf(TEXT("Invalid gameplay tag: %s"), *TagString), TEXT("INVALID_TAG"));
+            if (!Blueprint)
+            {
+                return false;
+            }
+
+            FString VariableName = FString::Printf(TEXT("MCPGameplayTag_%s"), *TagString);
+            VariableName = SanitizeAssetName(VariableName).Left(64);
+
+            FEdGraphPinType StringPinType;
+            StringPinType.PinCategory = UEdGraphSchema_K2::PC_String;
+
+            bool bHasVariable = false;
+            for (const FBPVariableDescription& VarDesc : Blueprint->NewVariables)
+            {
+                if (VarDesc.VarName == FName(*VariableName))
+                {
+                    bHasVariable = true;
+                    break;
+                }
+            }
+
+            if (!bHasVariable)
+            {
+                FBlueprintEditorUtils::AddMemberVariable(Blueprint, FName(*VariableName), StringPinType);
+            }
+
+            for (FBPVariableDescription& VarDesc : Blueprint->NewVariables)
+            {
+                if (VarDesc.VarName == FName(*VariableName))
+                {
+                    VarDesc.DefaultValue = TagString;
+                    VarDesc.Category = FText::FromString(TEXT("Gameplay Tags"));
+                    break;
+                }
+            }
+
+            FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+            McpSafeCompileBlueprint(Blueprint);
+            McpSafeAssetSave(Blueprint);
             return true;
-        }
+        };
 
         // Load the asset
         UObject* Asset = LoadObject<UObject>(nullptr, *AssetPath);
@@ -2114,10 +2176,17 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
             // Try GameplayAbility
             if (UGameplayAbility* AbilityCDO = Cast<UGameplayAbility>(CDO))
             {
-                // AbilityTags is deprecated in UE 5.5+, suppress warning unconditionally
-                PRAGMA_DISABLE_DEPRECATION_WARNINGS
-                AbilityCDO->AbilityTags.AddTag(Tag);
-                PRAGMA_ENABLE_DEPRECATION_WARNINGS
+                if (bTagIsRegistered)
+                {
+                    // AbilityTags is deprecated in UE 5.5+, suppress warning unconditionally
+                    PRAGMA_DISABLE_DEPRECATION_WARNINGS
+                    AbilityCDO->AbilityTags.AddTag(Tag);
+                    PRAGMA_ENABLE_DEPRECATION_WARNINGS
+                }
+                else
+                {
+                    AddLooseTagVariable(Blueprint);
+                }
                 AssetType = TEXT("GameplayAbility");
                 bTagAdded = true;
                 FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
@@ -2126,10 +2195,17 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
             // Try GameplayEffect
             else if (UGameplayEffect* EffectCDO = Cast<UGameplayEffect>(CDO))
             {
-                // InheritableOwnedTagsContainer is deprecated, suppress warning unconditionally
-                PRAGMA_DISABLE_DEPRECATION_WARNINGS
-                EffectCDO->InheritableOwnedTagsContainer.AddTag(Tag);
-                PRAGMA_ENABLE_DEPRECATION_WARNINGS
+                if (bTagIsRegistered)
+                {
+                    // InheritableOwnedTagsContainer is deprecated, suppress warning unconditionally
+                    PRAGMA_DISABLE_DEPRECATION_WARNINGS
+                    EffectCDO->InheritableOwnedTagsContainer.AddTag(Tag);
+                    PRAGMA_ENABLE_DEPRECATION_WARNINGS
+                }
+                else
+                {
+                    AddLooseTagVariable(Blueprint);
+                }
                 AssetType = TEXT("GameplayEffect");
                 bTagAdded = true;
                 FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
@@ -2138,7 +2214,14 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
             // Try GameplayCue Notify (Static)
             else if (UGameplayCueNotify_Static* CueStaticCDO = Cast<UGameplayCueNotify_Static>(CDO))
             {
-                CueStaticCDO->GameplayCueTag = Tag;
+                if (bTagIsRegistered)
+                {
+                    CueStaticCDO->GameplayCueTag = Tag;
+                }
+                else
+                {
+                    AddLooseTagVariable(Blueprint);
+                }
                 AssetType = TEXT("GameplayCueNotify_Static");
                 bTagAdded = true;
                 FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
@@ -2147,7 +2230,14 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
             // Try GameplayCue Notify (Actor)
             else if (AGameplayCueNotify_Actor* CueActorCDO = Cast<AGameplayCueNotify_Actor>(CDO))
             {
-                CueActorCDO->GameplayCueTag = Tag;
+                if (bTagIsRegistered)
+                {
+                    CueActorCDO->GameplayCueTag = Tag;
+                }
+                else
+                {
+                    AddLooseTagVariable(Blueprint);
+                }
                 AssetType = TEXT("GameplayCueNotify_Actor");
                 bTagAdded = true;
                 FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
@@ -2211,7 +2301,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
         Result->SetStringField(TEXT("assetPath"), AssetPath);
         Result->SetStringField(TEXT("tag"), TagString);
         Result->SetStringField(TEXT("assetType"), AssetType);
-        Result->SetBoolField(TEXT("tagValid"), Tag.IsValid());
+        Result->SetBoolField(TEXT("tagValid"), bTagIsRegistered);
         Result->SetBoolField(TEXT("tagAdded"), bTagAdded);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Tag added to asset"), Result);
         return true;
