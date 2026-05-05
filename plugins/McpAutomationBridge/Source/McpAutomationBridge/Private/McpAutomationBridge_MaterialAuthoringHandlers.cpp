@@ -4587,14 +4587,9 @@ PRAGMA_ENABLE_DEPRECATION_WARNINGS
     }
     AssetPath = ValidatedAssetPath;
 
-    // This is a stub that routes to appropriate parameter handler
-    TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
-    Result->SetStringField(TEXT("assetPath"), AssetPath);
-    Result->SetStringField(TEXT("parameterName"), ParameterName);
-    Result->SetBoolField(TEXT("parameterSet"), true);
-
-    SendAutomationResponse(Socket, RequestId, true,
-                           FString::Printf(TEXT("Parameter '%s' set."), *ParameterName), Result);
+    SendAutomationError(Socket, RequestId,
+                        TEXT("set_material_parameter is ambiguous. Use set_scalar_parameter_value, set_vector_parameter_value, or set_texture_parameter_value with a material instance path."),
+                        TEXT("AMBIGUOUS_ACTION"));
     return true;
   }
 
@@ -4721,16 +4716,9 @@ PRAGMA_ENABLE_DEPRECATION_WARNINGS
     }
     AssetPath = ValidatedAssetPath;
 
-    // Note: Cast shadows is typically a material property but may be on the component
-    // This is a stub that acknowledges the request
-    bool CastShadows = GetJsonBoolField(Payload, TEXT("castShadows"), true);
-
-    TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
-    Result->SetStringField(TEXT("assetPath"), AssetPath);
-    Result->SetBoolField(TEXT("castShadows"), CastShadows);
-
-    SendAutomationResponse(Socket, RequestId, true,
-                           FString::Printf(TEXT("Cast shadows set to %s."), CastShadows ? TEXT("true") : TEXT("false")), Result);
+    SendAutomationError(Socket, RequestId,
+                        TEXT("set_cast_shadows cannot be applied to a material asset. Configure shadow casting on a mesh/light component instead."),
+                        TEXT("UNSUPPORTED_OPERATION"));
     return true;
   }
 

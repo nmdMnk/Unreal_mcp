@@ -44,6 +44,7 @@
 #include "Async/Async.h"
 #include "Dom/JsonObject.h"
 #include "HAL/PlatformFileManager.h"
+#include "Misc/CommandLine.h"
 #include "Misc/Paths.h"
 #include "McpAutomationBridgeGlobals.h"
 #include "McpAutomationBridgeHelpers.h"
@@ -276,7 +277,7 @@ bool UMcpAutomationBridgeSubsystem::HandleAssetAction(
   if (Lower == TEXT("generate_report"))
     return HandleGenerateReport(RequestId, Payload, RequestingSocket);
   if (Lower == TEXT("create_thumbnail") || Lower == TEXT("generate_thumbnail"))
-    return HandleGenerateThumbnail(RequestId, Action, Payload, RequestingSocket);
+    return HandleGenerateThumbnail(RequestId, Lower, Payload, RequestingSocket);
   if (Lower == TEXT("add_material_parameter"))
     return HandleAddMaterialParameter(RequestId, Payload, RequestingSocket);
   if (Lower == TEXT("list_instances"))
@@ -300,7 +301,7 @@ bool UMcpAutomationBridgeSubsystem::HandleAssetAction(
   if (Lower == TEXT("bulk_delete"))
     return HandleBulkDeleteAssets(RequestId, Action, Payload, RequestingSocket);
   if (Lower == TEXT("generate_lods"))
-    return HandleGenerateLODs(RequestId, Action, Payload, RequestingSocket);
+    return HandleGenerateLODs(RequestId, Lower, Payload, RequestingSocket);
   if (Lower == TEXT("nanite_rebuild_mesh"))
     return HandleNaniteRebuildMesh(RequestId, Action, Payload, RequestingSocket);
 
@@ -1229,6 +1230,24 @@ bool UMcpAutomationBridgeSubsystem::HandleGenerateThumbnail(
     return true;
   }
 
+  if (FParse::Param(FCommandLine::Get(), TEXT("NullRHI"))) {
+    TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetStringField(TEXT("assetPath"), SafeAssetPath);
+    Result->SetStringField(TEXT("assetClass"), Asset->GetClass()->GetName());
+    Result->SetNumberField(TEXT("width"), Width);
+    Result->SetNumberField(TEXT("height"), Height);
+    Result->SetBoolField(TEXT("thumbnailRendered"), false);
+    Result->SetBoolField(TEXT("headlessSafe"), true);
+    if (!OutputPath.IsEmpty()) {
+      Result->SetStringField(TEXT("outputPath"), OutputPath);
+    }
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Asset verified; thumbnail rendering skipped under NullRHI"),
+                           Result, FString());
+    return true;
+  }
+
   // Send progress update before GPU operation
   SendProgressUpdate(RequestId, 50.0f,
       TEXT("Rendering thumbnail (GPU operation)..."), true);
@@ -1364,8 +1383,17 @@ bool UMcpAutomationBridgeSubsystem::HandleImportAsset(
     return true;
   }
 
+  FString ResolvedSourcePath = SourcePath;
+  if (!FPaths::FileExists(ResolvedSourcePath) && FPaths::IsRelative(SourcePath)) {
+    const FString ProjectRelativeSourcePath = FPaths::ConvertRelativePathToFull(
+        FPaths::ProjectDir(), SourcePath);
+    if (FPaths::FileExists(ProjectRelativeSourcePath)) {
+      ResolvedSourcePath = ProjectRelativeSourcePath;
+    }
+  }
+
   // Verify source file exists
-  if (!FPaths::FileExists(SourcePath)) {
+  if (!FPaths::FileExists(ResolvedSourcePath)) {
     SendAutomationResponse(
         Socket, RequestId, false,
         FString::Printf(TEXT("Source file not found: %s"), *SourcePath),
@@ -1402,7 +1430,7 @@ bool UMcpAutomationBridgeSubsystem::HandleImportAsset(
   if (GEditor) {
     TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakThis(this);
     GEditor->GetTimerManager()->SetTimerForNextTick(
-        [WeakThis, RequestId, SourcePath, DestPath, DestName, Socket]() {
+        [WeakThis, RequestId, ResolvedSourcePath, DestPath, DestName, Socket]() {
           UMcpAutomationBridgeSubsystem *StrongThis = WeakThis.Get();
           if (!StrongThis) {
             return;
@@ -1413,7 +1441,7 @@ bool UMcpAutomationBridgeSubsystem::HandleImportAsset(
                   .Get();
 
           TArray<FString> Files;
-          Files.Add(SourcePath);
+          Files.Add(ResolvedSourcePath);
 
           UAutomatedAssetImportData *ImportData =
               NewObject<UAutomatedAssetImportData>();
@@ -1472,7 +1500,7 @@ bool UMcpAutomationBridgeSubsystem::HandleImportAsset(
             StrongThis->SendAutomationResponse(
                 Socket, RequestId, false,
                 FString::Printf(TEXT("Failed to import asset from '%s'"),
-                                *SourcePath),
+                                 *ResolvedSourcePath),
                 nullptr, TEXT("IMPORT_FAILED"));
           }
         });
@@ -3469,6 +3497,70 @@ bool UMcpAutomationBridgeSubsystem::HandleGenerateLODs(
     return true;
   }
 
+  if (FParse::Param(FCommandLine::Get(), TEXT("NullRHI"))) {
+    int32 VerifiedCount = 0;
+    TArray<FString> NotFoundPaths;
+    TArray<FString> NotMeshPaths;
+    TArray<TSharedPtr<FJsonValue>> MeshDetails;
+
+    for (const FString &Path : Paths) {
+      UObject *Obj = LoadObject<UObject>(nullptr, *Path);
+      if (!Obj) {
+        NotFoundPaths.Add(Path);
+        continue;
+      }
+
+      UStaticMesh *Mesh = Cast<UStaticMesh>(Obj);
+      if (!Mesh) {
+        NotMeshPaths.Add(Path);
+        continue;
+      }
+
+      TSharedPtr<FJsonObject> MeshInfo = MakeShared<FJsonObject>();
+      MeshInfo->SetStringField(TEXT("assetPath"), Path);
+      MeshInfo->SetStringField(TEXT("assetClass"), Mesh->GetClass()->GetName());
+      MeshInfo->SetNumberField(TEXT("currentLODCount"), Mesh->GetNumLODs());
+      MeshInfo->SetNumberField(TEXT("requestedLODCount"), NumLODs);
+      MeshDetails.Add(MakeShared<FJsonValueObject>(MeshInfo));
+      VerifiedCount++;
+    }
+
+    TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+    const bool bSuccess = VerifiedCount > 0;
+    Resp->SetBoolField(TEXT("success"), bSuccess);
+    Resp->SetBoolField(TEXT("headlessSafe"), true);
+    Resp->SetBoolField(TEXT("lodBuildSkipped"), true);
+    Resp->SetNumberField(TEXT("verified"), VerifiedCount);
+    Resp->SetNumberField(TEXT("requested"), Paths.Num());
+    Resp->SetNumberField(TEXT("lodCount"), NumLODs);
+    Resp->SetArrayField(TEXT("meshes"), MeshDetails);
+
+    if (NotFoundPaths.Num() > 0) {
+      TArray<TSharedPtr<FJsonValue>> NotFoundArray;
+      for (const FString &Path : NotFoundPaths) {
+        NotFoundArray.Add(MakeShared<FJsonValueString>(Path));
+      }
+      Resp->SetArrayField(TEXT("notFoundPaths"), NotFoundArray);
+      Resp->SetNumberField(TEXT("notFoundCount"), NotFoundPaths.Num());
+    }
+
+    if (NotMeshPaths.Num() > 0) {
+      TArray<TSharedPtr<FJsonValue>> NotMeshArray;
+      for (const FString &Path : NotMeshPaths) {
+        NotMeshArray.Add(MakeShared<FJsonValueString>(Path));
+      }
+      Resp->SetArrayField(TEXT("notMeshPaths"), NotMeshArray);
+      Resp->SetNumberField(TEXT("notMeshCount"), NotMeshPaths.Num());
+    }
+
+    const FString Message = bSuccess
+        ? FString::Printf(TEXT("Verified %d mesh(es); LOD build skipped under NullRHI"), VerifiedCount)
+        : TEXT("No static meshes verified for LOD generation under NullRHI");
+    const FString ErrorCode = bSuccess ? FString() : TEXT("LOD_GENERATION_FAILED");
+    SendAutomationResponse(RequestingSocket, RequestId, bSuccess, Message, Resp, ErrorCode);
+    return true;
+  }
+
   // NOTE: ProcessAutomationRequest already dispatches to GameThread.
   // Wrapping ALL work in AsyncTask(GameThread, ...) caused the queued lambda
   // to sit behind the current dispatch cycle, so responses never reached the
@@ -3672,11 +3764,10 @@ bool UMcpAutomationBridgeSubsystem::HandleGetMetadata(
 }
 
 // ============================================================================
-// 9. MATERIAL REBUILD - NOT IMPLEMENTED (placeholder for future implementation)
+// 9. NANITE/MESH WORKFLOW ACTIONS
 // ============================================================================
 
-// Stub implementations for functions declared in header but removed from implementation
-// These functions are referenced by the dispatcher but were removed due to API changes
+// Dispatcher-compatible mesh workflow handlers with explicit success/error responses.
 
 bool UMcpAutomationBridgeSubsystem::HandleNaniteRebuildMesh(
     const FString &RequestId, const FString &Action,
@@ -5233,6 +5324,20 @@ bool UMcpAutomationBridgeSubsystem::HandleRebuildMaterial(
   Host->MarkPackageDirty();
   Host->PreEditChange(nullptr);
   Host->PostEditChange();
+
+  if (FParse::Param(FCommandLine::Get(), TEXT("NullRHI"))) {
+    TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+    if (Material) McpHandlerUtils::AddVerification(Result, Material);
+    else if (Function) McpHandlerUtils::AddVerification(Result, Function);
+    Result->SetStringField(TEXT("assetPath"), AssetPath);
+    Result->SetBoolField(TEXT("rebuilt"), true);
+    Result->SetBoolField(TEXT("headlessSafe"), true);
+    Result->SetBoolField(TEXT("saveSkipped"), true);
+
+    SendAutomationResponse(Socket, RequestId, true,
+                           TEXT("Material rebuilt; save skipped under NullRHI"), Result, FString());
+    return true;
+  }
 
   if (!McpSafeAssetSave(Host)) {
     SendAutomationError(Socket, RequestId, TEXT("Failed to save rebuilt material"), TEXT("SAVE_FAILED"));

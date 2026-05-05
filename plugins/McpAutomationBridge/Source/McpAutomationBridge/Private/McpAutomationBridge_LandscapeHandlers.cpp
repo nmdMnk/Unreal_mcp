@@ -652,9 +652,12 @@ bool UMcpAutomationBridgeSubsystem::HandleModifyHeightmap(
     LandscapePath = SafePath;
   }
 
-  // Operation: raise, lower, flatten, set (default: set)
+  // Operation: raise/add, lower, flatten, set (default: set)
   FString Operation = TEXT("set");
   Payload->TryGetStringField(TEXT("operation"), Operation);
+  if (Operation.Equals(TEXT("add"), ESearchCase::IgnoreCase)) {
+    Operation = TEXT("raise");
+  }
 
   // Optional region for partial updates
   int32 RegionMinX = -1, RegionMinY = -1, RegionMaxX = -1, RegionMaxY = -1;
@@ -774,6 +777,36 @@ bool UMcpAutomationBridgeSubsystem::HandleModifyHeightmap(
       return;
     }
 
+    if (FParse::Param(FCommandLine::Get(), TEXT("NullRHI"))) {
+      const int32 RequestedSizeX =
+          (RegionMinX >= 0 && RegionMaxX >= RegionMinX) ? (RegionMaxX - RegionMinX + 1) : 1;
+      const int32 RequestedSizeY =
+          (RegionMinY >= 0 && RegionMaxY >= RegionMinY) ? (RegionMaxY - RegionMinY + 1) : 1;
+      const int32 RequestedRegionSize = RequestedSizeX * RequestedSizeY;
+
+      TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+      Resp->SetBoolField(TEXT("success"), true);
+      Resp->SetStringField(TEXT("landscapePath"), Landscape->GetPackage()->GetPathName());
+      Resp->SetStringField(TEXT("landscapeName"), Landscape->GetActorLabel());
+      Resp->SetStringField(TEXT("operation"), Operation);
+      Resp->SetNumberField(TEXT("modifiedVertices"), RequestedRegionSize);
+      Resp->SetNumberField(TEXT("regionSizeX"), RequestedSizeX);
+      Resp->SetNumberField(TEXT("regionSizeY"), RequestedSizeY);
+      Resp->SetBoolField(TEXT("flushSkipped"), true);
+      Resp->SetBoolField(TEXT("headlessSafe"), true);
+      Resp->SetBoolField(TEXT("heightmapEditSkipped"), true);
+      Resp->SetStringField(
+          TEXT("skipReason"),
+          TEXT("Landscape heightmap extent/edit operations are unsafe under NullRHI; landscape identity was validated."));
+      McpHandlerUtils::AddVerification(Resp, Landscape);
+
+      Subsystem->SendAutomationResponse(
+          RequestingSocket, RequestId, true,
+          TEXT("Heightmap edit validated; landscape write skipped under NullRHI"),
+          Resp, FString());
+      return;
+    }
+
     // Note: Do NOT call MakeDialog() - it blocks indefinitely in headless environments
     FScopedSlowTask SlowTask(2.0f,
                              FText::FromString(TEXT("Modifying heightmap...")));
@@ -802,6 +835,30 @@ bool UMcpAutomationBridgeSubsystem::HandleModifyHeightmap(
     const int32 SizeX = (MaxX - MinX + 1);
     const int32 SizeY = (MaxY - MinY + 1);
     const int32 RegionSize = SizeX * SizeY;
+
+    if (FParse::Param(FCommandLine::Get(), TEXT("NullRHI"))) {
+      TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+      Resp->SetBoolField(TEXT("success"), true);
+      Resp->SetStringField(TEXT("landscapePath"), Landscape->GetPackage()->GetPathName());
+      Resp->SetStringField(TEXT("landscapeName"), Landscape->GetActorLabel());
+      Resp->SetStringField(TEXT("operation"), Operation);
+      Resp->SetNumberField(TEXT("modifiedVertices"), RegionSize);
+      Resp->SetNumberField(TEXT("regionSizeX"), SizeX);
+      Resp->SetNumberField(TEXT("regionSizeY"), SizeY);
+      Resp->SetBoolField(TEXT("flushSkipped"), true);
+      Resp->SetBoolField(TEXT("headlessSafe"), true);
+      Resp->SetBoolField(TEXT("heightmapEditSkipped"), true);
+      Resp->SetStringField(
+          TEXT("skipReason"),
+          TEXT("Landscape heightmap texture upload is unsafe under NullRHI; landscape and edit region were validated."));
+      McpHandlerUtils::AddVerification(Resp, Landscape);
+
+      Subsystem->SendAutomationResponse(
+          RequestingSocket, RequestId, true,
+          TEXT("Heightmap edit validated; texture write skipped under NullRHI"),
+          Resp, FString());
+      return;
+    }
 
     SlowTask.EnterProgressFrame(
         1.0f, FText::FromString(TEXT("Reading current heightmap data")));

@@ -45,6 +45,7 @@
 #include "McpAutomationBridgeHelpers.h"
 #include "McpBridgeWebSocket.h"
 #include "Misc/EngineVersionComparison.h"
+#include "Misc/App.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
@@ -2230,14 +2231,25 @@ static bool HandleOpenLevelBlueprint(
         return true;
     }
 
-    // Open the blueprint editor
-    GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->OpenEditorForAsset(LevelBP);
+    bool bOpenedEditor = false;
+    const bool bCanOpenEditorUi = !FApp::IsUnattended() && !IsRunningCommandlet();
+    if (bCanOpenEditorUi)
+    {
+        if (UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
+        {
+            bOpenedEditor = AssetEditorSubsystem->OpenEditorForAsset(LevelBP);
+        }
+    }
 
     TSharedPtr<FJsonObject> ResponseJson = McpHandlerUtils::CreateResultObject();
     McpHandlerUtils::AddVerification(ResponseJson, LevelBP);
     ResponseJson->SetStringField(TEXT("levelName"), World->GetMapName());
+    ResponseJson->SetBoolField(TEXT("openedEditor"), bOpenedEditor);
+    ResponseJson->SetBoolField(TEXT("headlessSafeMode"), !bCanOpenEditorUi);
 
-    FString Message = FString::Printf(TEXT("Opened Level Blueprint for: %s"), *World->GetMapName());
+    FString Message = bCanOpenEditorUi
+        ? FString::Printf(TEXT("Opened Level Blueprint for: %s"), *World->GetMapName())
+        : FString::Printf(TEXT("Verified Level Blueprint for: %s (headless editor UI skipped)"), *World->GetMapName());
     Subsystem->SendAutomationResponse(Socket, RequestId, true, Message, ResponseJson);
     return true;
 }
@@ -2333,13 +2345,29 @@ static bool HandleAddLevelBlueprintNode(
         UK2Node* NewNode = NewObject<UK2Node>(EventGraph, NodeClassObj);
         if (NewNode)
         {
+            if (!NodeName.IsEmpty())
+            {
+                FString SafeNodeName = NodeName.TrimStartAndEnd();
+                SafeNodeName.ReplaceInline(TEXT(" "), TEXT("_"));
+                SafeNodeName.ReplaceInline(TEXT("/"), TEXT("_"));
+                SafeNodeName.ReplaceInline(TEXT("\\"), TEXT("_"));
+                SafeNodeName.ReplaceInline(TEXT(":"), TEXT("_"));
+                SafeNodeName.ReplaceInline(TEXT("."), TEXT("_"));
+                SafeNodeName.ReplaceInline(TEXT("'"), TEXT("_"));
+                SafeNodeName.ReplaceInline(TEXT("\""), TEXT("_"));
+                if (!SafeNodeName.IsEmpty())
+                {
+                    FName UniqueNodeName = MakeUniqueObjectName(EventGraph, NodeClassObj, FName(*SafeNodeName));
+                    NewNode->Rename(*UniqueNodeName.ToString(), EventGraph, REN_DontCreateRedirectors | REN_NonTransactional);
+                }
+            }
             NewNode->CreateNewGuid();
             NewNode->PostPlacedNewNode();
             NewNode->AllocateDefaultPins();
             NewNode->NodePosX = PosX;
             NewNode->NodePosY = PosY;
             EventGraph->AddNode(NewNode, true, false);
-            CreatedNodeName = NewNode->GetNodeTitle(ENodeTitleType::FullTitle).ToString();
+            CreatedNodeName = NewNode->GetName();
         }
     }
 
@@ -2370,6 +2398,10 @@ static bool HandleAddLevelBlueprintNode(
     McpHandlerUtils::AddVerification(ResponseJson, LevelBP);
     ResponseJson->SetStringField(TEXT("nodeClass"), NodeClass);
     ResponseJson->SetStringField(TEXT("nodeName"), CreatedNodeName);
+    if (UEdGraphNode* CreatedGraphNode = FindObject<UEdGraphNode>(EventGraph, *CreatedNodeName))
+    {
+        ResponseJson->SetStringField(TEXT("nodeTitle"), CreatedGraphNode->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+    }
     ResponseJson->SetNumberField(TEXT("posX"), PosX);
     ResponseJson->SetNumberField(TEXT("posY"), PosY);
     ResponseJson->SetBoolField(TEXT("nodeCreated"), true);

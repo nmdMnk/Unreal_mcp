@@ -37,6 +37,7 @@
 #include "Dom/JsonObject.h"
 #include "McpAutomationBridgeHelpers.h"
 #include "McpAutomationBridgeSubsystem.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/UObjectIterator.h"
 
 // =============================================================================
@@ -1315,6 +1316,31 @@ bool UMcpAutomationBridgeSubsystem::HandleLightingAction(
         }
         Path = SanitizedPath;
 
+        FString LevelFilename;
+        const bool bHasLevelFilename = FPackageName::TryConvertLongPackageNameToFilename(
+            Path, LevelFilename, FPackageName::GetMapPackageExtension());
+        const bool bLevelExistsOnDisk = bHasLevelFilename &&
+            IFileManager::Get().FileExists(*FPaths::ConvertRelativePathToFull(LevelFilename));
+        const bool bLevelExistsInRegistry = FPackageName::DoesPackageExist(Path);
+        if (bLevelExistsOnDisk || bLevelExistsInRegistry)
+        {
+            TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+            Resp->SetBoolField(TEXT("success"), true);
+            Resp->SetStringField(TEXT("path"), Path);
+            Resp->SetBoolField(TEXT("alreadyExisted"), true);
+            Resp->SetBoolField(TEXT("existsAfter"), true);
+            Resp->SetStringField(TEXT("levelPath"), Path);
+
+            SendAutomationResponse(RequestingSocket, RequestId, true,
+                FString::Printf(TEXT("Level already exists with lighting path: %s"), *Path), Resp);
+            return true;
+        }
+
+        if (bHasLevelFilename)
+        {
+            IFileManager::Get().MakeDirectory(*FPaths::GetPath(LevelFilename), true);
+        }
+
         if (GEditor)
         {
             // Create a new blank map
@@ -1328,10 +1354,19 @@ bool UMcpAutomationBridgeSubsystem::HandleLightingAction(
 
             // Save the level using McpSafeLevelSave to prevent Intel GPU driver crashes
             // Explicitly use 5 retries for Intel GPU resilience (max 7.75s total retry time)
-            bool bSaved = McpSafeLevelSave(
-                GEditor->GetEditorWorldContext().World()->PersistentLevel, *Path, 5);
+            UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
+            bool bSaved = EditorWorld && EditorWorld->PersistentLevel &&
+                McpSafeLevelSave(EditorWorld->PersistentLevel, Path, 5);
             if (bSaved)
             {
+                if (bHasLevelFilename)
+                {
+                    IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+                    TArray<FString> FilesToScan;
+                    FilesToScan.Add(LevelFilename);
+                    AssetRegistry.ScanFilesSynchronous(FilesToScan, true);
+                }
+
                 TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
                 Resp->SetBoolField(TEXT("success"), true);
                 Resp->SetStringField(TEXT("path"), Path);

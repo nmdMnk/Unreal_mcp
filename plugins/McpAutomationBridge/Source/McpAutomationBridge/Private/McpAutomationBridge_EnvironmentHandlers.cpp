@@ -67,6 +67,8 @@
 #include "McpAutomationBridgeHelpers.h"
 #include "McpAutomationBridgeSubsystem.h"
 #include "Misc/ConfigCacheIni.h"
+#include "HAL/PlatformMemory.h"
+#include "Misc/App.h"
 
 // =============================================================================
 // Editor-Only Includes
@@ -850,10 +852,52 @@ bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
                               "SkySphere.SkySphere_C'"));
             if (!SkySphereClass)
             {
-                Message = TEXT("SkySphere class not found at /Engine/Maps/Templates/SkySphere.SkySphere_C. "
-                               "This asset may not exist in the current project.");
-                ErrorCode = TEXT("CLASS_NOT_FOUND");
-                Resp->SetStringField(TEXT("missingAsset"), TEXT("/Engine/Maps/Templates/SkySphere"));
+                FString RequestedName = TEXT("SkySphere");
+                Payload->TryGetStringField(TEXT("name"), RequestedName);
+
+                ADirectionalLight *SunLight = Cast<ADirectionalLight>(
+                    SpawnActorInActiveWorld<AActor>(ADirectionalLight::StaticClass(),
+                                                    FVector::ZeroVector,
+                                                    FRotator(-45.0f, -35.0f, 0.0f),
+                                                    TEXT("SkySunLight")));
+                ASkyLight *SkyLight = Cast<ASkyLight>(
+                    SpawnActorInActiveWorld<AActor>(ASkyLight::StaticClass(),
+                                                    FVector::ZeroVector,
+                                                    FRotator::ZeroRotator,
+                                                    TEXT("SkyLight")));
+
+                if (SunLight && SkyLight)
+                {
+                    SunLight->SetActorLabel(FString::Printf(TEXT("%s_Sun"), *RequestedName));
+                    SkyLight->SetActorLabel(FString::Printf(TEXT("%s_SkyLight"), *RequestedName));
+
+                    if (UDirectionalLightComponent *SunComp =
+                            Cast<UDirectionalLightComponent>(SunLight->GetLightComponent()))
+                    {
+                        SunComp->SetIntensity(10.0f);
+                        SunComp->MarkRenderStateDirty();
+                    }
+                    if (USkyLightComponent *SkyComp = SkyLight->GetLightComponent())
+                    {
+                        SkyComp->SetIntensity(1.0f);
+                        SkyComp->MarkRenderStateDirty();
+                    }
+
+                    bSuccess = true;
+                    Message = TEXT("Native sky lighting rig created");
+                    Resp->SetBoolField(TEXT("fallbackUsed"), true);
+                    Resp->SetStringField(TEXT("missingAsset"), TEXT("/Engine/Maps/Templates/SkySphere"));
+                    Resp->SetStringField(TEXT("actorName"), RequestedName);
+                    Resp->SetStringField(TEXT("sunActorName"), SunLight->GetActorLabel());
+                    Resp->SetStringField(TEXT("skyLightActorName"), SkyLight->GetActorLabel());
+                    McpHandlerUtils::AddVerification(Resp, SunLight);
+                }
+                else
+                {
+                    Message = TEXT("SkySphere class not found and native sky rig fallback failed");
+                    ErrorCode = TEXT("SPAWN_FAILED");
+                    Resp->SetStringField(TEXT("missingAsset"), TEXT("/Engine/Maps/Templates/SkySphere"));
+                }
             }
             else
             {
@@ -1579,8 +1623,8 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateProceduralTerrain(
  *   - get_viewport_info: Get active viewport dimensions
  *   - get_selected_actors: List currently selected actors
  *   - get_scene_stats: Get scene statistics (actor count)
- *   - get_performance_stats: Performance metrics placeholder
- *   - get_memory_stats: Memory metrics placeholder
+  *   - get_performance_stats: Live performance metrics
+  *   - get_memory_stats: Live memory metrics
  *   - list_objects: List all actors in current world
  *   - find_by_class: Find actors by class name
  *   - find_by_tag: Find actors by tag
@@ -1813,8 +1857,27 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
         // ---------------------------------------------------------------------
         else if (LowerSubAction.Equals(TEXT("get_performance_stats")))
         {
+            const double DeltaSeconds = FApp::GetDeltaTime();
+            const double FrameTimeMs = DeltaSeconds > 0.0 ? DeltaSeconds * 1000.0 : 0.0;
+            const double EstimatedFps = DeltaSeconds > 0.0 ? 1.0 / DeltaSeconds : 0.0;
+
+            int32 ActorCount = 0;
+            if (GEditor && GEditor->GetEditorWorldContext().World())
+            {
+                UWorld* World = GEditor->GetEditorWorldContext().World();
+                for (TActorIterator<AActor> It(World); It; ++It)
+                {
+                    ActorCount++;
+                }
+            }
+
             Resp->SetBoolField(TEXT("success"), true);
-            Resp->SetStringField(TEXT("message"), TEXT("Performance stats placeholder - implement with actual metrics"));
+            Resp->SetNumberField(TEXT("deltaSeconds"), DeltaSeconds);
+            Resp->SetNumberField(TEXT("frameTimeMs"), FrameTimeMs);
+            Resp->SetNumberField(TEXT("estimatedFps"), EstimatedFps);
+            Resp->SetNumberField(TEXT("actorCount"), ActorCount);
+            Resp->SetBoolField(TEXT("isBenchmarking"), FApp::IsBenchmarking());
+            Resp->SetBoolField(TEXT("useFixedTimeStep"), FApp::UseFixedTimeStep());
             SendAutomationResponse(RequestingSocket, RequestId, true,
                                    TEXT("Performance stats retrieved"), Resp, FString());
             return true;
@@ -1824,8 +1887,16 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
         // ---------------------------------------------------------------------
         else if (LowerSubAction.Equals(TEXT("get_memory_stats")))
         {
+            const FPlatformMemoryStats MemoryStats = FPlatformMemory::GetStats();
             Resp->SetBoolField(TEXT("success"), true);
-            Resp->SetStringField(TEXT("message"), TEXT("Memory stats placeholder - implement with actual metrics"));
+            Resp->SetNumberField(TEXT("totalPhysicalBytes"), static_cast<double>(MemoryStats.TotalPhysical));
+            Resp->SetNumberField(TEXT("availablePhysicalBytes"), static_cast<double>(MemoryStats.AvailablePhysical));
+            Resp->SetNumberField(TEXT("usedPhysicalBytes"), static_cast<double>(MemoryStats.UsedPhysical));
+            Resp->SetNumberField(TEXT("peakUsedPhysicalBytes"), static_cast<double>(MemoryStats.PeakUsedPhysical));
+            Resp->SetNumberField(TEXT("totalVirtualBytes"), static_cast<double>(MemoryStats.TotalVirtual));
+            Resp->SetNumberField(TEXT("availableVirtualBytes"), static_cast<double>(MemoryStats.AvailableVirtual));
+            Resp->SetNumberField(TEXT("usedVirtualBytes"), static_cast<double>(MemoryStats.UsedVirtual));
+            Resp->SetNumberField(TEXT("peakUsedVirtualBytes"), static_cast<double>(MemoryStats.PeakUsedVirtual));
             SendAutomationResponse(RequestingSocket, RequestId, true,
                                    TEXT("Memory stats retrieved"), Resp, FString());
             return true;
@@ -2095,11 +2166,9 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
             return HandleInspectCdoAction(RequestId, Payload, RequestingSocket);
         }
 
-        // Fallback for unimplemented global actions
-        Resp->SetBoolField(TEXT("success"), true);
-        Resp->SetStringField(TEXT("message"), FString::Printf(TEXT("Action %s acknowledged (placeholder implementation)"), *SubAction));
-        SendAutomationResponse(RequestingSocket, RequestId, true,
-                               TEXT("Action processed"), Resp, FString());
+        SendAutomationError(RequestingSocket, RequestId,
+                            FString::Printf(TEXT("Unsupported inspect action: %s"), *SubAction),
+                            TEXT("UNKNOWN_ACTION"));
         return true;
     }
 

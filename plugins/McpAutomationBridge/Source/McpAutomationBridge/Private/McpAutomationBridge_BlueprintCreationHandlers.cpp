@@ -246,6 +246,11 @@ bool FBlueprintCreationHandlers::HandleBlueprintProbeSubobjectHandle(
   // ---------------------------------------------------------------------------
   // Create Probe Blueprint
   // ---------------------------------------------------------------------------
+  TSharedPtr<FJsonObject> ResultObj = McpHandlerUtils::CreateResultObject();
+  ResultObj->SetStringField(TEXT("componentClass"), ComponentClass);
+  ResultObj->SetBoolField(TEXT("success"), false);
+  ResultObj->SetBoolField(TEXT("subsystemAvailable"), false);
+
   const FString ProbeFolder = TEXT("/Game/Temp/MCPProbe");
   const FString ProbeName = FString::Printf(
       TEXT("MCP_Probe_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits));
@@ -286,6 +291,54 @@ bool FBlueprintCreationHandlers::HandleBlueprintProbeSubobjectHandle(
       CleanupProbeAsset(CreatedBP);
       return true;
     }
+
+    UClass *ProbeComponentClass = ResolveClassByName(ComponentClass);
+    if (!ProbeComponentClass ||
+        !ProbeComponentClass->IsChildOf(UActorComponent::StaticClass())) {
+      TSharedPtr<FJsonObject> Err = McpHandlerUtils::CreateResultObject();
+      Err->SetStringField(TEXT("componentClass"), ComponentClass);
+      Err->SetStringField(TEXT("error"),
+                          TEXT("Component class could not be resolved to a UActorComponent subclass"));
+      Self->SendAutomationResponse(RequestingSocket, RequestId, false,
+                                   TEXT("Probe component class invalid"), Err,
+                                   TEXT("INVALID_COMPONENT_CLASS"));
+      CleanupProbeAsset(CreatedBP);
+      return true;
+    }
+
+    USimpleConstructionScript *SCS = CreatedBP->SimpleConstructionScript;
+    if (!SCS) {
+      SCS = NewObject<USimpleConstructionScript>(CreatedBP);
+      CreatedBP->SimpleConstructionScript = SCS;
+    }
+    if (!SCS) {
+      TSharedPtr<FJsonObject> Err = McpHandlerUtils::CreateResultObject();
+      Err->SetStringField(TEXT("componentClass"), ComponentClass);
+      Err->SetStringField(TEXT("error"),
+                          TEXT("Failed to create SimpleConstructionScript for probe Blueprint"));
+      Self->SendAutomationResponse(RequestingSocket, RequestId, false,
+                                   TEXT("Probe SCS unavailable"), Err,
+                                   TEXT("SCS_UNAVAILABLE"));
+      CleanupProbeAsset(CreatedBP);
+      return true;
+    }
+
+    const FName ProbeNodeName(TEXT("ProbeComponent"));
+    USCS_Node *ProbeNode = SCS->CreateNode(ProbeComponentClass, ProbeNodeName);
+    if (!ProbeNode) {
+      TSharedPtr<FJsonObject> Err = McpHandlerUtils::CreateResultObject();
+      Err->SetStringField(TEXT("componentClass"), ComponentClass);
+      Err->SetStringField(TEXT("error"), TEXT("Failed to create probe SCS node"));
+      Self->SendAutomationResponse(RequestingSocket, RequestId, false,
+                                   TEXT("Probe component node creation failed"), Err,
+                                   TEXT("PROBE_NODE_CREATE_FAILED"));
+      CleanupProbeAsset(CreatedBP);
+      return true;
+    }
+    SCS->AddNode(ProbeNode);
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(CreatedBP);
+    ResultObj->SetStringField(TEXT("componentNodeName"), ProbeNodeName.ToString());
+
     FAssetRegistryModule &Arm =
         FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
             TEXT("AssetRegistry"));
@@ -295,11 +348,6 @@ bool FBlueprintCreationHandlers::HandleBlueprintProbeSubobjectHandle(
   // ---------------------------------------------------------------------------
   // Gather Subobject Handles
   // ---------------------------------------------------------------------------
-  TSharedPtr<FJsonObject> ResultObj = McpHandlerUtils::CreateResultObject();
-  ResultObj->SetStringField(TEXT("componentClass"), ComponentClass);
-  ResultObj->SetBoolField(TEXT("success"), false);
-  ResultObj->SetBoolField(TEXT("subsystemAvailable"), false);
-
 #if MCP_HAS_SUBOBJECT_DATA_SUBSYSTEM
   if (USubobjectDataSubsystem *Subsystem =
           (GEngine ? GEngine->GetEngineSubsystem<USubobjectDataSubsystem>()
@@ -322,7 +370,18 @@ bool FBlueprintCreationHandlers::HandleBlueprintProbeSubobjectHandle(
       }
       HandleJsonArr.Add(MakeShared<FJsonValueString>(Repr));
     }
+    if (HandleJsonArr.Num() == 0) {
+      ResultObj->SetStringField(TEXT("error"),
+                                TEXT("SubobjectDataSubsystem returned no handles for probe Blueprint"));
+      CleanupProbeAsset(CreatedBP);
+      Self->SendAutomationResponse(RequestingSocket, RequestId, false,
+                                   TEXT("Probe produced no component handles"),
+                                   ResultObj, TEXT("PROBE_NO_HANDLES"));
+      return true;
+    }
     ResultObj->SetArrayField(TEXT("gatheredHandles"), HandleJsonArr);
+    ResultObj->SetNumberField(TEXT("handleCount"), HandleJsonArr.Num());
+    ResultObj->SetBoolField(TEXT("hasHandles"), true);
     ResultObj->SetBoolField(TEXT("success"), true);
 
     CleanupProbeAsset(CreatedBP);
@@ -347,10 +406,17 @@ bool FBlueprintCreationHandlers::HandleBlueprintProbeSubobjectHandle(
     }
   }
   if (HandleJsonArr.Num() == 0) {
-    HandleJsonArr.Add(
-        MakeShared<FJsonValueString>(TEXT("<probe_handle_stub>")));
+    ResultObj->SetStringField(TEXT("error"),
+                              TEXT("No subobject handles or SCS nodes were gathered from probe Blueprint"));
+    CleanupProbeAsset(CreatedBP);
+    Self->SendAutomationResponse(RequestingSocket, RequestId, false,
+                                 TEXT("Probe produced no component handles"),
+                                 ResultObj, TEXT("PROBE_NO_HANDLES"));
+    return true;
   }
   ResultObj->SetArrayField(TEXT("gatheredHandles"), HandleJsonArr);
+  ResultObj->SetNumberField(TEXT("handleCount"), HandleJsonArr.Num());
+  ResultObj->SetBoolField(TEXT("hasHandles"), true);
   ResultObj->SetBoolField(TEXT("success"), true);
 
   CleanupProbeAsset(CreatedBP);

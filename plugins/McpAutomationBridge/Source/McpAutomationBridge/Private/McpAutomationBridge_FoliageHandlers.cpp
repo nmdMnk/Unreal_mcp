@@ -1288,6 +1288,8 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateProceduralFoliage(
   // For a 1000x1000x1000 volume with Size=(1000,1000,1000), scale = 5.0
   Volume->SetActorScale3D(Size / 200.0f);
 
+  bool bResimulated = false;
+  bool bProceduralComponentConfigured = false;
   if (UProceduralFoliageComponent *ProcComp = Volume->ProceduralComponent) {
     ProcComp->FoliageSpawner = Spawner;
     ProcComp->TileOverlap = 0.0f;
@@ -1296,8 +1298,16 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateProceduralFoliage(
     // Note: ResimulateProceduralFoliage might be async or require specific
     // context. In 5.6 it might take a callback or be void. We'll try calling
     // it.
-    bool bResult = ProcComp->ResimulateProceduralFoliage(
+    bResimulated = ProcComp->ResimulateProceduralFoliage(
         [](const TArray<FDesiredFoliageInstance> &) {});
+    bProceduralComponentConfigured = true;
+  }
+  else
+  {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("Procedural foliage component not available on spawned volume"),
+                        TEXT("COMPONENT_NOT_FOUND"));
+    return true;
   }
 
   TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
@@ -1305,7 +1315,8 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateProceduralFoliage(
   Resp->SetStringField(TEXT("volume_actor"), Volume->GetActorLabel());
   Resp->SetStringField(TEXT("spawner_path"), Spawner->GetPathName());
   Resp->SetNumberField(TEXT("foliage_types_count"), TypeIndex);
-  Resp->SetBoolField(TEXT("resimulated"), true);
+  Resp->SetBoolField(TEXT("resimulated"), bResimulated);
+  Resp->SetBoolField(TEXT("proceduralComponentConfigured"), bProceduralComponentConfigured);
   
   // Add verification data
   McpHandlerUtils::AddVerification(Resp, Volume);

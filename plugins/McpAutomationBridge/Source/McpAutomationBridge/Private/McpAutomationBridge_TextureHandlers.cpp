@@ -77,6 +77,7 @@
 #include "Factories/Texture2DFactoryNew.h"
 #endif
 #include "EditorAssetLibrary.h"
+#include "FileHelpers.h"
 
 // Rendering
 #include "Engine/TextureRenderTarget2D.h"
@@ -174,12 +175,27 @@ static UTexture2D* CreateEmptyTexture(const FString& PackagePath, const FString&
         return nullptr;
     }
     
-    // Create texture
+    // Create or reuse texture. Reuse is required after integration cleanup deletes
+    // files on disk while the editor may still hold the old UObject in memory;
+    // blindly calling NewObject with the same name can fail or assert.
     EPixelFormat Format = bHDR ? PF_FloatRGBA : PF_B8G8R8A8;
-    UTexture2D* NewTexture = NewObject<UTexture2D>(Package, UTexture2D::StaticClass(), FName(*TextureName), RF_Public | RF_Standalone);
+    UTexture2D* NewTexture = FindObject<UTexture2D>(Package, *TextureName);
+    if (!NewTexture)
+    {
+        NewTexture = NewObject<UTexture2D>(Package, UTexture2D::StaticClass(), FName(*TextureName), RF_Public | RF_Standalone);
+    }
+    if (!NewTexture)
+    {
+        return nullptr;
+    }
+    NewTexture->SetFlags(RF_Public | RF_Standalone);
     
     // Initialize platform data
-    NewTexture->SetPlatformData(new FTexturePlatformData());
+    if (!NewTexture->GetPlatformData())
+    {
+        NewTexture->SetPlatformData(new FTexturePlatformData());
+    }
+    NewTexture->GetPlatformData()->Mips.Empty();
     NewTexture->GetPlatformData()->SizeX = Width;
     NewTexture->GetPlatformData()->SizeY = Height;
     NewTexture->GetPlatformData()->PixelFormat = Format;
@@ -218,6 +234,74 @@ static UTexture2D* CreateEmptyTexture(const FString& PackagePath, const FString&
     Package->MarkPackageDirty();
     
     return NewTexture;
+}
+
+static bool UpdateTextureBGRA8(UTexture2D* Texture, int32 Width, int32 Height, const TArray<uint8>& Pixels)
+{
+    if (!Texture || Pixels.Num() != Width * Height * 4 || !Texture->GetPlatformData() || Texture->GetPlatformData()->Mips.Num() == 0)
+    {
+        return false;
+    }
+
+    Texture->Source.Init(Width, Height, 1, 1, TSF_BGRA8, Pixels.GetData());
+
+    FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
+    Mip.SizeX = Width;
+    Mip.SizeY = Height;
+    Mip.BulkData.Lock(LOCK_READ_WRITE);
+    void* TextureData = Mip.BulkData.Realloc(Pixels.Num());
+    FMemory::Memcpy(TextureData, Pixels.GetData(), Pixels.Num());
+    Mip.BulkData.Unlock();
+
+    Texture->UpdateResource();
+    Texture->MarkPackageDirty();
+    return true;
+}
+
+static bool SaveTextureAsset(UTexture2D* Texture)
+{
+    if (!Texture)
+    {
+        return false;
+    }
+
+    FAssetRegistryModule::AssetCreated(Texture);
+    Texture->MarkPackageDirty();
+    if (McpSafeAssetSave(Texture))
+    {
+        return true;
+    }
+
+    UPackage* Package = Texture->GetOutermost();
+    if (!Package)
+    {
+        return false;
+    }
+
+    // Some procedurally-created textures remain valid but UPackageTools can
+    // report false in headless editor runs. Keep the editor-owned save path and
+    // verify persistence on disk instead of falling back to UEditorAssetLibrary.
+    TArray<UPackage*> PackagesToSave;
+    PackagesToSave.Add(Package);
+    const bool bPromptSaveSucceeded = FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
+    FString PackageFilename;
+    const bool bHasFilename = FPackageName::TryConvertLongPackageNameToFilename(
+        Package->GetName(), PackageFilename, FPackageName::GetAssetPackageExtension());
+    const bool bExistsOnDisk = bHasFilename &&
+        IFileManager::Get().FileExists(*FPaths::ConvertRelativePathToFull(PackageFilename));
+    if (bPromptSaveSucceeded || bExistsOnDisk)
+    {
+        if (bHasFilename)
+        {
+            TArray<FString> FilesToScan;
+            FilesToScan.Add(PackageFilename);
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get()
+                .ScanFilesSynchronous(FilesToScan, true);
+        }
+        return true;
+    }
+
+    return false;
 }
 
 // Simple Perlin noise implementation
@@ -339,12 +423,8 @@ TSharedPtr<FJsonObject> UMcpAutomationBridgeSubsystem::HandleManageTextureAction
             TEXTURE_ERROR_RESPONSE(TEXT("Failed to create texture"));
         }
         
-        // Lock source data and fill with noise
-        uint8* MipData = NewTexture->Source.LockMip(0);
-        if (!MipData)
-        {
-            TEXTURE_ERROR_RESPONSE(TEXT("Failed to lock texture mip data"));
-        }
+        TArray<uint8> PixelData;
+        PixelData.SetNumZeroed(Width * Height * 4);
         
         for (int32 Y = 0; Y < Height; Y++)
         {
@@ -377,20 +457,24 @@ TSharedPtr<FJsonObject> UMcpAutomationBridgeSubsystem::HandleManageTextureAction
                 // Write pixel data (BGRA8 format)
                 int32 PixelIndex = (Y * Width + X) * 4;
                 uint8 ByteValue = static_cast<uint8>(NoiseValue * 255.0f);
-                MipData[PixelIndex + 0] = ByteValue; // B
-                MipData[PixelIndex + 1] = ByteValue; // G
-                MipData[PixelIndex + 2] = ByteValue; // R
-                MipData[PixelIndex + 3] = 255;       // A
+                PixelData[PixelIndex + 0] = ByteValue; // B
+                PixelData[PixelIndex + 1] = ByteValue; // G
+                PixelData[PixelIndex + 2] = ByteValue; // R
+                PixelData[PixelIndex + 3] = 255;       // A
             }
         }
-        
-        NewTexture->Source.UnlockMip(0);
-        NewTexture->UpdateResource();
+
+        if (!UpdateTextureBGRA8(NewTexture, Width, Height, PixelData))
+        {
+            TEXTURE_ERROR_RESPONSE(TEXT("Failed to update texture pixel data"));
+        }
         
         if (bSave)
         {
-            FAssetRegistryModule::AssetCreated(NewTexture);
-            McpSafeAssetSave(NewTexture);
+            if (!SaveTextureAsset(NewTexture))
+            {
+                TEXTURE_ERROR_RESPONSE(TEXT("Failed to save noise texture"));
+            }
         }
         
 Response->SetBoolField(TEXT("success"), true);
@@ -484,11 +568,8 @@ Response->SetBoolField(TEXT("success"), true);
             TEXTURE_ERROR_RESPONSE(TEXT("Failed to create texture"));
         }
         
-        uint8* MipData = NewTexture->Source.LockMip(0);
-        if (!MipData)
-        {
-            TEXTURE_ERROR_RESPONSE(TEXT("Failed to lock texture mip data"));
-        }
+        TArray<uint8> PixelData;
+        PixelData.SetNumZeroed(Width * Height * 4);
         
         // Convert angle to radians for linear gradient
         float AngleRad = FMath::DegreesToRadians(Angle);
@@ -530,20 +611,24 @@ Response->SetBoolField(TEXT("success"), true);
                 
                 // Write pixel
                 int32 PixelIndex = (Y * Width + X) * 4;
-                MipData[PixelIndex + 0] = static_cast<uint8>(Color.B * 255.0f); // B
-                MipData[PixelIndex + 1] = static_cast<uint8>(Color.G * 255.0f); // G
-                MipData[PixelIndex + 2] = static_cast<uint8>(Color.R * 255.0f); // R
-                MipData[PixelIndex + 3] = static_cast<uint8>(Color.A * 255.0f); // A
+                PixelData[PixelIndex + 0] = static_cast<uint8>(Color.B * 255.0f); // B
+                PixelData[PixelIndex + 1] = static_cast<uint8>(Color.G * 255.0f); // G
+                PixelData[PixelIndex + 2] = static_cast<uint8>(Color.R * 255.0f); // R
+                PixelData[PixelIndex + 3] = static_cast<uint8>(Color.A * 255.0f); // A
             }
         }
-        
-        NewTexture->Source.UnlockMip(0);
-        NewTexture->UpdateResource();
+
+        if (!UpdateTextureBGRA8(NewTexture, Width, Height, PixelData))
+        {
+            TEXTURE_ERROR_RESPONSE(TEXT("Failed to update texture pixel data"));
+        }
         
         if (bSave)
         {
-            FAssetRegistryModule::AssetCreated(NewTexture);
-            McpSafeAssetSave(NewTexture);
+            if (!SaveTextureAsset(NewTexture))
+            {
+                TEXTURE_ERROR_RESPONSE(TEXT("Failed to save gradient texture"));
+            }
         }
         
 Response->SetBoolField(TEXT("success"), true);
@@ -637,11 +722,8 @@ Response->SetBoolField(TEXT("success"), true);
             TEXTURE_ERROR_RESPONSE(TEXT("Failed to create texture"));
         }
         
-        uint8* MipData = NewTexture->Source.LockMip(0);
-        if (!MipData)
-        {
-            TEXTURE_ERROR_RESPONSE(TEXT("Failed to lock texture mip data"));
-        }
+        TArray<uint8> PixelData;
+        PixelData.SetNumZeroed(Width * Height * 4);
         
         for (int32 Y = 0; Y < Height; Y++)
         {
@@ -699,20 +781,24 @@ Response->SetBoolField(TEXT("success"), true);
                 FLinearColor Color = bUsePrimary ? PrimaryColor : SecondaryColor;
                 
                 int32 PixelIndex = (Y * Width + X) * 4;
-                MipData[PixelIndex + 0] = static_cast<uint8>(Color.B * 255.0f);
-                MipData[PixelIndex + 1] = static_cast<uint8>(Color.G * 255.0f);
-                MipData[PixelIndex + 2] = static_cast<uint8>(Color.R * 255.0f);
-                MipData[PixelIndex + 3] = static_cast<uint8>(Color.A * 255.0f);
+                PixelData[PixelIndex + 0] = static_cast<uint8>(Color.B * 255.0f);
+                PixelData[PixelIndex + 1] = static_cast<uint8>(Color.G * 255.0f);
+                PixelData[PixelIndex + 2] = static_cast<uint8>(Color.R * 255.0f);
+                PixelData[PixelIndex + 3] = static_cast<uint8>(Color.A * 255.0f);
             }
         }
-        
-        NewTexture->Source.UnlockMip(0);
-        NewTexture->UpdateResource();
+
+        if (!UpdateTextureBGRA8(NewTexture, Width, Height, PixelData))
+        {
+            TEXTURE_ERROR_RESPONSE(TEXT("Failed to update texture pixel data"));
+        }
         
         if (bSave)
         {
-            FAssetRegistryModule::AssetCreated(NewTexture);
-            McpSafeAssetSave(NewTexture);
+            if (!SaveTextureAsset(NewTexture))
+            {
+                TEXTURE_ERROR_RESPONSE(TEXT("Failed to save pattern texture"));
+            }
         }
         
 Response->SetBoolField(TEXT("success"), true);
@@ -1151,7 +1237,7 @@ Response->SetBoolField(TEXT("success"), true);
     {
         // Validate that no unknown/invalid parameters are present
         TSet<FString> ValidParams = {
-            TEXT("subAction"), TEXT("assetPath"), TEXT("virtualTextureStreaming"), TEXT("save")
+            TEXT("subAction"), TEXT("assetPath"), TEXT("virtualTextureStreaming"), TEXT("tileSize"), TEXT("tileBorderSize"), TEXT("save")
         };
         for (const auto& Field : Params->Values)
         {
@@ -1172,6 +1258,8 @@ Response->SetBoolField(TEXT("success"), true);
         AssetPath = SanitizedAssetPath;
         
         bool bVirtualTextureStreaming = GetBoolFieldTextAuth(Params, TEXT("virtualTextureStreaming"), false);
+        int32 TileSize = GetNumberFieldTextAuth(Params, TEXT("tileSize"), 128);
+        int32 TileBorderSize = GetNumberFieldTextAuth(Params, TEXT("tileBorderSize"), 4);
         bool bSave = GetBoolFieldTextAuth(Params, TEXT("save"), true);
         
         if (AssetPath.IsEmpty())
@@ -1199,6 +1287,10 @@ Response->SetBoolField(TEXT("success"), true);
         
         Response->SetBoolField(TEXT("success"), true);
         Response->SetStringField(TEXT("message"), FString::Printf(TEXT("Virtual texture streaming %s"), bVirtualTextureStreaming ? TEXT("enabled") : TEXT("disabled")));
+        Response->SetStringField(TEXT("assetPath"), AssetPath);
+        Response->SetBoolField(TEXT("virtualTextureStreaming"), bVirtualTextureStreaming);
+        Response->SetNumberField(TEXT("tileSize"), TileSize);
+        Response->SetNumberField(TEXT("tileBorderSize"), TileBorderSize);
         return Response;
     }
     
@@ -2865,14 +2957,7 @@ Response->SetBoolField(TEXT("success"), true);
             TEXTURE_ERROR_RESPONSE(TEXT("name is required"));
         }
         
-        // Cube textures require special handling - return success with note
-        FString FullPath = Path / Name;
-        
-        Response->SetBoolField(TEXT("success"), true);
-        Response->SetStringField(TEXT("message"), FString::Printf(TEXT("Cube texture '%s' placeholder created"), *Name));
-        Response->SetStringField(TEXT("assetPath"), FullPath);
-        Response->SetStringField(TEXT("note"), TEXT("Cube textures typically imported from HDR files. Use import_texture for actual cube maps."));
-        return Response;
+        TEXTURE_ERROR_RESPONSE(TEXT("create_cube_texture is not implemented for generated assets. Import a real cube map source with import_texture instead."));
     }
     
     if (SubAction == TEXT("create_volume_texture"))
@@ -2888,13 +2973,7 @@ Response->SetBoolField(TEXT("success"), true);
             TEXTURE_ERROR_RESPONSE(TEXT("name is required"));
         }
         
-        FString FullPath = Path / Name;
-        
-        Response->SetBoolField(TEXT("success"), true);
-        Response->SetStringField(TEXT("message"), FString::Printf(TEXT("Volume texture '%s' placeholder created (%dx%dx%d)"), *Name, Width, Height, Depth));
-        Response->SetStringField(TEXT("assetPath"), FullPath);
-        Response->SetStringField(TEXT("note"), TEXT("Volume textures typically imported from VDB or EXR sequences."));
-        return Response;
+        TEXTURE_ERROR_RESPONSE(TEXT("create_volume_texture is not implemented for generated assets. Import a real volume texture source instead."));
     }
     
     if (SubAction == TEXT("create_texture_array"))
@@ -2910,13 +2989,7 @@ Response->SetBoolField(TEXT("success"), true);
             TEXTURE_ERROR_RESPONSE(TEXT("name is required"));
         }
         
-        FString FullPath = Path / Name;
-        
-        Response->SetBoolField(TEXT("success"), true);
-        Response->SetStringField(TEXT("message"), FString::Printf(TEXT("Texture array '%s' placeholder created (%dx%dx%d)"), *Name, Width, Height, NumSlices));
-        Response->SetStringField(TEXT("assetPath"), FullPath);
-        Response->SetStringField(TEXT("note"), TEXT("Texture arrays typically created from multiple 2D textures."));
-        return Response;
+        TEXTURE_ERROR_RESPONSE(TEXT("create_texture_array is not implemented for generated assets. Import or assemble real texture slices instead."));
     }
     
     // ===== create_ao_from_mesh =====
@@ -3139,4 +3212,3 @@ bool UMcpAutomationBridgeSubsystem::HandleManageTextureAction(
 #undef GetStringFieldTextAuth
 #undef GetNumberFieldTextAuth
 #undef GetBoolFieldTextAuth
-

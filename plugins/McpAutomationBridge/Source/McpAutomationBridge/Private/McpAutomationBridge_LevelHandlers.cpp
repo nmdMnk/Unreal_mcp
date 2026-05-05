@@ -58,6 +58,9 @@
 #include "LevelUtils.h"
 #include "EditorBuildUtils.h"
 #include "EditorAssetLibrary.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "HAL/FileManager.h"
+#include "Misc/PackageName.h"
 #include "TickTaskManagerInterface.h"  // Required for proper tick system cleanup
 #include "WorldPartition/WorldPartition.h"  // Required for World Partition detection
 
@@ -1802,18 +1805,189 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     }
     LevelPath = SanitizedPath;
 
-    // Use UEditorAssetLibrary to delete the level asset
-    bool bDeleted = UEditorAssetLibrary::DeleteAsset(LevelPath);
+    FString LongPackageName = LevelPath;
+    int32 ObjectPathDelimiter = INDEX_NONE;
+    if (LongPackageName.FindChar(TEXT('.'), ObjectPathDelimiter)) {
+      LongPackageName = LongPackageName.Left(ObjectPathDelimiter);
+    }
+
+    const FString AssetName = FPaths::GetBaseFilename(LongPackageName);
+    const FString ObjectPath = AssetName.IsEmpty()
+                                   ? LongPackageName
+                                   : FString::Printf(TEXT("%s.%s"), *LongPackageName, *AssetName);
+    const FString PackageDir = FPaths::GetPath(LongPackageName);
+
+    FString MapFilename;
+    FString AbsoluteMapFilename;
+    const bool bHasMapFilename = FPackageName::TryConvertLongPackageNameToFilename(
+        LongPackageName, MapFilename, FPackageName::GetMapPackageExtension());
+    if (bHasMapFilename) {
+      AbsoluteMapFilename = FPaths::ConvertRelativePathToFull(MapFilename);
+      FPaths::NormalizeFilename(AbsoluteMapFilename);
+    }
+
+    IFileManager& FileManager = IFileManager::Get();
+    IAssetRegistry& AssetRegistry =
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+
+    auto RescanLevelPackage = [&]() {
+      if (bHasMapFilename && FileManager.FileExists(*AbsoluteMapFilename)) {
+        TArray<FString> FilesToScan;
+        FilesToScan.Add(AbsoluteMapFilename);
+        AssetRegistry.ScanFilesSynchronous(FilesToScan, true);
+      }
+      if (!PackageDir.IsEmpty()) {
+        TArray<FString> PathsToScan;
+        PathsToScan.Add(PackageDir);
+        AssetRegistry.ScanPathsSynchronous(PathsToScan, true);
+      }
+    };
+
+    RescanLevelPackage();
+
+    int32 RemovedStreamingRefs = 0;
+    bool bCurrentWorldMatchesTarget = false;
+    if (GEditor) {
+      UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
+      if (EditorWorld) {
+        bCurrentWorldMatchesTarget = EditorWorld->GetOutermost() &&
+                                     EditorWorld->GetOutermost()->GetName() == LongPackageName;
+        if (!bCurrentWorldMatchesTarget) {
+          TArray<ULevelStreaming*> StreamingLevels = EditorWorld->GetStreamingLevels();
+          for (ULevelStreaming* StreamingLevel : StreamingLevels) {
+            if (!StreamingLevel) {
+              continue;
+            }
+
+            const FString StreamingPackage = StreamingLevel->GetWorldAssetPackageFName().ToString();
+            if (StreamingPackage == LongPackageName || StreamingPackage == ObjectPath) {
+              StreamingLevel->SetShouldBeLoaded(false);
+              StreamingLevel->SetShouldBeVisible(false);
+              if (ULevel* LoadedStreamingLevel = StreamingLevel->GetLoadedLevel()) {
+                if (UEditorLevelUtils::RemoveLevelFromWorld(LoadedStreamingLevel)) {
+                  ++RemovedStreamingRefs;
+                }
+              } else {
+                EditorWorld->RemoveStreamingLevel(StreamingLevel);
+                ++RemovedStreamingRefs;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (RemovedStreamingRefs > 0) {
+      FlushRenderingCommands();
+      if (GEditor) {
+        GEditor->ForceGarbageCollection(true);
+      }
+      CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+      FlushRenderingCommands();
+    }
+
+    UPackage* LoadedPackage = FindPackage(nullptr, *LongPackageName);
+    const bool bWasLoaded = LoadedPackage != nullptr;
+    bool bPackageUnloadAttempted = false;
+    bool bPackageUnloadSucceeded = false;
+    if (LoadedPackage && !bCurrentWorldMatchesTarget) {
+      FlushRenderingCommands();
+      if (GEditor) {
+        GEditor->ForceGarbageCollection(true);
+      }
+      CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+      FlushRenderingCommands();
+      LoadedPackage = FindPackage(nullptr, *LongPackageName);
+
+      if (LoadedPackage) {
+#if MCP_HAS_PACKAGE_TOOLS
+        TArray<UPackage*> PackagesToUnload;
+        PackagesToUnload.Add(LoadedPackage);
+        TWeakObjectPtr<UPackage> WeakLoadedPackage = LoadedPackage;
+        FText UnloadError;
+        bPackageUnloadAttempted = true;
+        bPackageUnloadSucceeded = UPackageTools::UnloadPackages(PackagesToUnload, UnloadError, true);
+        if (!UnloadError.IsEmpty()) {
+          UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+                 TEXT("delete_level: UnloadPackages reported for %s: %s"),
+                 *LongPackageName, *UnloadError.ToString());
+        }
+        FlushRenderingCommands();
+        if (GEditor) {
+          GEditor->ForceGarbageCollection(true);
+        }
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        FlushRenderingCommands();
+        LoadedPackage = FindPackage(nullptr, *LongPackageName);
+        bPackageUnloadSucceeded = bPackageUnloadSucceeded && !WeakLoadedPackage.IsValid() && LoadedPackage == nullptr;
+#else
+        UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+               TEXT("delete_level: PackageTools unavailable; cannot unload loaded map package %s"),
+               *LongPackageName);
+#endif
+      }
+    }
+    const bool bPackageStillLoaded = LoadedPackage != nullptr;
+
+    const bool bMapFileExisted = bHasMapFilename && FileManager.FileExists(*AbsoluteMapFilename);
+    const bool bPackageExisted = FPackageName::DoesPackageExist(LongPackageName);
+    bool bDeletedViaFileFallback = false;
+    bool bDeletedBuiltData = false;
+
+    if (!bCurrentWorldMatchesTarget && !bPackageStillLoaded && bMapFileExisted) {
+      UE_LOG(LogMcpAutomationBridgeSubsystem, Log,
+             TEXT("delete_level: Deleting map file directly after registry/editor cleanup: %s"),
+             *AbsoluteMapFilename);
+      bDeletedViaFileFallback = FileManager.Delete(*AbsoluteMapFilename, false, true, true);
+
+      const FString BuiltDataPackagePath = LongPackageName + TEXT("_BuiltData");
+      FString BuiltDataFilename;
+      if (FPackageName::TryConvertLongPackageNameToFilename(
+              BuiltDataPackagePath, BuiltDataFilename, FPackageName::GetAssetPackageExtension())) {
+        FString AbsoluteBuiltDataFilename = FPaths::ConvertRelativePathToFull(BuiltDataFilename);
+        FPaths::NormalizeFilename(AbsoluteBuiltDataFilename);
+        if (FileManager.FileExists(*AbsoluteBuiltDataFilename)) {
+          bDeletedBuiltData = FileManager.Delete(*AbsoluteBuiltDataFilename, false, true, true);
+        }
+      }
+    }
+
+    RescanLevelPackage();
+
+    const bool bMapFileStillExists = bHasMapFilename && FileManager.FileExists(*AbsoluteMapFilename);
+    const bool bPackageStillExists = FPackageName::DoesPackageExist(LongPackageName);
+    const bool bDeleted = (bDeletedViaFileFallback && !bMapFileStillExists) ||
+                          (!bMapFileExisted && !bPackageExisted && !bPackageStillLoaded);
+
+    TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+    Result->SetStringField(TEXT("levelPath"), LongPackageName);
+    Result->SetStringField(TEXT("objectPath"), ObjectPath);
+    Result->SetStringField(TEXT("mapFilename"), AbsoluteMapFilename);
+    Result->SetBoolField(TEXT("deleted"), bDeleted);
+    Result->SetBoolField(TEXT("deletedViaFileFallback"), bDeletedViaFileFallback);
+    Result->SetBoolField(TEXT("deletedBuiltData"), bDeletedBuiltData);
+    Result->SetBoolField(TEXT("editorDeletionSkippedForMap"), true);
+    Result->SetBoolField(TEXT("deleteAssetFailed"), false);
+    Result->SetBoolField(TEXT("wasLoaded"), bWasLoaded);
+    Result->SetBoolField(TEXT("packageUnloadAttempted"), bPackageUnloadAttempted);
+    Result->SetBoolField(TEXT("packageUnloadSucceeded"), bPackageUnloadSucceeded);
+    Result->SetBoolField(TEXT("packageStillLoaded"), bPackageStillLoaded);
+    Result->SetBoolField(TEXT("currentWorldMatchesTarget"), bCurrentWorldMatchesTarget);
+    Result->SetNumberField(TEXT("removedStreamingRefs"), RemovedStreamingRefs);
+    Result->SetBoolField(TEXT("fileExistsAfter"), bMapFileStillExists);
+    Result->SetBoolField(TEXT("packageExistsAfter"), bPackageStillExists);
+
     if (bDeleted) {
-      TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
-      Result->SetStringField(TEXT("levelPath"), LevelPath);
-      Result->SetBoolField(TEXT("deleted"), true);
       SendAutomationResponse(RequestingSocket, RequestId, true,
-                             FString::Printf(TEXT("Level deleted: %s"), *LevelPath), Result);
+                             FString::Printf(TEXT("Level file deleted: %s"), *LongPackageName), Result);
+    } else if (bCurrentWorldMatchesTarget || bPackageStillLoaded) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             FString::Printf(TEXT("Level is still loaded and cannot be deleted safely: %s"), *LongPackageName),
+                             Result, TEXT("LEVEL_LOADED"));
     } else {
       SendAutomationResponse(RequestingSocket, RequestId, false,
-                             FString::Printf(TEXT("Failed to delete level: %s"), *LevelPath),
-                             nullptr, TEXT("DELETE_FAILED"));
+                             FString::Printf(TEXT("Failed to delete level: %s"), *LongPackageName),
+                             Result, TEXT("DELETE_FAILED"));
     }
     return true;
   }
