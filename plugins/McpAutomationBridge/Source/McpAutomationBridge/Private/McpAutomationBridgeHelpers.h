@@ -1095,20 +1095,11 @@ static inline UMaterialInterface* McpLoadMaterialWithFallback(
 }
 
 /**
- * Safe map loading helper - properly cleans up current world before loading a new map.
- * Prevents TickTaskManager assertion "!LevelList.Contains(TickTaskLevel)" and
- * "World Memory Leaks" crashes in UE 5.7.
- * 
+ * Safe map loading helper. Callers that originate from automation/network ticks
+ * should defer invoking this until the next ticker frame so Unreal's tick graph
+ * has finished processing the current world before LoadMap destroys it.
+ *
  * CRITICAL: This function must be called from the Game Thread.
- * 
- * Root Cause Analysis:
- * The FTickTaskManager maintains a LevelList that's filled during StartFrame()
- * and cleared during EndFrame(). When LoadMap destroys the old world:
- * 1. ULevel destructor calls FreeTickTaskLevel()
- * 2. FreeTickTaskLevel() asserts: check(!LevelList.Contains(TickTaskLevel))
- * 3. If a tick frame started but didn't complete, LevelList still has entries
- * 
- * This is a known UE 5.7 issue (UE-197643, UE-138424).
  * 
  * @param MapPath The map path to load (e.g., /Game/Maps/MyMap)
  * @param bForceCleanup If true, perform aggressive cleanup before loading (default: true)
@@ -1217,10 +1208,9 @@ static inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = t
         }
     }
     
-    // CRITICAL: Check if current world has World Partition before cleanup
-    // World Partition levels have additional tick registrations that may cause
-    // TickTaskManager assertion crashes even with standard cleanup.
-    // This is a known UE 5.7 issue (UE-197643, UE-138424).
+    // Log World Partition worlds for diagnostics, but do not manually mutate
+    // their tick functions. UE 5.7 World Partition registers engine-owned ticks
+    // that are unsafe to unregister outside the normal world teardown path.
     if (CurrentWorld)
     {
         AWorldSettings* WorldSettings = CurrentWorld->GetWorldSettings();
@@ -1233,103 +1223,14 @@ static inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = t
     
     if (CurrentWorld && bForceCleanup)
     {
-        UE_LOG(LogTemp, Log, TEXT("McpSafeLoadMap: Cleaning up current world '%s' before loading '%s'"), *CurrentWorld->GetName(), *MapPath);
-        
-        // STEP 1: Mark all levels as invisible to prevent FillLevelList from adding them
-        // This is CRITICAL - FillLevelList only adds levels where bIsVisible is true
-        for (ULevel* Level : CurrentWorld->GetLevels())
-        {
-            if (Level)
-            {
-                Level->bIsVisible = false;
-            }
-        }
-        
-        // STEP 2: Unregister all tick functions (actors + components)
-        // CRITICAL: SetActorTickEnabled(false) only DISABLES ticking - it doesn't UNREGISTER
-        // the tick function from FTickTaskManager. We must call UnRegisterTickFunction()
-        // to properly remove from LevelList and prevent the assertion.
-        int32 UnregisteredActorCount = 0;
-        int32 UnregisteredComponentCount = 0;
-        for (ULevel* Level : CurrentWorld->GetLevels())
-        {
-            if (!Level) continue;
-            
-            for (AActor* Actor : Level->Actors)
-            {
-                if (Actor)
-                {
-                    if (Actor->PrimaryActorTick.IsTickFunctionRegistered())
-                    {
-                        Actor->PrimaryActorTick.UnRegisterTickFunction();
-                        UnregisteredActorCount++;
-                    }
-                    
-                    // Clear tick prerequisites to prevent cross-level issues (UE-197643)
-                    Actor->PrimaryActorTick.GetPrerequisites().Empty();
-                    
-                    for (UActorComponent* Component : Actor->GetComponents())
-                    {
-                        if (Component && Component->PrimaryComponentTick.IsTickFunctionRegistered())
-                        {
-                            Component->PrimaryComponentTick.UnRegisterTickFunction();
-                            UnregisteredComponentCount++;
-                        }
-                    }
-                }
-            }
-        }
-        UE_LOG(LogTemp, Log, TEXT("McpSafeLoadMap: Unregistered %d actor ticks and %d component ticks"), UnregisteredActorCount, UnregisteredComponentCount);
-        
-        // STEP 3: Send end-of-frame updates to complete any pending tick work
+        UE_LOG(LogTemp, Log, TEXT("McpSafeLoadMap: Preparing current world '%s' before loading '%s'"), *CurrentWorld->GetName(), *MapPath);
+
         CurrentWorld->SendAllEndOfFrameUpdates();
-        
-        // STEP 4: Flush rendering commands to ensure all GPU work is complete
         FlushRenderingCommands();
-        
-        // STEP 4a: CRITICAL FIX - Call EndFrame() to clear FTickTaskManager's LevelList
-        // The FTickTaskManager maintains a LevelList that's populated by FillLevelList() during
-        // StartFrame() and cleared by LevelList.Reset() in EndFrame(). When LoadMap destroys
-        // the old world, FreeTickTaskLevel() asserts that the TickTaskLevel is NOT in LevelList.
-        // By calling EndFrame(), we ensure LevelList is cleared before world destruction.
-        // 
-        // This is safe because:
-        // 1. We've already unregistered all tick functions (STEP 2)
-        // 2. We've set bIsVisible=false on all levels (STEP 1)
-        // 3. EndFrame() doesn't have assertions that would fail if called outside a tick frame
-        // 4. The TickTaskSequencer.EndFrame() just clears batched tick data
-        // 5. The LevelList.Reset() is the critical operation we need
-        FTickTaskManagerInterface::Get().EndFrame();
-        UE_LOG(LogTemp, Log, TEXT("McpSafeLoadMap: Called EndFrame() to clear TickTaskManager LevelList"));
-        
-        // STEP 5: Unload streaming levels explicitly
-        // This prevents UE-197643 where tick prerequisites cross level boundaries
-        TArray<ULevelStreaming*> StreamingLevels = CurrentWorld->GetStreamingLevels();
-        for (ULevelStreaming* StreamingLevel : StreamingLevels)
-        {
-            if (StreamingLevel)
-            {
-                StreamingLevel->SetShouldBeLoaded(false);
-                StreamingLevel->SetShouldBeVisible(false);
-            }
-        }
-        
-        // STEP 6: Flush rendering commands again after streaming level changes
-        // CRITICAL: This was missing and caused crashes
-        FlushRenderingCommands();
-        
-        // STEP 7: Force garbage collection to clean up any remaining references
         GEditor->ForceGarbageCollection(true);
-        
-        // STEP 8: Flush again after GC
         FlushRenderingCommands();
-        
-        // STEP 9: Give the engine a moment to process cleanup
-        // This is essential for the tick system to settle
-        FPlatformProcess::Sleep(0.10f);
-        
-        // STEP 10: Final flush to ensure everything is settled
-        FlushRenderingCommands();
+
+        UE_LOG(LogTemp, Log, TEXT("McpSafeLoadMap: Minimal pre-load cleanup completed"));
     }
     
     // STEP 11: CRITICAL FIX for UE 5.7 World Memory Leaks
@@ -1427,27 +1328,6 @@ static inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = t
     if (bLoaded)
     {
         UE_LOG(LogTemp, Log, TEXT("McpSafeLoadMap: Successfully loaded map '%s'"), *MapPath);
-        
-        // STEP 13: Disable ticking on the new world's actors immediately
-        // The loaded world might have actors that trigger tick assertions
-        UWorld* NewWorld = GEditor->GetEditorWorldContext().World();
-        if (NewWorld && NewWorld->PersistentLevel)
-        {
-            for (AActor* Actor : NewWorld->PersistentLevel->Actors)
-            {
-                if (Actor)
-                {
-                    Actor->SetActorTickEnabled(false);
-                    for (UActorComponent* Component : Actor->GetComponents())
-                    {
-                        if (Component)
-                        {
-                            Component->SetComponentTickEnabled(false);
-                        }
-                    }
-                }
-            }
-        }
     }
     else
     {

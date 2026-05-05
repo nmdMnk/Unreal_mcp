@@ -1561,9 +1561,8 @@ inline bool PrepareAssetBatchForDelete(
         FString AssetFilePath;
         bool bHasBackingFile = false;
 const FString ClassName = MCP_ASSET_DATA_GET_CLASS_PATH(AssetData);
-const bool bIsWorldAsset = ClassName.Contains(TEXT("World")) ||
-                           ClassName.Contains(TEXT("Map")) ||
-                           ClassName.Contains(TEXT("Level"));
+const bool bIsWorldAsset = ClassName.Equals(TEXT("/Script/Engine.World"), ESearchCase::IgnoreCase) ||
+                           ClassName.EndsWith(TEXT(".World"), ESearchCase::IgnoreCase);
         const FString PackageExtension = bIsWorldAsset
             ? FPackageName::GetMapPackageExtension()
             : FPackageName::GetAssetPackageExtension();
@@ -1667,10 +1666,11 @@ return false;
 inline bool IsWorldAsset(const FAssetData& AssetData)
 {
 FString ClassName = MCP_ASSET_DATA_GET_CLASS_PATH(AssetData);
-// Check for World, Map, Level asset types using string matching only
-return ClassName.Contains(TEXT("World")) ||
-       ClassName.Contains(TEXT("Map")) ||
-       ClassName.Contains(TEXT("Level"));
+// Only actual UWorld/map packages should use the world deletion path. Avoid
+// broad substring checks: non-world assets such as LevelSequence contain
+// "Level" in their class names but must remain on the normal asset path.
+return ClassName.Equals(TEXT("/Script/Engine.World"), ESearchCase::IgnoreCase) ||
+       ClassName.EndsWith(TEXT(".World"), ESearchCase::IgnoreCase);
 }
 
 /**
@@ -1770,9 +1770,22 @@ inline int32 DeleteWorldPackagesByPath(const TArray<FAssetData>& WorldAssets)
         ScanPaths.Add(FPaths::GetPath(PackagePath));
         AssetRegistry.ScanPathsSynchronous(ScanPaths, false);
 
-        if (bDeletedMap || !FileManager.FileExists(*AbsoluteMapFilename))
+        TArray<FAssetData> RemainingWorldAssets;
+        AssetRegistry.GetAssetsByPackageName(AssetData.PackageName, RemainingWorldAssets, true);
+        const bool bRegistryPackageGone = RemainingWorldAssets.Num() == 0;
+
+        if (bDeletedMap && !FileManager.FileExists(*AbsoluteMapFilename) && bRegistryPackageGone)
         {
             ++DeletedCount;
+        }
+        else
+        {
+            UE_LOG(LogMcpSafeOperations, Warning,
+                TEXT("DeleteWorldPackagesByPath: World package still present after delete attempt (package=%s deletedMap=%d fileExists=%d registryCount=%d)"),
+                *PackagePath,
+                bDeletedMap ? 1 : 0,
+                FileManager.FileExists(*AbsoluteMapFilename) ? 1 : 0,
+                RemainingWorldAssets.Num());
         }
     }
 
@@ -1821,8 +1834,42 @@ inline bool McpSafeDeleteFolder(const FString& FolderPath, bool bForce = true)
     if (AllAssets.Num() == 0)
     {
         UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeDeleteFolder: No assets found in '%s'"), *FolderPath);
-        // No assets - just delete the empty folder
-        return UEditorAssetLibrary::DeleteDirectory(FolderPath);
+
+        // Empty content browser folders do not need the editor asset deletion path.
+        // UEditorAssetLibrary::DeleteDirectory can block on live editor state even when
+        // the asset registry has no packages to delete, so remove the registry paths
+        // and physical directory directly, then verify both states.
+        TArray<FString> EmptySubPaths;
+        AssetRegistry.GetSubPaths(FolderPath, EmptySubPaths, true);
+        EmptySubPaths.Sort([](const FString& A, const FString& B)
+        {
+            return A.Len() > B.Len();
+        });
+        for (const FString& SubPath : EmptySubPaths)
+        {
+            AssetRegistry.RemovePath(SubPath);
+        }
+        AssetRegistry.RemovePath(FolderPath);
+
+        FString EmptyLocalPath;
+        bool bDirectoryExistsOnDisk = false;
+        if (FPackageName::TryConvertLongPackageNameToFilename(FolderPath, EmptyLocalPath))
+        {
+            IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+            if (PlatformFile.DirectoryExists(*EmptyLocalPath))
+            {
+                PlatformFile.DeleteDirectoryRecursively(*EmptyLocalPath);
+            }
+            bDirectoryExistsOnDisk = PlatformFile.DirectoryExists(*EmptyLocalPath);
+        }
+
+        TArray<FString> RemainingEmptySubPaths;
+        AssetRegistry.GetSubPaths(FolderPath, RemainingEmptySubPaths, true);
+        const bool bDeleted = RemainingEmptySubPaths.Num() == 0 && !bDirectoryExistsOnDisk;
+        UE_LOG(LogMcpSafeOperations, Log,
+            TEXT("McpSafeDeleteFolder: Empty folder deletion result for '%s' (remainingSubPaths=%d existsOnDisk=%d)"),
+            *FolderPath, RemainingEmptySubPaths.Num(), bDirectoryExistsOnDisk ? 1 : 0);
+        return bDeleted;
     }
     
     UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeDeleteFolder: Found %d assets in '%s'"), AllAssets.Num(), *FolderPath);
@@ -1996,43 +2043,37 @@ RiskyAnimationAssets.Num(), SafeAssets.Num(), WorldAssets.Num());
     // STEP 7: Delete SAFE non-world assets with tight compilation barriers
     if (SafeAssets.Num() > 0)
     {
-        TArray<UObject*> SafeObjectsToDelete;
-        int32 SafeInMemoryOnlyCount = 0;
-        if (!PrepareAssetBatchForDelete(
-            SafeAssets,
-            TEXT("McpSafeDeleteFolder[SafeAssets]"),
-            SafeObjectsToDelete,
-            SafeInMemoryOnlyCount))
-        {
-            return false;
-        }
+        UE_LOG(LogMcpSafeOperations, Log,
+            TEXT("McpSafeDeleteFolder: Deleting %d safe assets via UEditorAssetLibrary::DeleteAsset"),
+            SafeAssets.Num());
 
-        if (SafeInMemoryOnlyCount > 0)
+        int32 DeletedSafeAssets = 0;
+        for (const FAssetData& SafeAsset : SafeAssets)
         {
-            UE_LOG(LogMcpSafeOperations, Warning,
-                TEXT("McpSafeDeleteFolder: %d safe assets are in-memory only and were routed through GC cleanup"),
-                SafeInMemoryOnlyCount);
-        }
-        
-        if (SafeObjectsToDelete.Num() > 0)
-        {
-            // Pre-deletion quiesce with batch-specific compilation barrier
-            McpQuiesceBeforeBatchDelete(SafeObjectsToDelete);
-
-            for (UObject* SafeObject : SafeObjectsToDelete)
+            const FString SafeAssetPath = SafeAsset.PackageName.ToString();
+            if (SafeAssetPath.IsEmpty())
             {
-                McpPreClearBlueprintActionDatabase(SafeObject);
+                continue;
             }
-            
-            UE_LOG(LogMcpSafeOperations, Log,
-                TEXT("McpSafeDeleteFolder: Deleting %d file-backed safe assets via AssetViewUtils::DeleteAssets"),
-                SafeObjectsToDelete.Num());
 
-            AssetViewUtils::DeleteAssets(SafeObjectsToDelete);
-            
-            // Post-deletion quiesce
-            McpQuiesceAfterBatchDelete(SafeObjectsToDelete);
+            const bool bDeletedSafeAsset = UEditorAssetLibrary::DeleteAsset(SafeAssetPath);
+            const bool bExistsAfterDelete = UEditorAssetLibrary::DoesAssetExist(SafeAssetPath);
+            if (bDeletedSafeAsset && !bExistsAfterDelete)
+            {
+                ++DeletedSafeAssets;
+            }
+            else
+            {
+                UE_LOG(LogMcpSafeOperations, Error,
+                    TEXT("McpSafeDeleteFolder: Failed to delete safe asset '%s' (deleteResult=%d existsAfter=%d)"),
+                    *SafeAssetPath, bDeletedSafeAsset ? 1 : 0, bExistsAfterDelete ? 1 : 0);
+                return false;
+            }
         }
+
+        UE_LOG(LogMcpSafeOperations, Log,
+            TEXT("McpSafeDeleteFolder: Deleted %d/%d safe assets"),
+            DeletedSafeAssets, SafeAssets.Num());
     }
     
     // STEP 8: Delete WORLD ASSETS LAST (they should be unloaded now)
@@ -2153,7 +2194,7 @@ UE_LOG(LogMcpSafeOperations, Warning, TEXT("McpSafeDeleteFolder: Remaining asset
 
 #else
 
-// Non-editor stubs
+// Non-editor explicit failure fallbacks
 inline bool McpSafeAssetSave(void* Asset) { return false; }
 inline bool McpSafeLevelSave(void* Level, const FString& Path, int32 = 1) { return false; }
 inline bool McpSafeLoadMap(const FString& MapPath, bool = true) { return false; }

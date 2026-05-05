@@ -664,9 +664,7 @@ bool ImportJsonToArray(void* Container, FArrayProperty* ArrayProp, const TArray<
 
 bool ApplyJsonValueToProperty(void* TargetContainer, FProperty* Property, const TSharedPtr<FJsonValue>& ValueField, FString& OutError)
 {
-    // This delegates to the existing implementation in McpAutomationBridgeHelpers.h
-    // For now, we include a stub that calls through - full implementation would be moved here
-    // during complete refactoring
+    // Standalone property importer used by reflection callers during the helper refactor.
     
     OutError.Empty();
     if (!TargetContainer || !Property || !ValueField.IsValid())

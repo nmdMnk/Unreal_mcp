@@ -160,7 +160,7 @@ PublicDependencyModuleNames.AddRange(new string[]
                 "AnimGraph","AnimationBlueprintLibrary","Persona","ToolMenus","EditorWidgets","PropertyEditor","LevelEditor",
                 "RigVM","RigVMDeveloper","UMG","UMGEditor","MergeActors",
                 "RenderCore", "RHI", "AutomationController", "GameplayDebugger", "TraceLog", "TraceAnalysis", "AIGraph",
-                "MeshUtilities", "MaterialUtilities", "PhysicsCore", "ClothingSystemRuntimeCommon",
+                "MeshUtilities", "MeshMergeUtilities", "MaterialUtilities", "PhysicsCore", "ClothingSystemRuntimeCommon",
                 "GeometryCore", "GeometryFramework", "DynamicMesh", "MeshDescription", "StaticMeshDescription",
                 "NavigationSystem"
                 // Optional plugins are handled by AddOptionalDynamicModule() below with delay-load
@@ -236,7 +236,6 @@ PublicDependencyModuleNames.AddRange(new string[]
 
             // Phase: IKRig and Vehicles (optional plugins)
             AddOptionalDynamicModule(Target, EngineDir, "IKRig", "IKRig");
-            AddOptionalDynamicModule(Target, EngineDir, "IKRigEditor", "IKRigEditor");
             AddOptionalDynamicModule(Target, EngineDir, "ChaosVehicles", "ChaosVehicles");
             AddOptionalDynamicModule(Target, EngineDir, "AnimationData", "AnimationData");
 

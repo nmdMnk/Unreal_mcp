@@ -169,6 +169,14 @@ void UMcpAutomationBridgeSubsystem::ProcessAutomationRequest(
     };
 
     try {
+      if (LowerAction == TEXT("manage_logs")) {
+        if (HandleAndLog(TEXT("HandleLogAction (direct)"), [&]() {
+              return HandleLogAction(RequestId, Action, Payload,
+                                     RequestingSocket);
+            }))
+          return;
+      }
+
       // =========================================================================
       // Begin Error Capture for this request (inside try block)
       // =========================================================================

@@ -736,6 +736,12 @@ void UMcpAutomationBridgeSubsystem::InitializeHandlers() {
                          TSharedPtr<FMcpBridgeWebSocket> S) {
                     return HandleSetLandscapeMaterial(R, A, P, S);
                   });
+  RegisterHandler(TEXT("modify_heightmap"),
+                  [this](const FString &R, const FString &A,
+                         const TSharedPtr<FJsonObject> &P,
+                         TSharedPtr<FMcpBridgeWebSocket> S) {
+                    return HandleModifyHeightmap(R, A, P, S);
+                  });
   RegisterHandler(TEXT("edit_landscape"),
                   [this](const FString &R, const FString &A,
                          const TSharedPtr<FJsonObject> &P,
@@ -811,6 +817,12 @@ void UMcpAutomationBridgeSubsystem::InitializeHandlers() {
                          const TSharedPtr<FJsonObject> &P,
                          TSharedPtr<FMcpBridgeWebSocket> S) {
                     return HandleModifyNiagaraParameter(R, A, P, S);
+                  });
+  RegisterHandler(TEXT("manage_niagara_authoring"),
+                  [this](const FString &R, const FString &A,
+                         const TSharedPtr<FJsonObject> &P,
+                         TSharedPtr<FMcpBridgeWebSocket> S) {
+                    return HandleManageNiagaraAuthoringAction(R, A, P, S);
                   });
 
   // Animation
