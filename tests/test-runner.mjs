@@ -79,6 +79,35 @@ function logMcpResponse(toolName, normalizedResponse) {
   console.log(clampString(json, Number.isFinite(maxChars) && maxChars > 0 ? maxChars : DEFAULT_RESPONSE_LOG_MAX_CHARS));
 }
 
+function collectResponseText(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map((entry) => collectResponseText(entry)).join(' ');
+  if (typeof value === 'object') {
+    return Object.values(value).map((entry) => collectResponseText(entry)).join(' ');
+  }
+  return '';
+}
+
+function isBridgeDisconnectedSignal(value) {
+  const text = collectResponseText(value).toLowerCase();
+  if (!text) return false;
+  const indicators = [
+    'unreal engine is not connected',
+    'automation bridge connection failed',
+    'automation bridge connection timeout',
+    'automation bridge not connected',
+    'ue_not_connected',
+    'bridge disconnected',
+    'connection lost',
+    'econnrefused',
+    'econnreset',
+    'socket hang up'
+  ];
+  return indicators.some((indicator) => text.includes(indicator));
+}
+
 function formatResultLine(testCase, status, detail, durationMs) {
   const durationText = typeof durationMs === 'number' ? ` (${durationMs.toFixed(1)} ms)` : '';
   return `[${status.toUpperCase()}] ${testCase.scenario}${durationText}${detail ? ` => ${detail}` : ''}`;
@@ -144,6 +173,18 @@ function evaluateExpectation(testCase, response) {
     ? response.structuredContent.success
     : undefined;
   const actualSuccess = structuredSuccess ?? !(response.isError || response.structuredContent?.isError);
+
+  // Object expectations can intentionally assert exact controlled error codes
+  // (for example NOT_PARTITIONED guards). Honor those before the generic
+  // "expected success" rejection below so tests don't need broad `error|...`
+  // strings that can mask unrelated failures.
+  if (typeof expectation === 'object' && expectation !== null && !actualSuccess && expectation.errorPattern) {
+    const pattern = String(expectation.errorPattern).toLowerCase();
+    const serializedResponse = JSON.stringify(response).toLowerCase();
+    if (serializedResponse.includes(pattern)) {
+      return { passed: true, reason: `Error pattern matched: ${expectation.errorPattern}` };
+    }
+  }
 
   // CRITICAL: If response explicitly indicates an error (isError: true or structuredContent.success: false
   // or structuredContent.isError: true) and the PRIMARY expectation is success (not just a fallback alternative),
@@ -475,6 +516,59 @@ function evaluateExpectation(testCase, response) {
   return { passed, reason };
 }
 
+function getValueAtPath(source, pathExpression) {
+  if (!pathExpression || typeof pathExpression !== 'string') return undefined;
+  return pathExpression.split('.').reduce((current, part) => {
+    if (current === undefined || current === null) return undefined;
+    if (Array.isArray(current)) {
+      const index = Number.parseInt(part, 10);
+      return Number.isInteger(index) ? current[index] : undefined;
+    }
+    if (typeof current === 'object') {
+      return Object.prototype.hasOwnProperty.call(current, part) ? current[part] : undefined;
+    }
+    return undefined;
+  }, source);
+}
+
+function matchesObjectSubset(candidate, expectedSubset) {
+  if (!candidate || typeof candidate !== 'object' || !expectedSubset || typeof expectedSubset !== 'object') return false;
+  return Object.entries(expectedSubset).every(([key, expectedValue]) => {
+    if (!Object.prototype.hasOwnProperty.call(candidate, key)) return false;
+    const actualValue = candidate[key];
+    if (expectedValue && typeof expectedValue === 'object' && !Array.isArray(expectedValue)) {
+      if ('length' in expectedValue && Array.isArray(actualValue)) return actualValue.length === expectedValue.length;
+      return matchesObjectSubset(actualValue, expectedValue);
+    }
+    return actualValue === expectedValue;
+  });
+}
+
+function evaluateAssertions(testCase, response) {
+  if (!Array.isArray(testCase.assertions) || testCase.assertions.length === 0) return { passed: true };
+
+  for (const assertion of testCase.assertions) {
+    const label = assertion.label || assertion.path || 'assertion';
+    const actual = getValueAtPath(response, assertion.path);
+
+    if (Object.prototype.hasOwnProperty.call(assertion, 'equals') && actual !== assertion.equals) {
+      return { passed: false, reason: `${label}: expected ${JSON.stringify(assertion.equals)}, got ${JSON.stringify(actual)}` };
+    }
+
+    if (Object.prototype.hasOwnProperty.call(assertion, 'length') && (!Array.isArray(actual) || actual.length !== assertion.length)) {
+      return { passed: false, reason: `${label}: expected array length ${assertion.length}, got ${Array.isArray(actual) ? actual.length : typeof actual}` };
+    }
+
+    if (assertion.includesObject) {
+      if (!Array.isArray(actual) || !actual.some((entry) => matchesObjectSubset(entry, assertion.includesObject))) {
+        return { passed: false, reason: `${label}: no array item matched ${JSON.stringify(assertion.includesObject)}` };
+      }
+    }
+  }
+
+  return { passed: true };
+}
+
 /**
  * Main test runner function
  */
@@ -534,7 +628,9 @@ export async function runToolTests(toolName, testCases) {
       const { key, fromField } = testCase.captureResult;
       if (!key || !fromField) return;
       
-      const value = response.structuredContent[fromField];
+      const value = fromField.includes('.')
+        ? getValueAtPath(response.structuredContent, fromField)
+        : response.structuredContent[fromField];
       if (value !== undefined) {
         capturedValues[key] = value;
         console.log(`📦 Captured: ${key} = ${value}`);
@@ -589,7 +685,7 @@ export async function runToolTests(toolName, testCases) {
     try {
       await waitForAnyPort(bridgeHost, envPorts, waitMs);
     } catch (err) {
-      console.warn('Automation bridge did not become available before tests started:', err.message);
+      throw new Error(`Automation bridge did not become available before tests started: ${err.message}`);
     }
 
     // Decide whether to run the built server (dist/cli.js) or to run the
@@ -613,7 +709,9 @@ export async function runToolTests(toolName, testCases) {
               const st = await fs.stat(full);
               const m = st.mtimeMs || 0;
               if (m > latest) latest = m;
-            } catch (_) { }
+            } catch (_) {
+              // Ignore files that disappear while scanning mtimes.
+            }
           }
         }
       } catch (_) {
@@ -853,23 +951,23 @@ export async function runToolTests(toolName, testCases) {
       await callToolOnce({ name: 'control_actor', arguments: { action: 'delete', actorName: 'SmartNavLink_Test' } }, 5000).catch(() => {});
       
       // Delete test assets (blueprints, materials)
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/BP_Test' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/SplineBP' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestMaterial' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/Parent' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/M_Test' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/ConvertedMesh' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestLandscape' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/BP_Test' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/SplineBP' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/TestMaterial' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/Parent' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/M_Test' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/ConvertedMesh' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/TestLandscape' } }, 10000).catch(() => {});
       // Delete asset test artifacts
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestAsset' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestMesh' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestMat' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestInstance' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/TestAsset' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/TestMesh' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/TestMat' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete', path: '/Game/MCPTest/TestInstance', force: true } }, 10000).catch(() => {});
       
       // Delete foliage types
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/Foliage/Grass' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/Foliage/Tree' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/Foliage/Bush' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/Foliage/Grass' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/Foliage/Tree' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/Foliage/Bush' } }, 10000).catch(() => {});
       
       // Delete NavMeshBoundsVolume
       await callToolOnce({ name: 'control_actor', arguments: { action: 'delete', actorName: 'NavMeshBoundsVolume' } }, 5000).catch(() => {});
@@ -1293,6 +1391,13 @@ export async function runToolTests(toolName, testCases) {
           logMcpResponse(testCase.toolName + " :: " + testCase.scenario, normalizeMcpResponse(normalizedResponse));
         }
         let { passed, reason } = evaluateExpectation(testCase, normalizedResponse);
+        if (passed && testCase.assertions) {
+          const assertionResult = evaluateAssertions(testCase, normalizedResponse);
+          if (!assertionResult.passed) {
+            passed = false;
+            reason = assertionResult.reason;
+          }
+        }
         // Capture results if specified in test case
         if (passed && testCase.captureResult) {
           captureResultValues(testCase, normalizedResponse);
@@ -1336,6 +1441,10 @@ export async function runToolTests(toolName, testCases) {
             detail: reason,
             response: normalizedResponse
           });
+          if (isBridgeDisconnectedSignal(normalizedResponse) || isBridgeDisconnectedSignal(reason)) {
+            console.log('🛑 Automation bridge is not connected; aborting remaining tests to avoid wasting time.');
+            break;
+          }
         } else {
           console.log(`[PASSED] ${testCase.scenario} (${durationMs.toFixed(1)} ms)`);
           results.push({
@@ -1376,7 +1485,8 @@ export async function runToolTests(toolName, testCases) {
             durationMs,
             detail: `Infrastructure failure (crash/disconnection): ${errorMessage}`
           });
-          continue;
+          console.log('🛑 Automation bridge is not connected; aborting remaining tests to avoid wasting time.');
+          break;
         }
 
         // Determine PRIMARY intent from expected string
@@ -1414,6 +1524,10 @@ export async function runToolTests(toolName, testCases) {
           durationMs,
           detail: errorMessage
         });
+        if (isBridgeDisconnectedSignal(errorMessage)) {
+          console.log('🛑 Automation bridge is not connected; aborting remaining tests to avoid wasting time.');
+          break;
+        }
       }
       
       // Throttle to avoid rate limiting (600 req/min = 10 req/sec)
@@ -1540,7 +1654,7 @@ export class TestRunner {
       try {
         await waitForAnyPort(bridgeHost, envPorts, waitMs);
       } catch (err) {
-        console.warn('Automation bridge did not become available before tests started:', err.message);
+        throw new Error(`Automation bridge did not become available before tests started: ${err.message}`);
       }
 
       const distPath = path.join(repoRoot, 'dist', 'cli.js');
@@ -1560,10 +1674,13 @@ export class TestRunner {
                 const st = await fs.stat(full);
                 const m = st.mtimeMs || 0;
                 if (m > latest) latest = m;
-              } catch (_) { }
+              } catch (_) {
+                // Ignore files that disappear while scanning mtimes.
+              }
             }
           }
         } catch (_) {
+          // Ignore missing plugin directories when deciding whether dist is stale.
         }
         return latest;
       }
@@ -1716,6 +1833,9 @@ export class TestRunner {
         async executeTool(toolName, args, options = {}) {
           const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : undefined;
           const response = await callToolOnce({ name: toolName, arguments: args }, timeoutMs);
+          if (isBridgeDisconnectedSignal(response)) {
+            throw new Error('Unreal Engine is not connected');
+          }
           let structuredContent = response.structuredContent ?? null;
           if (structuredContent === null && response.content?.length) {
             for (const entry of response.content) {
@@ -1777,6 +1897,10 @@ export class TestRunner {
             durationMs,
             detail
           });
+          if (isBridgeDisconnectedSignal(detail)) {
+            console.log('🛑 Automation bridge is not connected; aborting remaining steps to avoid wasting time.');
+            break;
+          }
         }
       }
 
@@ -1804,4 +1928,3 @@ export class TestRunner {
     }
   }
 }
-
