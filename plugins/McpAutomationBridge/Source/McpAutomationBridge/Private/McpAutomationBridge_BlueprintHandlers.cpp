@@ -3990,7 +3990,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
 
     FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
     McpSafeCompileBlueprint(Blueprint);
-    const bool bSaved = UEditorAssetLibrary::SaveLoadedAsset(Blueprint);
+    const bool bSaved = McpSafeAssetSave(Blueprint);
 
     TSharedPtr<FJsonObject> Entry =
         FMcpAutomationBridge_EnsureBlueprintEntry(RegistryKey);

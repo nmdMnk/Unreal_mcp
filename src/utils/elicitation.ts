@@ -22,6 +22,10 @@ export interface ElicitOptions {
   alternate?: () => Promise<{ ok: boolean; value?: unknown; error?: string }>;
 }
 
+type ElicitCapableServer = Server & {
+  elicitInput?: (params: Record<string, unknown>, opts: { timeout: number }) => Promise<Record<string, unknown>>;
+};
+
 export function createElicitationHelper(server: Server, log: Logger) {
   // We do not require explicit capability detection: we optimistically try once
   // and disable on a Method-not-found (-32601) error for the session.
@@ -86,7 +90,7 @@ export function createElicitationHelper(server: Server, log: Logger) {
     const params = { message, requestedSchema } as Record<string, unknown>;
 
     try {
-      const elicitMethod = (server as unknown as Record<string, unknown>)?.elicitInput;
+      const elicitMethod = (server as ElicitCapableServer).elicitInput;
       if (typeof elicitMethod !== 'function') {
         supported = false;
         throw new Error('elicitInput-not-available');
@@ -94,7 +98,7 @@ export function createElicitationHelper(server: Server, log: Logger) {
 
       const requestedTimeout = opts.timeoutMs;
       const timeoutMs = Math.max(MIN_TIMEOUT_MS, requestedTimeout ?? defaultTimeoutMs);
-      const res = await (elicitMethod as (params: Record<string, unknown>, opts: { timeout: number }) => Promise<Record<string, unknown>>).call(server, params, { timeout: timeoutMs });
+      const res = await elicitMethod.call(server, params, { timeout: timeoutMs });
       const action = res?.action;
       const content = res?.content;
 

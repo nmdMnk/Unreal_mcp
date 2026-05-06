@@ -1,7 +1,7 @@
 import { WebSocket } from 'ws';
 
 export interface AutomationBridgeOptions {
-    host?: string;
+    host?: string | null;
     port?: number;
     ports?: number[];
     protocols?: string[];

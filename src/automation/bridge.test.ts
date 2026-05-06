@@ -258,7 +258,7 @@ describe('AutomationBridge Host Validation', () => {
         });
 
         it('should handle null host', () => {
-            const bridge = new AutomationBridge({ host: null as unknown as string, port: 8091 });
+            const bridge = new AutomationBridge({ host: null, port: 8091 });
             expect(bridge.getStatus().host).toBe('127.0.0.1');
         });
 

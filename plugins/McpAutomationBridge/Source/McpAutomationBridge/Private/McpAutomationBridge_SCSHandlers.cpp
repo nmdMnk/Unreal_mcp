@@ -113,11 +113,8 @@ void FSCSHandlers::FinalizeBlueprintSCSChange(UBlueprint *Blueprint,
   bOutCompiled = McpSafeCompileBlueprint(Blueprint);
 
   
-  // UE 5.7+ Fix: Use McpSafeAssetSave instead of SaveLoadedAssetThrottled.
-  // SaveLoadedAssetThrottled triggers UEditorAssetLibrary::SaveLoadedAsset() which
-  // causes thumbnail generation and recursive FlushRenderingCommands calls (11+ times).
-  // This corrupts render thread state and causes access violations in RenderCore.dll.
-  // McpSafeAssetSave marks package dirty without triggering disk save operations.
+  // UE 5.7+ Fix: Save through the editor-owned safe helper path to avoid the
+  // legacy UEditorAssetLibrary::SaveLoadedAsset thumbnail/render-thread path.
   bOutSaved = McpSafeAssetSave(Blueprint);
   if (!bOutSaved) {
     UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,

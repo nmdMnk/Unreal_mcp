@@ -65,6 +65,15 @@ const CONFIG = {
   HEALTH_CHECK_INTERVAL_MS: 30000
 };
 
+type MaybeClosableServer = { close?: () => void | Promise<void> };
+
+function getErrorCode(error: unknown): unknown {
+  if (error && typeof error === 'object' && 'code' in error) {
+    return (error as { code?: unknown }).code;
+  }
+  return undefined;
+}
+
 export function createServer() {
   const bridge = new UnrealBridge();
   const healthMonitor = new HealthMonitor(log);
@@ -183,16 +192,14 @@ export async function startStdioServer() {
     await new Promise<void>((resolve) => {
       try {
         metricsServer.close((error?: Error) => {
-          const errorObj = error as Record<string, unknown> | undefined;
-          const errorCode = errorObj?.code;
+          const errorCode = getErrorCode(error);
           if (error && errorCode !== 'ERR_SERVER_NOT_RUNNING') {
             log.warn('Failed to close metrics server cleanly', error);
           }
           resolve();
         });
       } catch (error) {
-        const errorObj = error as Record<string, unknown> | null;
-        const errorCode = errorObj?.code;
+        const errorCode = getErrorCode(error);
         if (errorCode !== 'ERR_SERVER_NOT_RUNNING') {
           log.warn('Failed to close metrics server cleanly', error);
         }
@@ -233,9 +240,9 @@ export async function startStdioServer() {
     }
 
     try {
-      const serverObj = server as unknown as Record<string, unknown>;
-      if (typeof serverObj.close === 'function') {
-        await (serverObj.close as () => Promise<void>)();
+      const closeServer = (server as MaybeClosableServer).close;
+      if (typeof closeServer === 'function') {
+        await closeServer.call(server);
       }
     } catch (error) {
       log.warn('Failed to close MCP server transport cleanly', error);
@@ -252,28 +259,26 @@ export async function startStdioServer() {
     });
   });
 
+  const runLifecycleCleanup = (eventName: 'beforeExit' | 'exit'): void => {
+    const runCleanup = (operation: string, cleanup: () => void): void => {
+      try {
+        cleanup();
+      } catch (error) {
+        log.debug(`Failed to ${operation} during ${eventName}`, error);
+      }
+    };
+
+    runCleanup('stop automation bridge', () => automationBridge.stop());
+    runCleanup('dispose Unreal bridge', () => bridge.dispose());
+    runCleanup('close metrics server', () => { metricsServer?.close(); });
+  };
+
   process.once('beforeExit', () => {
-    try {
-      automationBridge.stop();
-    } catch { }
-    try {
-      bridge.dispose();
-    } catch { }
-    try {
-      metricsServer?.close();
-    } catch { }
+    runLifecycleCleanup('beforeExit');
   });
  
   process.once('exit', () => {
-    try {
-      automationBridge.stop();
-    } catch { }
-    try {
-      bridge.dispose();
-    } catch { }
-    try {
-      metricsServer?.close();
-    } catch { }
+    runLifecycleCleanup('exit');
   });
 
 

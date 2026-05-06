@@ -17,7 +17,7 @@ import { IEnvironmentTools, StandardActionResponse } from '../types/tool-interfa
  * @param inputPath - The path to validate
  * @returns Object with isValid flag and optional sanitized path or error
  */
-export function validateSnapshotPath(inputPath: string): { isValid: false; error: string } | { isValid: true; safePath: string } {
+export function validateSnapshotPath(inputPath: unknown): { isValid: false; error: string } | { isValid: true; safePath: string } {
   if (!inputPath || typeof inputPath !== 'string') {
     return { isValid: false, error: 'Path is required' };
   }

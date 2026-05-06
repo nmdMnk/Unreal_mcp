@@ -3,6 +3,8 @@ import { Logger } from './logger.js';
 import { cleanObject } from './safe-json.js';
 const log = new Logger('ResponseValidator');
 
+type AjvModuleWithDefault = typeof Ajv & { default?: typeof Ajv.default };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -200,7 +202,7 @@ export class ResponseValidator {
 
   constructor() {
     // Ajv exports differ between ESM and CJS - handle both patterns
-    const AjvClass = (Ajv as unknown as { default: typeof Ajv.default }).default ?? Ajv.default;
+    const AjvClass = (Ajv as AjvModuleWithDefault).default ?? Ajv.default;
     this.ajv = new AjvClass({
       allErrors: true,
       verbose: true,
@@ -244,15 +246,14 @@ export class ResponseValidator {
 
     // Extract structured content from response
     let structuredContent = response;
-    const responseObj = response as Record<string, unknown> | null;
+    const responseObj = isRecord(response) ? response : null;
 
     // If response has MCP format with content array
     if (responseObj && responseObj.content && Array.isArray(responseObj.content)) {
       // Try to extract structured data from text content
-      const textContent = responseObj.content.find((c: unknown) => {
-        const cObj = c as Record<string, unknown> | null;
-        return cObj?.type === 'text';
-      }) as Record<string, unknown> | undefined;
+      const textContent = responseObj.content.find((c: unknown): c is Record<string, unknown> =>
+        isRecord(c) && c.type === 'text'
+      );
       if (textContent?.text) {
         const rawText = String(textContent.text);
         const trimmed = rawText.trim();
@@ -312,7 +313,7 @@ export class ResponseValidator {
       safeResponse = cleanObject(response);
     }
 
-    const responseObj = safeResponse as Record<string, unknown> | null;
+    const responseObj = isRecord(safeResponse) ? safeResponse : null;
 
     // If handler already returned MCP content, keep it as-is (still validate)
     const alreadyMcpShaped = responseObj && typeof responseObj === 'object' && Array.isArray(responseObj.content);
@@ -333,20 +334,25 @@ export class ResponseValidator {
           responseObj.structuredContent = structuredPayload && typeof structuredPayload === 'object'
             ? cleanObject(structuredPayload)
             : structuredPayload;
-        } catch { }
+        } catch (error) {
+          log.debug(`Unable to attach structured content for ${toolName}`, error);
+        }
       }
       // Promote failure semantics to top-level isError when obvious
-      try {
-        const sc = (responseObj.structuredContent || structuredPayload || {}) as Record<string, unknown>;
+      const structuredContent = responseObj.structuredContent ?? structuredPayload;
+      if (isRecord(structuredContent)) {
+        const sc = structuredContent;
         const hasExplicitFailure = (typeof sc.success === 'boolean' && sc.success === false) || (typeof sc.error === 'string' && (sc.error as string).length > 0);
         if (hasExplicitFailure && responseObj.isError !== true) {
           responseObj.isError = true;
         }
-      } catch { }
+      }
       if (!validation.valid) {
         try {
           responseObj._validation = { valid: false, errors: validation.errors };
-        } catch { }
+        } catch (error) {
+          log.debug(`Unable to attach validation metadata for ${toolName}`, error);
+        }
       }
       return responseObj;
     }
@@ -366,15 +372,11 @@ export class ResponseValidator {
 
     // Surface a top-level success flag when available so clients and test
     // harnesses do not have to infer success from the absence of isError.
-    try {
-      const structPayloadObj = structuredPayload as Record<string, unknown> | null;
-      const safeResponseObj = safeResponse as Record<string, unknown> | null;
-      if (structPayloadObj && typeof structPayloadObj.success === 'boolean') {
-        wrapped.success = Boolean(structPayloadObj.success);
-      } else if (safeResponseObj && typeof safeResponseObj.success === 'boolean') {
-        wrapped.success = Boolean(safeResponseObj.success);
-      }
-    } catch { }
+    if (isRecord(structuredPayload) && typeof structuredPayload.success === 'boolean') {
+      wrapped.success = Boolean(structuredPayload.success);
+    } else if (isRecord(safeResponse) && typeof safeResponse.success === 'boolean') {
+      wrapped.success = Boolean(safeResponse.success);
+    }
 
     if (structuredPayload !== undefined) {
       try {
@@ -393,13 +395,13 @@ export class ResponseValidator {
     }
 
     // Promote failure semantics to top-level isError when obvious
-    try {
-      const sc = (wrapped.structuredContent || {}) as Record<string, unknown>;
+    if (isRecord(wrapped.structuredContent)) {
+      const sc = wrapped.structuredContent;
       const hasExplicitFailure = (typeof sc.success === 'boolean' && sc.success === false) || (typeof sc.error === 'string' && (sc.error as string).length > 0);
       if (hasExplicitFailure) {
         wrapped.isError = true;
       }
-    } catch { }
+    }
 
     if (!validation.valid) {
       wrapped._validation = { valid: false, errors: validation.errors };
@@ -407,12 +409,10 @@ export class ResponseValidator {
 
     // Mark explicit error when success is false to avoid false positives in
     // clients that check only for the absence of isError.
-    try {
-      const s = wrapped.success;
-      if (typeof s === 'boolean' && s === false) {
-        wrapped.isError = true;
-      }
-    } catch { }
+    const success = wrapped.success;
+    if (typeof success === 'boolean' && success === false) {
+      wrapped.isError = true;
+    }
 
     return wrapped;
   }

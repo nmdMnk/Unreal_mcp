@@ -75,8 +75,8 @@ export class ResourceHandler {
         let versionInfo: Record<string, unknown> = {};
         let featureFlags: Record<string, unknown> = {};
         if (this.bridge.isConnected) {
-          try { versionInfo = await this.bridge.getEngineVersion(); } catch { }
-          try { featureFlags = await this.bridge.getFeatureFlags(); } catch { }
+          try { versionInfo = await this.bridge.getEngineVersion(); } catch { versionInfo = {}; }
+          try { featureFlags = await this.bridge.getFeatureFlags(); } catch { featureFlags = {}; }
         }
 
         const responseTimes = this.healthMonitor.metrics.responseTimes.slice(-25);

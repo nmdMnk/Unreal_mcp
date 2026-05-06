@@ -109,7 +109,9 @@ export class LogTools {
         if (st.isFile()) {
           return this.cacheLogPath(resolvedPath);
         }
-      } catch { }
+      } catch (error) {
+        this._log.debug('Configured log override is not readable', { path: override, error });
+      }
     }
 
     if (this.cachedLogPath && (await this.fileExists(this.cachedLogPath))) {
@@ -167,7 +169,9 @@ export class LogTools {
         candidates.sort((a, b) => b.m - a.m);
         return this.cacheLogPath(candidates[0].p);
       }
-    } catch { }
+    } catch (error) {
+      this._log.debug('Unable to scan log directory', { dir, error });
+    }
     return undefined;
   }
 
@@ -214,7 +218,11 @@ export class LogTools {
       }
       return lines.slice(0, maxLines).join('\n');
     } finally {
-      try { await handle.close(); } catch { }
+      try {
+        await handle.close();
+      } catch (error) {
+        this._log.debug('Failed to close log file handle', { filePath, error });
+      }
     }
   }
 

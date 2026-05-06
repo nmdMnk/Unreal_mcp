@@ -1471,7 +1471,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
       properties: {
         action: {
           type: 'string',
-          enum: MATERIAL_AUTHORING_ACTIONS as unknown as string[],
+          enum: [...MATERIAL_AUTHORING_ACTIONS],
           description: 'Material authoring action to perform'
         },
         assetPath: commonSchemas.assetPath,

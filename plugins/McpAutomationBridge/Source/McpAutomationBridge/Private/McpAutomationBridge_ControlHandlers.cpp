@@ -3723,7 +3723,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSaveAll(
         continue;
       }
       
-      if (UEditorAssetLibrary::SaveAsset(PackagePath, false)) {
+      if (McpSafeAssetSave(Package)) {
         SavedCount++;
       } else {
         bSuccess = false;

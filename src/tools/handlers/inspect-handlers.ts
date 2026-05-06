@@ -16,6 +16,27 @@ interface InspectResponse {
   [key: string]: unknown;
 }
 
+function toComponentInfo(value: unknown): ComponentInfo | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const component: ComponentInfo = { name: typeof record.name === 'string' ? record.name : '' };
+  Object.assign(component, record);
+  component.name = typeof record.name === 'string' ? record.name : '';
+  return component;
+}
+
+function toComponentList(value: unknown): ComponentInfo[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map(toComponentInfo)
+    .filter((component): component is ComponentInfo => component !== undefined);
+}
+
 /**
  * Action aliases for test compatibility
  * Maps test action names to handler action names
@@ -344,8 +365,8 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
 
             if (compsRes.success && (Array.isArray(compsRes.components) || Array.isArray(compsRes))) {
               const list: ComponentInfo[] = Array.isArray(compsRes.components) 
-                ? compsRes.components 
-                : (Array.isArray(compsRes) ? compsRes as unknown as ComponentInfo[] : []);
+                ? toComponentList(compsRes.components)
+                : toComponentList(compsRes);
               const triedPathsInner: string[] = [];
               for (const comp of list) {
                 // Use path if available, otherwise construct it (ActorPath.ComponentName)

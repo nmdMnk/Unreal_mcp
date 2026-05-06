@@ -49,7 +49,7 @@ export class HandshakeHandler extends EventEmitter {
                 }
 
                 const typeHint = typeof parsed.type === 'string' ? parsed.type : 'unknown';
-                this.log.warn(`Expected bridge_ack handshake, received ${typeHint}`, validation.error.format());
+            this.log.warn(`Expected bridge_ack handshake, received ${typeHint}`, validation.error.issues);
                 socket.close(4004, 'Handshake expected bridge_ack');
                 cleanup();
                 reject(new Error(`Handshake expected bridge_ack, got ${typeHint}`));

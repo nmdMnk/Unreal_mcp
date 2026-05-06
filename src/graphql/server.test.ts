@@ -18,8 +18,8 @@ describe('GraphQLServer Security', () => {
   let mockAutomationBridge: AutomationBridge;
 
   beforeEach(() => {
-    mockBridge = new UnrealBridge() as any;
-    mockAutomationBridge = new AutomationBridge() as any;
+    mockBridge = new UnrealBridge();
+    mockAutomationBridge = new AutomationBridge();
   });
 
   it('should allow origin "*" if credentials is false', () => {

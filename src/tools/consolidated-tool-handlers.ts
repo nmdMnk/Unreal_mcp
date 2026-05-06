@@ -60,6 +60,12 @@ interface DeprecationFlags {
   __animationAuthoringDeprecationLogged?: boolean;
 }
 
+type GlobalDeprecationState = typeof globalThis & DeprecationFlags;
+
+function getDeprecationState(): GlobalDeprecationState {
+  return globalThis as GlobalDeprecationState;
+}
+
 const MATERIAL_GRAPH_ACTION_MAP: Record<string, string> = {
   add_material_node: 'add_node',
   connect_material_pins: 'connect_pins',
@@ -193,7 +199,7 @@ function registerDefaultHandlers() {
   // Kept for backward compatibility - routes to manage_blueprint
   toolRegistry.register('manage_blueprint_graph', async (args, tools) => {
     // Deprecation warning logged once per session
-    const globalObj = globalThis as unknown as DeprecationFlags;
+    const globalObj = getDeprecationState();
     if (!globalObj.__blueprintGraphDeprecationLogged) {
       const deprecationLogger = new Logger('DeprecationWarning');
       deprecationLogger.warn('manage_blueprint_graph is deprecated and merged into manage_blueprint. Use manage_blueprint instead.');
@@ -402,7 +408,7 @@ function registerDefaultHandlers() {
   // 24. [DEPRECATED] ANIMATION AUTHORING - now merged into animation_physics (Phase 53)
   // Backward compatibility alias - logs deprecation warning once per session
   toolRegistry.register('manage_animation_authoring', async (args, tools) => {
-    const globalObj = globalThis as unknown as DeprecationFlags;
+    const globalObj = getDeprecationState();
     if (!globalObj.__animationAuthoringDeprecationLogged) {
       const deprecationLogger = new Logger('DeprecationWarning');
       deprecationLogger.warn('manage_animation_authoring is deprecated and merged into animation_physics. Use animation_physics instead.');
@@ -414,7 +420,7 @@ function registerDefaultHandlers() {
   // 25. [DEPRECATED] AUDIO AUTHORING - now merged into manage_audio (Phase 53)
   // Backward compatibility alias - logs deprecation warning once per session
   toolRegistry.register('manage_audio_authoring', async (args, tools) => {
-    const globalObj = globalThis as unknown as DeprecationFlags;
+    const globalObj = getDeprecationState();
     if (!globalObj.__audioAuthoringDeprecationLogged) {
       const deprecationLogger = new Logger('DeprecationWarning');
       deprecationLogger.warn('manage_audio_authoring is deprecated and merged into manage_audio. Use manage_audio instead.');
@@ -426,7 +432,7 @@ function registerDefaultHandlers() {
   // 26. [DEPRECATED] NIAGARA AUTHORING - now merged into manage_effect (Phase 53)
   // Backward compatibility alias - logs deprecation warning once per session
   toolRegistry.register('manage_niagara_authoring', async (args, tools) => {
-    const globalObj = globalThis as unknown as DeprecationFlags;
+    const globalObj = getDeprecationState();
     if (!globalObj.__niagaraAuthoringDeprecationLogged) {
       const deprecationLogger = new Logger('DeprecationWarning');
       deprecationLogger.warn('manage_niagara_authoring is deprecated and merged into manage_effect. Use manage_effect instead.');

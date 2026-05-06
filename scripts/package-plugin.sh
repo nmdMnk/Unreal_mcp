@@ -29,10 +29,13 @@ for arg in "$@"; do
         *)  [ -z "$OUTPUT_DIR" ] && OUTPUT_DIR="$arg" ;;
     esac
 done
-OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/build}"
+OUTPUT_DIR="${OUTPUT_DIR:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/build}"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 PLUGIN_FILE="$REPO_ROOT/plugins/McpAutomationBridge/McpAutomationBridge.uplugin"
 
 if [ ! -f "$PLUGIN_FILE" ]; then
@@ -136,7 +139,9 @@ fi
 
 echo "Creating archive: $ZIP_NAME"
 cd "$OUTPUT_DIR"
-zip -r "$ZIP_NAME" McpAutomationBridge/ -x "*.pdb" "Intermediate/*"
+zip -r "$ZIP_NAME" McpAutomationBridge/ \
+    -x "*.pdb" \
+    -x "McpAutomationBridge/Intermediate/*"
 echo ""
 
 FINAL_SIZE=$(du -sh "$OUTPUT_DIR/$ZIP_NAME" | cut -f1)

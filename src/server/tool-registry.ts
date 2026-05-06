@@ -62,6 +62,10 @@ function clientSupportsListChanged(clientName: string | undefined): boolean {
     return false;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 export class ToolRegistry {
     private defaultElicitationTimeoutMs = 60000;
     private currentCategories: string[] = parseDefaultCategories();
@@ -443,9 +447,8 @@ export class ToolRegistry {
             try {
                 // Get client info - the server stores this from the initialize request
                 // Note: _clientVersion is a private SDK property (fragile but necessary)
-                const serverObj = this.server as unknown as Record<string, unknown>;
-                const clientInfo = serverObj._clientVersion as { name?: string } | undefined;
-                clientName = clientInfo?.name;
+                const clientInfo = Reflect.get(this.server, '_clientVersion');
+                clientName = isRecord(clientInfo) && typeof clientInfo.name === 'string' ? clientInfo.name : undefined;
                 supportsListChanged = clientSupportsListChanged(clientName);
                 this.logger.debug(`Client detection: name=${clientName}, supportsListChanged=${supportsListChanged}`);
             } catch (_e) {
@@ -627,14 +630,12 @@ export class ToolRegistry {
                 const wrappedResult = await responseValidator.wrapResponse(name, result);
 
                 let wrappedSuccess: boolean | undefined = undefined;
-                try {
-                    const wrappedObj = wrappedResult as Record<string, unknown>;
-                    const sc = wrappedObj.structuredContent as Record<string, unknown> | undefined;
+                if (isRecord(wrappedResult.structuredContent)) {
+                    const sc = wrappedResult.structuredContent;
                     if (sc && typeof sc.success === 'boolean') wrappedSuccess = Boolean(sc.success);
-                } catch { }
+                }
 
-                const wrappedResultObj = wrappedResult as Record<string, unknown>;
-                const isErrorResponse = Boolean(wrappedResultObj?.isError === true);
+                const isErrorResponse = Boolean(wrappedResult.isError === true);
                 const tentative = explicitSuccess ?? wrappedSuccess;
                 const finalSuccess = tentative === true && !isErrorResponse;
 
@@ -655,13 +656,21 @@ export class ToolRegistry {
                 this.healthMonitor.trackPerformance(startTime, false);
                 const errorResponse = ErrorHandler.createErrorResponse(error, name, { ...args, scope: `tool-call/${name}` });
                 this.logger.error(`Tool execution failed: ${name}`, errorResponse);
-                this.healthMonitor.recordError(errorResponse as unknown as Record<string, unknown>);
+                if (isRecord(errorResponse)) {
+                    this.healthMonitor.recordError(errorResponse);
+                }
 
-                const sanitizedError = cleanObject(errorResponse) as unknown as Record<string, unknown>;
-                try {
+                const sanitizedError = cleanObject(errorResponse);
+                if (isRecord(sanitizedError)) {
                     sanitizedError.isError = true;
-                } catch { }
-                return responseValidator.wrapResponse(name, sanitizedError);
+                    return responseValidator.wrapResponse(name, sanitizedError);
+                }
+                return responseValidator.wrapResponse(name, {
+                    success: false,
+                    isError: true,
+                    error: 'UNKNOWN_ERROR',
+                    message: `Failed to execute ${name}`
+                });
             }
         });
     }

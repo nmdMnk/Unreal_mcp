@@ -1827,20 +1827,12 @@ ExportPropertyToJsonValue(void *TargetContainer, FProperty *Property) {
 }
 
 #if WITH_EDITOR
-// Throttled wrapper around UEditorAssetLibrary::SaveLoadedAsset to avoid
-// triggering rapid repeated SavePackage calls which can cause engine
-// warnings (FlushRenderingCommands called recursively) during heavy
-// test activity. The helper consults a plugin-wide map of recent save
-// timestamps (GRecentAssetSaveTs) and skips saves that occur within the
-// configured throttle window. Skipped saves return 'true' to preserve
-// idempotent behavior for callers that treat a skipped save as a success.
-// Throttled wrapper around UEditorAssetLibrary::SaveLoadedAsset to avoid
-// triggering rapid repeated SavePackage calls which can cause engine
-// warnings (FlushRenderingCommands called recursively) during heavy
-// test activity. The helper consults a plugin-wide map of recent save
-// timestamps (GRecentAssetSaveTs) and skips saves that occur within the
-// configured throttle window. Skipped saves return 'true' to preserve
-// idempotent behavior for callers that treat a skipped save as a success.
+// Throttled wrapper around McpSafeAssetSave to avoid triggering rapid repeated
+// editor-owned package saves during heavy test activity. The helper consults a
+// plugin-wide map of recent save timestamps (GRecentAssetSaveTs) and skips saves
+// that occur within the configured throttle window. Skipped saves return 'true'
+// to preserve idempotent behavior for callers that treat a skipped save as a
+// success.
 //
 // bForce: If true, ignore throttling and force an immediate save.
 static inline bool
@@ -1873,8 +1865,8 @@ SaveLoadedAssetThrottled(UObject *Asset, double ThrottleSecondsOverride = -1.0,
     }
   }
 
-  // Perform the save and record timestamp on success
-  const bool bSaved = UEditorAssetLibrary::SaveLoadedAsset(Asset);
+  // Perform the save through the UE 5.7-safe helper and record timestamp on success.
+  const bool bSaved = McpSafeAssetSave(Asset);
   if (bSaved) {
     FScopeLock Lock(&GRecentAssetSaveMutex);
     GRecentAssetSaveTs.Add(Key, Now);

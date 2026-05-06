@@ -313,11 +313,10 @@ export class NiagaraTools {
     // User requested "implement all missing". I'll stick to adding missing graph methods I just verified.
 
     try {
-      const automationBridge = (this.bridge as unknown as { automationBridge?: AutomationBridge }).automationBridge;
-      if (!automationBridge) {
+      if (!this.automationBridge || typeof this.automationBridge.sendAutomationRequest !== 'function') {
         return { success: false, error: 'Automation bridge not available' };
       }
-      const resp = await automationBridge.sendAutomationRequest('set_niagara_parameter', {
+      const resp = await this.automationBridge.sendAutomationRequest('set_niagara_parameter', {
         systemName: params.systemName,
         parameterName: params.parameterName,
         parameterType: params.parameterType,

@@ -284,7 +284,10 @@ PublicDependencyModuleNames.AddRange(new string[]
                     }
                 }
             }
-            catch {}
+            catch (Exception Ex)
+            {
+                Console.WriteLine(string.Format("McpAutomationBridge: WorldPartition support detection failed: {0}", Ex.Message));
+            }
 
             PublicDefinitions.Add(bHasWPForEach ? "MCP_HAS_WP_FOR_EACH_DATALAYER=1" : "MCP_HAS_WP_FOR_EACH_DATALAYER=0");
 
@@ -360,7 +363,10 @@ PublicDependencyModuleNames.AddRange(new string[]
                 if (SearchDirectoryBounded(PluginsDir, "SubobjectData", 3)) return true;
             }
         }
-        catch {}
+        catch (Exception Ex)
+        {
+            Console.WriteLine(string.Format("McpAutomationBridge: SubobjectData engine detection failed: {0}", Ex.Message));
+        }
         return false;
     }
 
@@ -396,7 +402,10 @@ PublicDependencyModuleNames.AddRange(new string[]
                 }
             }
         }
-        catch {}
+        catch (Exception Ex)
+        {
+            Console.WriteLine(string.Format("McpAutomationBridge: SubobjectData project detection failed: {0}", Ex.Message));
+        }
         return false;
     }
 
@@ -488,7 +497,10 @@ PublicDependencyModuleNames.AddRange(new string[]
                 }
             }
         }
-        catch { }
+        catch (Exception Ex)
+        {
+            Console.WriteLine(string.Format("McpAutomationBridge: Total memory detection failed: {0}", Ex.Message));
+        }
         
         return 8192; // Conservative fallback
     }

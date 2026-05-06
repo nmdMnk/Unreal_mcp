@@ -90,7 +90,9 @@ export class AssetResources extends BaseTool implements IAssetResources {
         const cachedData = entry.data as Record<string, unknown>;
         return { success: true, ...cachedData };
       }
-    } catch { }
+    } catch (error) {
+      log.debug('Asset cache lookup failed; continuing with live listing', error);
+    }
 
     // Check if bridge is connected
     if (!this.bridge.isConnected) {
@@ -227,7 +229,9 @@ export class AssetResources extends BaseTool implements IAssetResources {
           this.cache.set(key, { timestamp: Date.now(), data: result });
           return result;
         }
-      } catch { }
+      } catch (error) {
+        log.debug('AssetRegistry list via automation bridge failed', error);
+      }
 
       // No fallback available
     } catch (err: unknown) {

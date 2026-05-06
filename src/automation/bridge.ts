@@ -30,6 +30,16 @@ import { automationMessageSchema } from './message-schema.js';
 import { config } from '../config.js';
 
 const require = createRequire(import.meta.url);
+
+type WebSocketWithInternalSocket = WebSocket & {
+    _socket?: { remoteAddress?: string; remotePort?: number };
+    socket?: { remoteAddress?: string; remotePort?: number };
+};
+
+function castAutomationResponse<T>(response: AutomationBridgeResponseMessage): T {
+    return response as T;
+}
+
 const packageInfo: { name?: string; version?: string } = (() => {
     try {
         return require('../../package.json');
@@ -375,7 +385,7 @@ export class AutomationBridge extends EventEmitter {
 
                 // Extract remote address/port from underlying TCP socket
                 // Note: WebSocket types don't expose _socket, but it exists at runtime
-                const socketWithInternal = socket as unknown as { _socket?: { remoteAddress?: string; remotePort?: number }; socket?: { remoteAddress?: string; remotePort?: number } };
+                const socketWithInternal = socket as WebSocketWithInternalSocket;
                 const underlying = socketWithInternal._socket || socketWithInternal.socket;
                 const remoteAddr = underlying?.remoteAddress ?? undefined;
                 const remotePort = underlying?.remotePort ?? undefined;
@@ -465,7 +475,7 @@ export class AutomationBridge extends EventEmitter {
                         
                         const validation = automationMessageSchema.safeParse(parsed);
                         if (!validation.success) {
-                            this.log.warn('Dropped invalid automation message', validation.error.format());
+                            this.log.warn('Dropped invalid automation message', validation.error.issues);
                             return;
                         }
 
@@ -711,7 +721,7 @@ export class AutomationBridge extends EventEmitter {
         if (coalesceKey) {
             const existing = this.requestTracker.getCoalescedRequest(coalesceKey);
             if (existing) {
-                return existing as unknown as T;
+                return existing.then(castAutomationResponse<T>);
             }
         }
 
@@ -728,7 +738,7 @@ export class AutomationBridge extends EventEmitter {
             payload
         };
 
-        const resultPromise = promise as unknown as Promise<T>;
+        const resultPromise = promise.then(castAutomationResponse<T>);
 
         // Ensure we process the queue when this request finishes
         resultPromise.finally(() => {

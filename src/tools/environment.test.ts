@@ -187,12 +187,12 @@ describe('validateSnapshotPath Security', () => {
     });
 
     it('should reject null input', () => {
-      const result = validateSnapshotPath(null as unknown as string);
+      const result = validateSnapshotPath(null);
       expect(result.isValid).toBe(false);
     });
 
     it('should reject undefined input', () => {
-      const result = validateSnapshotPath(undefined as unknown as string);
+      const result = validateSnapshotPath(undefined);
       expect(result.isValid).toBe(false);
     });
   });
