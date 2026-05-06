@@ -146,7 +146,6 @@
 #include "ThumbnailRendering/ThumbnailManager.h"
 #include "UObject/ObjectRedirector.h"
 #include "UObject/Package.h"
-#include "UObject/SavePackage.h"
 
 // -----------------------------------------------------------------------------
 // Editor-only Includes (Graph/Blueprint)
@@ -397,13 +396,18 @@ bool UMcpAutomationBridgeSubsystem::HandleFixupRedirectors(
     NormalizedPath = FString::Printf(TEXT("/Game%s"), *NormalizedPath.RightChop(8));
   }
 
-  AsyncTask(ENamedThreads::GameThread, [this, RequestId, NormalizedPath,
+  TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakThis(this);
+  AsyncTask(ENamedThreads::GameThread, [WeakThis, RequestId, NormalizedPath,
                                         bCheckoutFiles, RequestingSocket]() {
+    UMcpAutomationBridgeSubsystem *StrongThis = WeakThis.Get();
+    if (!StrongThis) {
+      return;
+    }
     // CRITICAL FIX: Use DoesAssetDirectoryExistOnDisk for strict validation
     // UEditorAssetLibrary::DoesDirectoryExist() uses AssetRegistry cache which may
     // contain stale entries. We need to check if the directory ACTUALLY exists on disk.
     if (!DoesAssetDirectoryExistOnDisk(NormalizedPath)) {
-      SendAutomationError(RequestingSocket, RequestId,
+      StrongThis->SendAutomationError(RequestingSocket, RequestId,
                           FString::Printf(TEXT("Directory not found: %s"), *NormalizedPath),
                           TEXT("PATH_NOT_FOUND"));
       return;
@@ -434,7 +438,7 @@ bool UMcpAutomationBridgeSubsystem::HandleFixupRedirectors(
       Result->SetBoolField(TEXT("success"), true);
       Result->SetNumberField(TEXT("redirectorsFound"), 0);
       Result->SetNumberField(TEXT("redirectorsFixed"), 0);
-      SendAutomationResponse(RequestingSocket, RequestId, true,
+      StrongThis->SendAutomationResponse(RequestingSocket, RequestId, true,
                              TEXT("No redirectors found"), Result, FString());
       return;
     }
@@ -492,7 +496,7 @@ bool UMcpAutomationBridgeSubsystem::HandleFixupRedirectors(
     Result->SetNumberField(TEXT("redirectorsFound"), RedirectorAssets.Num());
     Result->SetNumberField(TEXT("redirectorsFixed"), DeletedCount);
 
-    SendAutomationResponse(
+    StrongThis->SendAutomationResponse(
         RequestingSocket, RequestId, true,
         FString::Printf(TEXT("Fixed %d redirectors"), DeletedCount), Result,
         FString());
@@ -2265,8 +2269,13 @@ bool UMcpAutomationBridgeSubsystem::HandleSetTags(
     }
   }
 
-  AsyncTask(ENamedThreads::GameThread, [this, RequestId, Socket, AssetPath,
+  TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakThis(this);
+  AsyncTask(ENamedThreads::GameThread, [WeakThis, RequestId, Socket, AssetPath,
                                         Tags]() {
+    UMcpAutomationBridgeSubsystem *StrongThis = WeakThis.Get();
+    if (!StrongThis) {
+      return;
+    }
     // Edge-case: empty or missing tags array should be treated as a no-op
     // success.
     if (Tags.Num() == 0) {
@@ -2274,20 +2283,20 @@ bool UMcpAutomationBridgeSubsystem::HandleSetTags(
       Resp->SetBoolField(TEXT("success"), true);
       Resp->SetStringField(TEXT("assetPath"), AssetPath);
       Resp->SetNumberField(TEXT("appliedTags"), 0);
-      SendAutomationResponse(Socket, RequestId, true,
+      StrongThis->SendAutomationResponse(Socket, RequestId, true,
                              TEXT("No tags provided; no-op"), Resp, FString());
       return;
     }
 
     if (!UEditorAssetLibrary::DoesAssetExist(AssetPath)) {
-      SendAutomationResponse(Socket, RequestId, false, TEXT("Asset not found"),
+      StrongThis->SendAutomationResponse(Socket, RequestId, false, TEXT("Asset not found"),
                              nullptr, TEXT("ASSET_NOT_FOUND"));
       return;
     }
 
     UObject *Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
     if (!Asset) {
-      SendAutomationResponse(Socket, RequestId, false,
+      StrongThis->SendAutomationResponse(Socket, RequestId, false,
                              TEXT("Failed to load asset"), nullptr,
                              TEXT("LOAD_FAILED"));
       return;
@@ -2308,7 +2317,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetTags(
     Resp->SetBoolField(TEXT("markedDirty"), true);
     Resp->SetStringField(TEXT("assetPath"), AssetPath);
     Resp->SetNumberField(TEXT("appliedTags"), AppliedCount);
-    SendAutomationResponse(Socket, RequestId, true,
+    StrongThis->SendAutomationResponse(Socket, RequestId, true,
                            TEXT("Tags applied as metadata"), Resp, FString());
   });
 
@@ -2346,16 +2355,21 @@ bool UMcpAutomationBridgeSubsystem::HandleValidateAsset(
     return true;
   }
 
-  AsyncTask(ENamedThreads::GameThread, [this, RequestId, Socket, AssetPath]() {
+  TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakThis(this);
+  AsyncTask(ENamedThreads::GameThread, [WeakThis, RequestId, Socket, AssetPath]() {
+    UMcpAutomationBridgeSubsystem *StrongThis = WeakThis.Get();
+    if (!StrongThis) {
+      return;
+    }
     if (!UEditorAssetLibrary::DoesAssetExist(AssetPath)) {
-      SendAutomationResponse(Socket, RequestId, false, TEXT("Asset not found"),
+      StrongThis->SendAutomationResponse(Socket, RequestId, false, TEXT("Asset not found"),
                              nullptr, TEXT("ASSET_NOT_FOUND"));
       return;
     }
 
     UObject *Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
     if (!Asset) {
-      SendAutomationResponse(Socket, RequestId, false,
+      StrongThis->SendAutomationResponse(Socket, RequestId, false,
                              TEXT("Failed to load asset"), nullptr,
                              TEXT("LOAD_FAILED"));
       return;
@@ -2367,7 +2381,7 @@ bool UMcpAutomationBridgeSubsystem::HandleValidateAsset(
     Resp->SetStringField(TEXT("assetPath"), AssetPath);
     Resp->SetBoolField(TEXT("isValid"), bIsValid);
 
-    SendAutomationResponse(Socket, RequestId, true, TEXT("Asset validated"),
+    StrongThis->SendAutomationResponse(Socket, RequestId, true, TEXT("Asset validated"),
                            Resp, FString());
   });
   return true;
@@ -2738,8 +2752,13 @@ bool UMcpAutomationBridgeSubsystem::HandleGenerateReport(
   FString OutputPath;
   Payload->TryGetStringField(TEXT("outputPath"), OutputPath);
 
-  AsyncTask(ENamedThreads::GameThread, [this, RequestId, Socket, Directory,
+  TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakThis(this);
+  AsyncTask(ENamedThreads::GameThread, [WeakThis, RequestId, Socket, Directory,
                                         ReportType, OutputPath]() {
+    UMcpAutomationBridgeSubsystem *StrongThis = WeakThis.Get();
+    if (!StrongThis) {
+      return;
+    }
     FAssetRegistryModule &AssetRegistryModule =
         FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
             TEXT("AssetRegistry"));
@@ -2776,7 +2795,7 @@ bool UMcpAutomationBridgeSubsystem::HandleGenerateReport(
       // SECURITY: Sanitize and validate the output path to prevent path traversal
       FString SafeOutputPath = SanitizeProjectFilePath(OutputPath);
       if (SafeOutputPath.IsEmpty()) {
-        SendAutomationError(Socket, RequestId,
+        StrongThis->SendAutomationError(Socket, RequestId,
                             FString::Printf(TEXT("Invalid or unsafe output path: %s"), *OutputPath),
                             TEXT("SECURITY_VIOLATION"));
         return;
@@ -2793,7 +2812,7 @@ bool UMcpAutomationBridgeSubsystem::HandleGenerateReport(
       }
       
       if (!AbsoluteOutput.StartsWith(NormalizedProjectDir, ESearchCase::IgnoreCase)) {
-        SendAutomationError(Socket, RequestId,
+        StrongThis->SendAutomationError(Socket, RequestId,
                             FString::Printf(TEXT("Output path escapes project directory: %s"), *OutputPath),
                             TEXT("SECURITY_VIOLATION"));
         return;
@@ -2821,7 +2840,7 @@ bool UMcpAutomationBridgeSubsystem::HandleGenerateReport(
       Resp->SetBoolField(TEXT("fileWritten"), bFileWritten);
     }
 
-    SendAutomationResponse(Socket, RequestId, true,
+    StrongThis->SendAutomationResponse(Socket, RequestId, true,
                            TEXT("Asset report generated"), Resp, FString());
   });
   return true;

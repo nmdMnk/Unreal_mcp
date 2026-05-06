@@ -72,7 +72,6 @@
 #include "Factories/AnimMontageFactory.h"
 #include "Factories/AnimBlueprintFactory.h"
 #include "EditorAssetLibrary.h"
-#include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/Kismet2NameValidators.h"
@@ -2352,7 +2351,7 @@ if (SubAction == TEXT("add_montage_notify"))
         NodeCreator.Finalize();
         
         // Create the internal State Machine Graph using FBlueprintEditorUtils
-        UAnimationStateMachineGraph* InnerGraph = CastChecked<UAnimationStateMachineGraph>(
+        UAnimationStateMachineGraph* InnerGraph = Cast<UAnimationStateMachineGraph>(
             FBlueprintEditorUtils::CreateNewGraph(
                 AnimBP,
                 FName(*StateMachineName),
@@ -2360,13 +2359,21 @@ if (SubAction == TEXT("add_montage_notify"))
                 UAnimationStateMachineSchema::StaticClass()
             )
         );
+        if (!InnerGraph)
+        {
+            ANIM_ERROR_RESPONSE(TEXT("Failed to create animation state machine graph"), TEXT("CREATE_GRAPH_FAILED"));
+        }
         
         // Link the State Machine Node to its internal graph
         SMNode->EditorStateMachineGraph = InnerGraph;
         InnerGraph->OwnerAnimGraphNode = SMNode;
         
         // Initialize Entry Node (required for State Machines)
-        const UAnimationStateMachineSchema* Schema = CastChecked<UAnimationStateMachineSchema>(InnerGraph->GetSchema());
+        const UAnimationStateMachineSchema* Schema = Cast<UAnimationStateMachineSchema>(InnerGraph->GetSchema());
+        if (!Schema)
+        {
+            ANIM_ERROR_RESPONSE(TEXT("Animation state machine graph has an invalid schema"), TEXT("INVALID_SCHEMA"));
+        }
         Schema->CreateDefaultNodesForGraph(*InnerGraph);
         
         FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(AnimBP);

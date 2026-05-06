@@ -15,7 +15,7 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { requireNonEmptyString, executeAutomationRequest } from './common-handlers.js';
+import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs } from './common-handlers.js';
 
 /**
  * Normalize an asset path for StaticLoadObject which requires the full
@@ -32,10 +32,6 @@ function normalizeAssetPathForLoadObject(assetPath: string): string {
   return `${assetPath}.${lastSegment}`;
 }
 
-function getTimeoutMs(): number {
-  const envDefault = Number(process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS ?? '120000');
-  return Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 120000;
-}
 
 /**
  * Handles all audio authoring actions for the manage_audio_authoring tool.

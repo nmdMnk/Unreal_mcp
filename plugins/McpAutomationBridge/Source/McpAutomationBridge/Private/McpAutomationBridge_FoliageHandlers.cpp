@@ -55,7 +55,6 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
-#include "UObject/SavePackage.h"
 
 // -----------------------------------------------------------------------------
 // Foliage System

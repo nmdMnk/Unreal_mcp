@@ -2,6 +2,7 @@ import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, EnvironmentArgs, Vector3 } from '../../types/handler-types.js';
 import { executeAutomationRequest, validateArgsSecurity } from './common-handlers.js';
+import { exportEnvironmentSnapshot, importEnvironmentSnapshot } from '../../utils/environment-snapshot.js';
 
 /** Location item in foliage locations array */
 interface LocationItem {
@@ -210,12 +211,12 @@ export async function handleEnvironmentTools(action: string, args: HandlerArgs, 
         staticMesh: argsRecord.staticMesh as string | undefined
       }) as Record<string, unknown>);
     case 'export_snapshot':
-      return cleanObject(await tools.environmentTools.exportSnapshot({
+      return cleanObject(await exportEnvironmentSnapshot({
         path: argsRecord.path as string | undefined,
         filename: argsRecord.filename as string | undefined
       })) as Record<string, unknown>;
     case 'import_snapshot':
-      return cleanObject(await tools.environmentTools.importSnapshot({
+      return cleanObject(await importEnvironmentSnapshot({
         path: argsRecord.path as string | undefined,
         filename: argsRecord.filename as string | undefined
       })) as Record<string, unknown>;

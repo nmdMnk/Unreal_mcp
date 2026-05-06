@@ -13,13 +13,9 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { requireNonEmptyString, executeAutomationRequest } from './common-handlers.js';
-import { sanitizeAssetName, sanitizePath } from '../../utils/validation.js';
+import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs } from './common-handlers.js';
+import { sanitizeAssetName, normalizeAndSanitizeAssetPath } from '../../utils/validation.js';
 
-function getTimeoutMs(): number {
-  const envDefault = Number(process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS ?? '120000');
-  return Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 120000;
-}
 
 /**
  * Handles all GAS actions for the manage_gas tool.
@@ -147,7 +143,7 @@ export async function handleGASTools(
       const requestedPath = typeof argsRecord.path === 'string' && argsRecord.path.trim().length > 0
         ? argsRecord.path
         : '/Game';
-      const normalizedPath = sanitizePath(requestedPath);
+      const normalizedPath = normalizeAndSanitizeAssetPath(requestedPath);
       const normalizedName = sanitizeAssetName(requestedName);
 
       // Pass normalized values to C++ to ensure consistency

@@ -586,9 +586,7 @@ bool UMcpAutomationBridgeSubsystem::HandlePerformanceAction(
       MergedPackage->ClearFlags(RF_Transient);
       MergedPackage->SetDirtyFlag(true);
 
-      TArray<UPackage *> PackagesToSave;
-      PackagesToSave.Add(MergedPackage);
-      bSaved = UEditorLoadingAndSavingUtils::SavePackages(PackagesToSave, false);
+      bSaved = McpSafeAssetSave(MergedMesh);
 
       if (bSaved) {
         TArray<FString> PathsToScan;

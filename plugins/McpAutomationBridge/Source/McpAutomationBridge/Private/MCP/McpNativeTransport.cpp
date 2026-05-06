@@ -377,10 +377,13 @@ uint32 FMcpNativeTransport::Run()
 			}
 			else
 			{
-				Async(EAsyncExecution::ThreadPool, [this, ClientSocket]()
+				// Lifetime safety: ActiveConnectionCount is incremented before dispatch,
+				// and Shutdown waits for it to drain before destroying this transport.
+				FMcpNativeTransport* Transport = this;
+				Async(EAsyncExecution::ThreadPool, [Transport, ClientSocket]()
 				{
-					HandleConnection(ClientSocket);
-					ActiveConnectionCount.fetch_sub(1);
+					Transport->HandleConnection(ClientSocket);
+					Transport->ActiveConnectionCount.fetch_sub(1);
 				});
 			}
 		}

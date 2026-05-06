@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateSnapshotPath } from './environment.js';
+import { validateSnapshotPath } from '../utils/environment-snapshot.js';
 
 describe('validateSnapshotPath Security', () => {
   describe('Windows absolute paths', () => {

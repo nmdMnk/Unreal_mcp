@@ -2,6 +2,11 @@ import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, Vector3, Rotator } from '../../types/handler-types.js';
 import { getAdditionalPathPrefixes } from '../../config.js';
 
+export function getTimeoutMs(defaultMs: number = 120000): number {
+  const envDefault = Number(process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS ?? String(defaultMs));
+  return Number.isFinite(envDefault) && envDefault > 0 ? envDefault : defaultMs;
+}
+
 /**
  * Validates that args is not null/undefined.
  */

@@ -175,7 +175,7 @@
 // ------------------
 // - Security validation via IsValidAssetPath() for all blueprint paths.
 // - Blueprint variable defaults use SetBPVarDefaultValue() with Blueprint metadata and CDO reflection.
-// - SavePackageHelperChar() uses McpSafeAssetSave for UE 5.7+ compatibility.
+// - McpSafeAssetSave() is used directly for UE 5.7+ compatibility.
 // - #define aliases (GetStringFieldChar, etc.) for backward-compatible JSON helpers.
 // - AddBlueprintVariableChar in anonymous namespace to avoid Unity build collisions.
 //
@@ -207,7 +207,6 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetToolsModule.h"
-#include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
 #include "HAL/FileManager.h"
 
@@ -258,44 +257,8 @@ DEFINE_LOG_CATEGORY_STATIC(LogMcpCharacterHandlers, Log, All);
 // Section 0: Helper Functions
 // =============================================================================
 
-/**
- * SavePackageHelperChar - Save package using McpSafeAssetSave
- * 
- * Note: This helper is used for NEW assets created with CreatePackage + factory.
- * FullyLoad() must NOT be called on new packages - it corrupts bulkdata in UE 5.7+.
- * 
- * @param Package  The UPackage to save
- * @param Asset    The asset object within the package
- * @return true if save was initiated
- */
-static bool SavePackageHelperChar(UPackage* Package, UObject* Asset)
-{
-    if (!Package || !Asset) return false;
-    
-    // Use McpSafeAssetSave helper for consistency across all handlers
-    McpSafeAssetSave(Asset);
-    return true;
-}
-
 #if WITH_EDITOR
 
-static TSharedPtr<FJsonObject> VectorToJsonChar(const FVector& Vector)
-{
-    TSharedPtr<FJsonObject> Json = MakeShared<FJsonObject>();
-    Json->SetNumberField(TEXT("x"), Vector.X);
-    Json->SetNumberField(TEXT("y"), Vector.Y);
-    Json->SetNumberField(TEXT("z"), Vector.Z);
-    return Json;
-}
-
-static TSharedPtr<FJsonObject> RotatorToJsonChar(const FRotator& Rotator)
-{
-    TSharedPtr<FJsonObject> Json = MakeShared<FJsonObject>();
-    Json->SetNumberField(TEXT("pitch"), Rotator.Pitch);
-    Json->SetNumberField(TEXT("yaw"), Rotator.Yaw);
-    Json->SetNumberField(TEXT("roll"), Rotator.Roll);
-    return Json;
-}
 
 static FString GetSceneComponentParentNameChar(const USceneComponent* Component)
 {
@@ -323,10 +286,10 @@ static TSharedPtr<FJsonObject> CreateCameraComponentReportChar(const UCameraComp
     Report->SetBoolField(TEXT("visible"), Camera->IsVisible());
     Report->SetBoolField(TEXT("usePawnControlRotation"), Camera->bUsePawnControlRotation);
     Report->SetNumberField(TEXT("fieldOfView"), Camera->FieldOfView);
-    Report->SetObjectField(TEXT("relativeLocation"), VectorToJsonChar(Camera->GetRelativeLocation()));
-    Report->SetObjectField(TEXT("relativeRotation"), RotatorToJsonChar(Camera->GetRelativeRotation()));
-    Report->SetObjectField(TEXT("worldLocation"), VectorToJsonChar(Camera->GetComponentLocation()));
-    Report->SetObjectField(TEXT("worldRotation"), RotatorToJsonChar(Camera->GetComponentRotation()));
+    Report->SetObjectField(TEXT("relativeLocation"), McpHandlerUtils::VectorToJson(Camera->GetRelativeLocation()));
+    Report->SetObjectField(TEXT("relativeRotation"), McpHandlerUtils::RotatorToJson(Camera->GetRelativeRotation()));
+    Report->SetObjectField(TEXT("worldLocation"), McpHandlerUtils::VectorToJson(Camera->GetComponentLocation()));
+    Report->SetObjectField(TEXT("worldRotation"), McpHandlerUtils::RotatorToJson(Camera->GetComponentRotation()));
     return Report;
 }
 
@@ -347,10 +310,10 @@ static TSharedPtr<FJsonObject> CreateSpringArmComponentReportChar(const USpringA
     Report->SetBoolField(TEXT("usePawnControlRotation"), SpringArm->bUsePawnControlRotation);
     Report->SetBoolField(TEXT("enableCameraLag"), SpringArm->bEnableCameraLag);
     Report->SetNumberField(TEXT("cameraLagSpeed"), SpringArm->CameraLagSpeed);
-    Report->SetObjectField(TEXT("relativeLocation"), VectorToJsonChar(SpringArm->GetRelativeLocation()));
-    Report->SetObjectField(TEXT("relativeRotation"), RotatorToJsonChar(SpringArm->GetRelativeRotation()));
-    Report->SetObjectField(TEXT("worldLocation"), VectorToJsonChar(SpringArm->GetComponentLocation()));
-    Report->SetObjectField(TEXT("worldRotation"), RotatorToJsonChar(SpringArm->GetComponentRotation()));
+    Report->SetObjectField(TEXT("relativeLocation"), McpHandlerUtils::VectorToJson(SpringArm->GetRelativeLocation()));
+    Report->SetObjectField(TEXT("relativeRotation"), McpHandlerUtils::RotatorToJson(SpringArm->GetRelativeRotation()));
+    Report->SetObjectField(TEXT("worldLocation"), McpHandlerUtils::VectorToJson(SpringArm->GetComponentLocation()));
+    Report->SetObjectField(TEXT("worldRotation"), McpHandlerUtils::RotatorToJson(SpringArm->GetComponentRotation()));
     return Report;
 }
 
@@ -398,8 +361,8 @@ static void AddPlayerViewStateReportChar(UWorld* World, TSharedPtr<FJsonObject> 
     {
         TSharedPtr<FJsonObject> CameraManagerJson = MakeShared<FJsonObject>();
         CameraManagerJson->SetStringField(TEXT("name"), CameraManager->GetName());
-        CameraManagerJson->SetObjectField(TEXT("location"), VectorToJsonChar(CameraManager->GetCameraLocation()));
-        CameraManagerJson->SetObjectField(TEXT("rotation"), RotatorToJsonChar(CameraManager->GetCameraRotation()));
+        CameraManagerJson->SetObjectField(TEXT("location"), McpHandlerUtils::VectorToJson(CameraManager->GetCameraLocation()));
+        CameraManagerJson->SetObjectField(TEXT("rotation"), McpHandlerUtils::RotatorToJson(CameraManager->GetCameraRotation()));
         CameraManagerJson->SetNumberField(TEXT("fov"), CameraManager->GetFOVAngle());
         ViewState->SetObjectField(TEXT("playerCameraManager"), CameraManagerJson);
     }
@@ -678,7 +641,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
             }
         }
 
-        SavePackageHelperChar(Blueprint->GetOutermost(), Blueprint);
+        McpSafeAssetSave(Blueprint);
 
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("blueprintPath"), Path / Name);

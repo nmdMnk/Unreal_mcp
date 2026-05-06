@@ -2,6 +2,7 @@ import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, SystemArgs } from '../../types/handler-types.js';
 import { executeAutomationRequest, validateArgsSecurity } from './common-handlers.js';
+import { readOutputLog } from '../../utils/log-reader.js';
 
 /** Response from various operations */
 interface OperationResponse {
@@ -674,7 +675,7 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
       };
     }
     case 'read_log':
-      return cleanObject(await tools.logTools.readOutputLog(args as Record<string, unknown>));
+      return cleanObject(await readOutputLog(args as Record<string, unknown>));
     case 'export_asset': {
       // Export asset to FBX/OBJ format
       // This requires editor-only functionality

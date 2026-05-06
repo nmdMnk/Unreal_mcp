@@ -132,7 +132,6 @@
 #include "Factories/MaterialInstanceConstantFactoryNew.h"
 
 // Core
-#include "UObject/SavePackage.h"
 #include "EditorAssetLibrary.h"
 
 // Landscape (UE 5.0+)

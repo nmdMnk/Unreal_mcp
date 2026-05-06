@@ -753,7 +753,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         className
       }) as InspectResponse;
       if (!res || res.success === false) {
-        // If first try failed and it looked like a short name, maybe try standard engine path?
+        // Retry short names against the standard engine path convention.
         const originalClassName = typeof argsTyped.className === 'string' ? argsTyped.className : '';
         if (originalClassName && !originalClassName.includes('/') && !className.startsWith('/Script/')) {
           const retryName = `/Script/Engine.${originalClassName}`;

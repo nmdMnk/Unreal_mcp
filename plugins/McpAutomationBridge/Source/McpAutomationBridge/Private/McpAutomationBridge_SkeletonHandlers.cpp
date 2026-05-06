@@ -97,7 +97,6 @@
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "UObject/Package.h"
-#include "UObject/SavePackage.h"
 
 // =============================================================================
 // Helper Macros

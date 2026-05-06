@@ -34,7 +34,7 @@
 // ------------------
 // - Conditional includes for State Tree, Smart Objects, Mass AI via __has_include
 // - Helper macros (GetStringFieldAI, etc.) for JSON field access
-// - SavePackageHelperAI for safe asset saving (avoids FullyLoad on new packages)
+// - McpSafeAssetSave for safe asset saving (avoids FullyLoad on new packages)
 // - Uses MCP_HAS_* macros for feature detection
 //
 // ASSET EXISTENCE CHECK PATTERN:
@@ -75,7 +75,6 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetToolsModule.h"
-#include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
 #include "HAL/FileManager.h"
 
@@ -285,17 +284,6 @@ static bool IsMassModuleAvailable()
     return false;
 }
 
-// Helper to save package
-// Note: This helper is used for NEW assets created with CreatePackage + factory.
-// FullyLoad() must NOT be called on new packages - it corrupts bulkdata in UE 5.7+.
-static bool SavePackageHelperAI(UPackage* Package, UObject* Asset)
-{
-    if (!Package || !Asset) return false;
-    
-    // Use centralized helper for safe saving (UE 5.7+ compatible)
-    return McpSafeAssetSave(Asset);
-}
-
 /**
  * Sanitize and validate an asset path for AI asset creation.
  * - Removes double slashes that cause Fatal Error in UObjectGlobals.cpp
@@ -304,48 +292,13 @@ static bool SavePackageHelperAI(UPackage* Package, UObject* Asset)
  */
 static bool SanitizeAIAssetPath(const FString& InputPath, FString& OutSanitizedPath, FString& OutError)
 {
-    // Start with the input path
-    OutSanitizedPath = InputPath;
-    
-    // 1. Remove duplicate slashes (prevents Fatal Error in UObjectGlobals.cpp)
-    OutSanitizedPath.ReplaceInline(TEXT("//"), TEXT("/"));
-    while (OutSanitizedPath.Contains(TEXT("//")))
+    OutSanitizedPath = McpHandlerUtils::ValidateAssetPath(InputPath.TrimStartAndEnd());
+    if (OutSanitizedPath.IsEmpty())
     {
-        OutSanitizedPath.ReplaceInline(TEXT("//"), TEXT("/"));
-    }
-    
-    // 2. Trim leading/trailing whitespace
-    OutSanitizedPath.TrimStartAndEndInline();
-    
-    // 3. Validate that path starts with a valid mount point
-    // Valid mount points: /Game/, /Engine/, /PluginName/, etc.
-    if (!OutSanitizedPath.StartsWith(TEXT("/")))
-    {
-        OutError = FString::Printf(TEXT("Invalid path: must start with '/' (got: %s)"), *InputPath);
+        OutError = FString::Printf(TEXT("Invalid asset path: %s"), *InputPath);
         return false;
     }
-    
-    // 4. Check for path traversal attempts (security)
-    if (OutSanitizedPath.Contains(TEXT("..")) || 
-        OutSanitizedPath.Contains(TEXT("~")) ||
-        OutSanitizedPath.Contains(TEXT("\\")))
-    {
-        OutError = FString::Printf(TEXT("Invalid path: contains forbidden characters (path traversal attempt): %s"), *InputPath);
-        return false;
-    }
-    
-    // 5. Validate path starts with known mount points
-    // Only allow /Game/ or /Engine/ as valid mount points for AI assets
-    if (!OutSanitizedPath.StartsWith(TEXT("/Game/")) && 
-        !OutSanitizedPath.StartsWith(TEXT("/Engine/")) &&
-        OutSanitizedPath != TEXT("/Game") &&
-        OutSanitizedPath != TEXT("/Engine"))
-    {
-        // Could be a path traversal attempt like /etc/passwd/Test
-        OutError = FString::Printf(TEXT("Invalid path: must start with /Game/ or /Engine/ (got: %s)"), *InputPath);
-        return false;
-    }
-    
+
     return true;
 }
 
@@ -415,7 +368,7 @@ static UBlueprint* CreateAIControllerBlueprint(const FString& Path, const FStrin
     }
 
     FAssetRegistryModule::AssetCreated(Blueprint);
-    SavePackageHelperAI(Package, Blueprint);
+    McpSafeAssetSave(Blueprint);
 
     return Blueprint;
 }
@@ -461,7 +414,7 @@ static UBlackboardData* CreateBlackboardAsset(const FString& Path, const FString
     }
 
     FAssetRegistryModule::AssetCreated(Blackboard);
-    SavePackageHelperAI(Package, Blackboard);
+    McpSafeAssetSave(Blackboard);
 
     return Blackboard;
 }
@@ -507,7 +460,7 @@ static UBehaviorTree* CreateBehaviorTreeAsset(const FString& Path, const FString
     }
 
     FAssetRegistryModule::AssetCreated(BehaviorTree);
-    SavePackageHelperAI(Package, BehaviorTree);
+    McpSafeAssetSave(BehaviorTree);
 
     return BehaviorTree;
 }
@@ -553,7 +506,7 @@ static UEnvQuery* CreateEQSQueryAsset(const FString& Path, const FString& Name, 
     }
 
     FAssetRegistryModule::AssetCreated(Query);
-    SavePackageHelperAI(Package, Query);
+    McpSafeAssetSave(Query);
 
     return Query;
 }
@@ -895,7 +848,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
 
         Blackboard->Keys.Add(NewEntry);
         Blackboard->MarkPackageDirty();
-        SavePackageHelperAI(Blackboard->GetOutermost(), Blackboard);
+        McpSafeAssetSave(Blackboard);
 
         Result->SetNumberField(TEXT("keyIndex"), Blackboard->Keys.Num() - 1);
         Result->SetStringField(TEXT("keyName"), KeyName);
@@ -940,7 +893,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
         }
 
         Blackboard->MarkPackageDirty();
-        SavePackageHelperAI(Blackboard->GetOutermost(), Blackboard);
+        McpSafeAssetSave(Blackboard);
 
         Result->SetStringField(TEXT("keyName"), KeyName);
         Result->SetBoolField(TEXT("isInstanceSynced"), bInstanceSynced);
@@ -1015,7 +968,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
                 BT->RootNode = NewNode;
             }
             BT->MarkPackageDirty();
-            SavePackageHelperAI(BT->GetOutermost(), BT);
+            McpSafeAssetSave(BT);
 
             Result->SetStringField(TEXT("compositeType"), CompositeType);
             Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Added %s node"), *CompositeType));
@@ -1390,7 +1343,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
         if (bSaveAttempted)
         {
             BT->MarkPackageDirty();
-            bSaved = SavePackageHelperAI(BT->GetOutermost(), BT);
+            bSaved = McpSafeAssetSave(BT);
             if (!bSaved)
             {
                 SendAutomationError(RequestingSocket, RequestId,

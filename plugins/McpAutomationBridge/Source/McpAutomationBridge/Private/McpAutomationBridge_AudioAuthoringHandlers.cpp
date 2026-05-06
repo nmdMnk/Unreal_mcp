@@ -49,7 +49,6 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetToolsModule.h"
 #include "EditorAssetLibrary.h"
-#include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
 
 // Audio Core

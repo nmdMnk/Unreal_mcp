@@ -1,13 +1,10 @@
 import Ajv, { ValidateFunction } from 'ajv';
 import { Logger } from './logger.js';
 import { cleanObject } from './safe-json.js';
+import { isRecord } from './type-guards.js';
 const log = new Logger('ResponseValidator');
 
 type AjvModuleWithDefault = typeof Ajv & { default?: typeof Ajv.default };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();

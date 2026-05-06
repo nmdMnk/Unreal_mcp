@@ -66,6 +66,7 @@ constexpr uint8 OpCodePong = 0xA;
 
 constexpr uint64 MaxWebSocketMessageBytes = 5ULL * 1024ULL * 1024ULL;
 constexpr uint64 MaxWebSocketFramePayloadBytes = MaxWebSocketMessageBytes;
+constexpr int32 WebSocketCloseCodeAbnormalClosure = 4000;
 constexpr int32 WebSocketCloseCodeMessageTooBig = 1009;
 
 struct FParsedWebSocketUrl {
@@ -1141,12 +1142,12 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
   FParsedWebSocketUrl ParsedUrl;
   FString ParseError;
   if (!ParseWebSocketUrl(Url, ParsedUrl, ParseError)) {
-    TearDown(ParseError, false, 4000);
+    TearDown(ParseError, false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
   if (bUseTls && !ParsedUrl.bUseTls) {
-    TearDown(TEXT("TLS is enabled but ws:// URL was provided."), false, 4000);
+    TearDown(TEXT("TLS is enabled but ws:// URL was provided."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
   if (ParsedUrl.bUseTls) {
@@ -1159,7 +1160,7 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
 
   TSharedPtr<FInternetAddr> Endpoint;
   if (!ResolveEndpoint(Endpoint) || !Endpoint.IsValid()) {
-    TearDown(TEXT("Unable to resolve WebSocket host."), false, 4000);
+    TearDown(TEXT("Unable to resolve WebSocket host."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1168,7 +1169,7 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
   Socket = SocketSubsystem->CreateSocket(
       NAME_Stream, TEXT("McpAutomationBridgeSocket"), false);
   if (!Socket) {
-    TearDown(TEXT("Failed to create socket."), false, 4000);
+    TearDown(TEXT("Failed to create socket."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
   Socket->SetReuseAddr(true);
@@ -1177,13 +1178,13 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
 
   Endpoint->SetPort(Port);
   if (!Socket->Connect(*Endpoint)) {
-    TearDown(TEXT("Unable to connect to WebSocket endpoint."), false, 4000);
+    TearDown(TEXT("Unable to connect to WebSocket endpoint."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
   if (bUseTls) {
     if (!EstablishTls(false)) {
-      TearDown(TEXT("TLS handshake failed."), false, 4000);
+      TearDown(TEXT("TLS handshake failed."), false, WebSocketCloseCodeAbnormalClosure);
       return false;
     }
   }
@@ -1229,7 +1230,7 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
   if (!SendRaw(reinterpret_cast<const uint8 *>(HandshakeUtf8.Get()),
                HandshakeUtf8.Length(), BytesSent) ||
       BytesSent != HandshakeUtf8.Length()) {
-    TearDown(TEXT("Failed to send WebSocket handshake."), false, 4000);
+    TearDown(TEXT("Failed to send WebSocket handshake."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1245,7 +1246,7 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
     int32 BytesRead = 0;
     if (!RecvRaw(Temp, TempSize, BytesRead)) {
       TearDown(TEXT("WebSocket handshake failed while reading response."),
-               false, 4000);
+               false, WebSocketCloseCodeAbnormalClosure);
       return false;
     }
     if (BytesRead <= 0) {
@@ -1274,13 +1275,13 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
   TArray<FString> HeaderLines;
   HeaderSection.ParseIntoArrayLines(HeaderLines, false);
   if (HeaderLines.Num() == 0) {
-    TearDown(TEXT("Malformed WebSocket handshake response."), false, 4000);
+    TearDown(TEXT("Malformed WebSocket handshake response."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
   const FString &StatusLine = HeaderLines[0];
   if (!StatusLine.Contains(TEXT("101"))) {
-    TearDown(TEXT("WebSocket server rejected handshake."), false, 4000);
+    TearDown(TEXT("WebSocket server rejected handshake."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1310,7 +1311,7 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
   }
 
   if (!bAcceptValid) {
-    TearDown(TEXT("WebSocket handshake validation failed."), false, 4000);
+    TearDown(TEXT("WebSocket handshake validation failed."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1335,7 +1336,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
   int32 HeaderEndIndex = -1;
   if (bUseTls) {
     if (!EstablishTls(true)) {
-      TearDown(TEXT("TLS handshake failed."), false, 4000);
+      TearDown(TEXT("TLS handshake failed."), false, WebSocketCloseCodeAbnormalClosure);
       return false;
     }
   }
@@ -1353,7 +1354,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
       UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
              TEXT("Server handshake recv failed while awaiting upgrade request "
                   "(benign or client closed)."));
-      TearDown(TEXT("Failed to read WebSocket upgrade request."), false, 4000);
+      TearDown(TEXT("Failed to read WebSocket upgrade request."), false, WebSocketCloseCodeAbnormalClosure);
       return false;
     }
 
@@ -1388,7 +1389,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
   if (RequestLines.Num() == 0) {
     UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
            TEXT("Server handshake received empty upgrade request."));
-    TearDown(TEXT("Malformed WebSocket upgrade request."), false, 4000);
+    TearDown(TEXT("Malformed WebSocket upgrade request."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1449,7 +1450,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
            bValidConnection ? TEXT("true") : TEXT("false"),
            bValidVersion ? TEXT("true") : TEXT("false"),
            ClientKey.IsEmpty() ? TEXT("false") : TEXT("true"));
-    TearDown(TEXT("Invalid WebSocket upgrade request."), false, 4000);
+    TearDown(TEXT("Invalid WebSocket upgrade request."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1522,7 +1523,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
            TEXT("Server handshake failed: unable to send upgrade response "
                 "(sent %d expected %d)."),
            BytesSent, ResponseUtf8.Length());
-    TearDown(TEXT("Failed to send WebSocket upgrade response."), false, 4000);
+    TearDown(TEXT("Failed to send WebSocket upgrade response."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 

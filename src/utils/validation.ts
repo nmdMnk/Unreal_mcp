@@ -122,11 +122,15 @@ export function sanitizeAssetName(name: string): string {
 }
 
 /**
- * Sanitize a path for Unreal Engine
+ * Normalize and sanitize an Unreal asset path.
+ *
+ * Unlike the strict path-security helper, this function accepts partial paths,
+ * defaults empty input to /Game, prefixes unknown roots with /Game, and
+ * sanitizes individual path segments.
  * @param path The path to sanitize
  * @returns Sanitized path
  */
-export function sanitizePath(path: string): string {
+export function normalizeAndSanitizeAssetPath(path: string): string {
   if (!path || typeof path !== 'string') {
     return '/Game';
   }
@@ -173,10 +177,14 @@ export function sanitizePath(path: string): string {
   });
 
   // Reconstruct path
-  const sanitizedPath = '/' + sanitizedSegments.join('/');
-
-  return sanitizedPath;
+  return '/' + sanitizedSegments.join('/');
 }
+
+/**
+ * @deprecated Use normalizeAndSanitizeAssetPath for lenient asset path normalization,
+ * or import sanitizePath from path-security.ts for strict security validation.
+ */
+export const sanitizePath = normalizeAndSanitizeAssetPath;
 
 /**
  * Validate path length
@@ -212,7 +220,7 @@ export function validateAssetParams(params: {
 
   // Sanitize path if provided
   const sanitizedPath = params.savePath
-    ? sanitizePath(params.savePath)
+    ? normalizeAndSanitizeAssetPath(params.savePath)
     : params.savePath;
 
   // Construct full path for validation
@@ -289,7 +297,7 @@ export function resolveSkeletalMeshPath(input: string): string | null {
   let normalizedInput = input;
   if (input.includes('/')) {
     try {
-      normalizedInput = sanitizePath(input);
+      normalizedInput = normalizeAndSanitizeAssetPath(input);
     } catch {
       // If sanitization fails, return null (invalid path)
       return null;

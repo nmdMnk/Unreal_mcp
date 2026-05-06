@@ -674,9 +674,7 @@ export class AutomationBridge extends EventEmitter {
                     }
                 } catch (err: unknown) {
                     this.log.error('Lazy connection failed', err);
-                    // We don't throw here immediately, we let the isConnected check fail below 
-                    // or throw a specific error.
-                    // Actually, if connection failed, we should probably fail the request.
+                    // Fail with connection context instead of letting the generic isConnected check handle it.
                     const errObj = err as Record<string, unknown> | null;
                     throw new Error(`Failed to establish connection to Unreal Engine: ${String(errObj?.message ?? err)}`);
                 }

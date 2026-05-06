@@ -5546,11 +5546,9 @@ bool UMcpAutomationBridgeSubsystem::HandleSCSAction(
       return true;
     }
 
-    // Create the SCS node correctly
-    USCS_Node *NewNode = NewObject<USCS_Node>(SCS);
+    // UE 5.7+: Let SCS create and own both the node and component template.
+    USCS_Node *NewNode = SCS->CreateNode(ComponentClass, FName(*ComponentName));
     if (NewNode) {
-      NewNode->SetVariableName(*ComponentName);
-      NewNode->ComponentClass = ComponentClass;
       SCS->AddNode(NewNode);
 
       // Compile and save the blueprint

@@ -9,21 +9,11 @@ import { handleConsolidatedToolCall } from '../tools/consolidated-tool-handlers.
 import { responseValidator } from '../utils/response-validator.js';
 import { ErrorHandler } from '../utils/error-handler.js';
 import { cleanObject } from '../utils/safe-json.js';
+import { isRecord } from '../utils/type-guards.js';
 import { createElicitationHelper, PrimitiveSchema } from '../utils/elicitation.js';
 import { AssetResources } from '../resources/assets.js';
 import { ActorResources } from '../resources/actors.js';
 import { LevelResources } from '../resources/levels.js';
-import { ActorTools } from '../tools/actors.js';
-import { AssetTools } from '../tools/assets.js';
-import { EditorTools } from '../tools/editor.js';
-import { BlueprintTools } from '../tools/blueprint.js';
-import { LevelTools } from '../tools/level.js';
-import { LandscapeTools } from '../tools/landscape.js';
-import { FoliageTools } from '../tools/foliage.js';
-import { EnvironmentTools } from '../tools/environment.js';
-import { SequenceTools } from '../tools/sequence.js';
-import { LogTools } from '../tools/logs.js';
-
 import { getProjectSetting } from '../utils/ini-reader.js';
 import { config } from '../config.js';
 import { mcpClients } from 'mcp-client-capabilities';
@@ -60,10 +50,6 @@ function clientSupportsListChanged(clientName: string | undefined): boolean {
     }
     
     return false;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 export class ToolRegistry {
@@ -321,22 +307,6 @@ export class ToolRegistry {
     }
 
     register() {
-        // Initialize tools needed for file I/O operations
-        const actorTools = new ActorTools(this.bridge);
-        const assetTools = new AssetTools(this.bridge);
-        const editorTools = new EditorTools(this.bridge);
-        const blueprintTools = new BlueprintTools(this.bridge);
-        const levelTools = new LevelTools(this.bridge);
-        const landscapeTools = new LandscapeTools(this.bridge);
-        const foliageTools = new FoliageTools(this.bridge);
-        const environmentTools = new EnvironmentTools(this.bridge);
-        const sequenceTools = new SequenceTools(this.bridge);
-        const logTools = new LogTools(this.bridge);
-
-        // Wire AutomationBridge for EnvironmentTools (needed for non-file I/O operations)
-        environmentTools.setAutomationBridge(this.automationBridge);
-
-
         // Lightweight system tools facade
         const systemTools = {
             executeConsoleCommand: (command: string) => this.bridge.executeConsoleCommand(command),
@@ -544,8 +514,6 @@ export class ToolRegistry {
             }
 
             const tools = {
-                actorTools, assetTools, editorTools, blueprintTools, levelTools,
-                landscapeTools, foliageTools, environmentTools, sequenceTools, logTools,
                 systemTools,
                 elicit: elicitation.elicit,
                 supportsElicitation: elicitation.supports,

@@ -2,13 +2,9 @@ import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import { ResponseFactory } from '../../utils/response-factory.js';
 import type { HandlerArgs, InputArgs } from '../../types/handler-types.js';
-import { executeAutomationRequest } from './common-handlers.js';
+import { executeAutomationRequest, getTimeoutMs } from './common-handlers.js';
 import { sanitizePath } from '../../utils/path-security.js';
 import { TOOL_ACTIONS } from '../../utils/action-constants.js';
-function getTimeoutMs(): number {
-  const envDefault = Number(process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS ?? '120000');
-  return Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 120000;
-}
 
 /** Valid parameters for each input action */
 const VALID_PARAMS_BY_ACTION: Record<string, Set<string>> = {

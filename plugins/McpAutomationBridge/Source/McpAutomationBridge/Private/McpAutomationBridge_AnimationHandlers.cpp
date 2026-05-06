@@ -1344,7 +1344,7 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
             NodeCreator.Finalize();
 
             // Create the internal State Machine Graph
-            UAnimationStateMachineGraph* InnerGraph = CastChecked<UAnimationStateMachineGraph>(
+            UAnimationStateMachineGraph* InnerGraph = Cast<UAnimationStateMachineGraph>(
               FBlueprintEditorUtils::CreateNewGraph(
                 AnimBP,
                 FName(*MachineName),
@@ -1352,13 +1352,25 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
                 UAnimationStateMachineSchema::StaticClass()
               )
             );
+            if (!InnerGraph) {
+              SendAutomationError(RequestingSocket, RequestId,
+                TEXT("Failed to create animation state machine graph"),
+                TEXT("CREATE_GRAPH_FAILED"));
+              return true;
+            }
 
             // Link the State Machine Node to its internal graph
             SMNode->EditorStateMachineGraph = InnerGraph;
             InnerGraph->OwnerAnimGraphNode = SMNode;
 
             // Initialize Entry Node (required for State Machines)
-            const UAnimationStateMachineSchema* Schema = CastChecked<UAnimationStateMachineSchema>(InnerGraph->GetSchema());
+            const UAnimationStateMachineSchema* Schema = Cast<UAnimationStateMachineSchema>(InnerGraph->GetSchema());
+            if (!Schema) {
+              SendAutomationError(RequestingSocket, RequestId,
+                TEXT("Animation state machine graph has an invalid schema"),
+                TEXT("INVALID_SCHEMA"));
+              return true;
+            }
             Schema->CreateDefaultNodesForGraph(*InnerGraph);
 
             // Process states array if provided

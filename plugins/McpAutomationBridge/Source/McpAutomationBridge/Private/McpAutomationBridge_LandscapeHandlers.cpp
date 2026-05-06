@@ -125,7 +125,6 @@
 #include "Async/Async.h"
 #include "Engine/World.h"
 #include "Misc/ScopedSlowTask.h"
-#include "UObject/SavePackage.h"
 
 // -----------------------------------------------------------------------------
 // Landscape System

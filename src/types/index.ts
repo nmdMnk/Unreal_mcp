@@ -63,17 +63,7 @@ export type {
 export type {
   IBaseTool,
   StandardActionResponse,
-  IActorTools,
-  SourceControlState,
-  IAssetTools,
-  ISequenceTools,
   IAssetResources,
-  IBlueprintTools,
-  ILevelTools,
-  IEditorTools,
-  IEnvironmentTools,
-  ILandscapeTools,
-  IFoliageTools,
   ITools,
 } from './tool-interfaces.js';
 

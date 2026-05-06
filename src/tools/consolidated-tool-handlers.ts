@@ -503,7 +503,7 @@ export async function handleConsolidatedToolCall(
     // Note: action extracted inside handler usually, but here we might pass it if needed.
     // The handlers above re-extract or use normalizedArgs.action. 
     // `normalizeToolCall` puts `action` into `normalized.action` but does NOT necessarily put it into `normalized.args.action`.
-    // Let's ensure args has action if we relied on it above.
+    // Preserve the normalized action for handlers that read it from args.
     if (normalized.action && !normalizedArgs.action) {
       normalizedArgs.action = normalized.action;
     }

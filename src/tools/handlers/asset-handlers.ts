@@ -4,7 +4,7 @@ import type { HandlerArgs, AssetArgs } from '../../types/handler-types.js';
 import { executeAutomationRequest } from './common-handlers.js';
 import { normalizeArgs, extractString, extractOptionalString, extractOptionalNumber, extractOptionalBoolean, extractOptionalArray } from './argument-helper.js';
 import { ResponseFactory } from '../../utils/response-factory.js';
-import { sanitizePath } from '../../utils/validation.js';
+import { normalizeAndSanitizeAssetPath } from '../../utils/validation.js';
 
 /**
  * Valid actions for manage_asset tool.
@@ -133,7 +133,7 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         ]);
 
         let path = extractOptionalString(params, 'path') ?? '/Game';
-        path = sanitizePath(path);
+        path = normalizeAndSanitizeAssetPath(path);
 
         const limit = extractOptionalNumber(params, 'limit') ?? 50;
         const recursive = extractOptionalBoolean(params, 'recursive') ?? false;
