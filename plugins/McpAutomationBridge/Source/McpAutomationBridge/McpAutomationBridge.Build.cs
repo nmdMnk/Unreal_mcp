@@ -1,9 +1,7 @@
 using UnrealBuildTool;
 using System;
 using System.IO;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using EpicGames.Core;
 
 public class McpAutomationBridge : ModuleRules
 {
@@ -325,91 +323,6 @@ PublicDependencyModuleNames.AddRange(new string[]
     }
 
     /// <summary>
-    /// Determines whether a SubobjectData module or plugin exists under the given engine directory.
-    /// </summary>
-    /// <param name="EngineDir">Absolute path to the engine root directory to inspect.</param>
-    /// <returns>`true` if a SubobjectData directory is found in EngineDir/Source/Runtime/SubobjectData or in known plugin locations; `false` if not found or if an error occurs.</returns>
-    private bool IsSubobjectDataAvailable(string EngineDir)
-    {
-        try
-        {
-            if (string.IsNullOrEmpty(EngineDir)) return false;
-            
-            // Check Runtime module
-            string RuntimeDir = Path.Combine(EngineDir, "Source", "Runtime", "SubobjectData");
-            if (Directory.Exists(RuntimeDir)) return true;
-
-            // Check Editor module (UE 5.7+)
-            string EditorDir = Path.Combine(EngineDir, "Source", "Editor", "SubobjectDataInterface");
-            if (Directory.Exists(EditorDir)) return true;
-
-            // Check known plugin locations with bounded depth search
-            string PluginsDir = Path.Combine(EngineDir, "Plugins");
-            if (Directory.Exists(PluginsDir))
-            {
-                // Check common plugin locations first (fast path)
-                string[] KnownPaths = new string[]
-                {
-                    Path.Combine(PluginsDir, "Runtime", "SubobjectData"),
-                    Path.Combine(PluginsDir, "Editor", "SubobjectData"),
-                    Path.Combine(PluginsDir, "Experimental", "SubobjectData")
-                };
-                foreach (string path in KnownPaths)
-                {
-                    if (Directory.Exists(path)) return true;
-                }
-
-                // Bounded depth search (max 3 levels deep) to avoid slow unbounded recursion
-                if (SearchDirectoryBounded(PluginsDir, "SubobjectData", 3)) return true;
-            }
-        }
-        catch (Exception Ex)
-        {
-            Console.WriteLine(string.Format("McpAutomationBridge: SubobjectData engine detection failed: {0}", Ex.Message));
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Determines whether the current project contains a "SubobjectData" directory inside its Plugins folder by searching upward from the provided module directory for the project root (.uproject).
-    /// </summary>
-    /// <param name="ModuleDir">Path to the module directory used as the starting point to locate the project root.</param>
-    /// <returns>`true` if a "SubobjectData" directory is found under the project's Plugins directory, `false` otherwise.</returns>
-    private bool IsSubobjectDataInProject(string ModuleDir)
-    {
-        try
-        {
-            // Find project root by looking for .uproject
-            string ProjectRoot = null;
-            DirectoryInfo Dir = new DirectoryInfo(ModuleDir);
-            while (Dir != null)
-            {
-                if (Dir.GetFiles("*.uproject").Length > 0) 
-                { 
-                    ProjectRoot = Dir.FullName; 
-                    break; 
-                }
-                Dir = Dir.Parent;
-            }
-
-            if (!string.IsNullOrEmpty(ProjectRoot))
-            {
-                string ProjPlugins = Path.Combine(ProjectRoot, "Plugins");
-                if (Directory.Exists(ProjPlugins))
-                {
-                    // Use bounded depth search (max 3 levels) to avoid slow unbounded recursion
-                    if (SearchDirectoryBounded(ProjPlugins, "SubobjectData", 3)) return true;
-                }
-            }
-        }
-        catch (Exception Ex)
-        {
-            Console.WriteLine(string.Format("McpAutomationBridge: SubobjectData project detection failed: {0}", Ex.Message));
-        }
-        return false;
-    }
-
-    /// <summary>
     /// Searches for a directory with the given name up to a maximum depth.
     /// </summary>
     /// <param name="rootDir">The root directory to start searching from.</param>
@@ -567,22 +480,6 @@ PublicDependencyModuleNames.AddRange(new string[]
         catch { /* Module not available - this is expected for optional modules */ }
 
         return false;
-    }
-
-    /// <summary>
-    /// Adds an optional module conditionally - only if it exists.
-    /// Used for optional AI modules that may not be available in all UE versions (StateTree, SmartObjects, MassEntity).
-    /// </summary>
-    /// <param name="Target">Build target settings.</param>
-    /// <param name="EngineDir">Absolute path to the engine root directory.</param>
-    /// <param name="ModuleName">The module name to add to dependencies if found.</param>
-    /// <param name="SearchName">The directory name to search for in engine/plugin paths.</param>
-    private void TryAddConditionalModule(ReadOnlyTargetRules Target, string EngineDir, string ModuleName, string SearchName)
-    {
-        if (FindOptionalModule(EngineDir, SearchName))
-        {
-            PrivateDependencyModuleNames.Add(ModuleName);
-        }
     }
 
     /// <summary>

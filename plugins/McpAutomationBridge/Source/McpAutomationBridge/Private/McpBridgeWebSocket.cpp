@@ -741,11 +741,7 @@ void FMcpBridgeWebSocket::SendHeartbeatPing() {
 bool FMcpBridgeWebSocket::Init() { return true; }
 
 uint32 FMcpBridgeWebSocket::Run() {
-  if (bServerMode) {
-    return RunServer();
-  } else {
-    return RunClient();
-  }
+  return bServerMode ? RunServer() : RunClient();
 }
 
 uint32 FMcpBridgeWebSocket::RunClient() {
