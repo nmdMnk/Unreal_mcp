@@ -1,7 +1,7 @@
 import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, LevelArgs, AutomationResponse } from '../../types/handler-types.js';
-import { executeAutomationRequest, requireNonEmptyString, validateSecurityPatterns } from './common-handlers.js';
+import { executeAutomationRequest, normalizePathFields, requireNonEmptyString, validateSecurityPatterns } from './common-handlers.js';
 
 // AutomationResponse now imported from types/handler-types.js
 
@@ -20,7 +20,7 @@ interface ResultPayload {
  */
 function normalizeLevelArgs(args: LevelArgs): LevelArgs {
   const raw = args as Record<string, unknown>;
-  return {
+  const mapped = {
     ...args,
     // Map snake_case to camelCase
     levelPath: (raw.level_path as string | undefined) ?? args.levelPath,
@@ -37,6 +37,17 @@ function normalizeLevelArgs(args: LevelArgs): LevelArgs {
     packagePath: (raw.package_path as string | undefined) ?? args.packagePath,
     exportPath: (raw.export_path as string | undefined) ?? args.exportPath,
   };
+  return normalizePathFields(mapped as Record<string, unknown>, [
+    'levelPath',
+    'savePath',
+    'destinationPath',
+    'subLevelPath',
+    'parentLevel',
+    'parentPath',
+    'sourcePath',
+    'packagePath',
+    'exportPath'
+  ]) as LevelArgs;
 }
 
 export async function handleLevelTools(action: string, args: HandlerArgs, tools: ITools): Promise<Record<string, unknown>> {
@@ -44,7 +55,7 @@ export async function handleLevelTools(action: string, args: HandlerArgs, tools:
   const argsTyped = normalizeLevelArgs(args as LevelArgs);
   
   // Security validation: check for path traversal attempts
-  const securityError = validateSecurityPatterns(args as Record<string, unknown>);
+  const securityError = validateSecurityPatterns(argsTyped as Record<string, unknown>);
   if (securityError) {
     return cleanObject({
       success: false,
@@ -419,11 +430,11 @@ export async function handleLevelTools(action: string, args: HandlerArgs, tools:
         extent = [(max[0] - min[0]) / 2, (max[1] - min[1]) / 2, (max[2] - min[2]) / 2];
       }
       const payload = {
+        ...args,
         subAction: 'load_cells',
         levelPath: argsTyped.levelPath,
         origin: origin,
-        extent: extent,
-        ...args // Allow other args to override if explicit
+        extent: extent
       };
       const res = await executeAutomationRequest(tools, 'manage_world_partition', payload);
       return cleanObject(res) as Record<string, unknown>;
@@ -480,8 +491,6 @@ export async function handleLevelTools(action: string, args: HandlerArgs, tools:
       // The C++ HandleWorldPartitionAction already checks if the level needs to be loaded
       // and will only load if the current world differs from the requested levelPath.
       // Loading here would destroy unsaved actors in the current world.
-      
-      // Route to manage_world_partition
       
       // Route to manage_world_partition
       const res = await executeAutomationRequest(tools, 'manage_world_partition', {
