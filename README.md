@@ -18,7 +18,6 @@ A comprehensive Model Context Protocol (MCP) server that enables AI assistants t
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
 - [Available Tools](#available-tools)
-- [GraphQL API](#graphql-api)
 - [Docker](#docker)
 - [Documentation](#documentation)
 - [Community](#community)
@@ -427,19 +426,6 @@ Blueprints • Materials • Textures • Static Meshes • Skeletal Meshes • 
 
 ---
 
-## GraphQL API
-
-Optional GraphQL endpoint for complex queries. **Disabled by default.**
-
-```env
-GRAPHQL_ENABLED=true
-GRAPHQL_PORT=4000
-```
-
-See [GraphQL API Documentation](docs/GraphQL-API.md).
-
----
-
 ## Docker
 
 ```bash
@@ -454,7 +440,6 @@ docker run -it --rm -e UE_PROJECT_PATH=/project unreal-mcp
 | Document | Description |
 |----------|-------------|
 | [Handler Mappings](docs/handler-mapping.md) | TypeScript to C++ routing |
-| [GraphQL API](docs/GraphQL-API.md) | Query and mutation reference |
 | [Plugin Extension](docs/editor-plugin-extension.md) | C++ plugin architecture |
 | [Testing Guide](docs/testing-guide.md) | How to run and write tests |
 | [Roadmap](docs/Roadmap.md) | Development phases |
