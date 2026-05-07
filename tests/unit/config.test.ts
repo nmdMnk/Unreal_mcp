@@ -44,6 +44,28 @@ describe('EnvSchema env var defaults (Zod v4 compatibility)', () => {
         expect(result.MCP_REQUEST_TIMEOUT_MS).toBe(60000);
     });
 
+    it('maps legacy timeout aliases into canonical schema fields', () => {
+        const result = EnvSchema.parse({
+            UNREAL_CONNECTION_TIMEOUT: '7000',
+            MCP_AUTOMATION_REQUEST_TIMEOUT_MS: '90000',
+        });
+
+        expect(result.MCP_CONNECTION_TIMEOUT_MS).toBe(7000);
+        expect(result.MCP_REQUEST_TIMEOUT_MS).toBe(90000);
+    });
+
+    it('prefers canonical timeout env vars over legacy aliases', () => {
+        const result = EnvSchema.parse({
+            MCP_CONNECTION_TIMEOUT_MS: '8000',
+            UNREAL_CONNECTION_TIMEOUT: '7000',
+            MCP_REQUEST_TIMEOUT_MS: '100000',
+            MCP_AUTOMATION_REQUEST_TIMEOUT_MS: '90000',
+        });
+
+        expect(result.MCP_CONNECTION_TIMEOUT_MS).toBe(8000);
+        expect(result.MCP_REQUEST_TIMEOUT_MS).toBe(100000);
+    });
+
     it('partial input mixes user values and defaults', () => {
         const result = EnvSchema.parse({
             MCP_AUTOMATION_PORT: '7777',
@@ -68,6 +90,35 @@ describe('EnvSchema env var defaults (Zod v4 compatibility)', () => {
         });
         expect(result.MCP_AUTOMATION_PORT).toBe(8091);
     });
+
+    it('partially numeric strings fall back to documented defaults', () => {
+        const result = EnvSchema.parse({
+            MCP_AUTOMATION_PORT: '8092abc',
+            MCP_CONNECTION_TIMEOUT_MS: '5000ms',
+        });
+        expect(result.MCP_AUTOMATION_PORT).toBe(8091);
+        expect(result.MCP_CONNECTION_TIMEOUT_MS).toBe(5000);
+    });
+
+    it('non-decimal numeric strings fall back to documented defaults', () => {
+        const result = EnvSchema.parse({
+            MCP_AUTOMATION_PORT: '0x1f9b',
+            MCP_REQUEST_TIMEOUT_MS: '3e4',
+        });
+        expect(result.MCP_AUTOMATION_PORT).toBe(8091);
+        expect(result.MCP_REQUEST_TIMEOUT_MS).toBe(30000);
+    });
+
+    it('negative, zero, and fractional numeric values fall back to documented defaults', () => {
+        const result = EnvSchema.parse({
+            MCP_AUTOMATION_PORT: '-1',
+            MCP_CONNECTION_TIMEOUT_MS: '0',
+            MCP_REQUEST_TIMEOUT_MS: '1000.5',
+        });
+        expect(result.MCP_AUTOMATION_PORT).toBe(8091);
+        expect(result.MCP_CONNECTION_TIMEOUT_MS).toBe(5000);
+        expect(result.MCP_REQUEST_TIMEOUT_MS).toBe(30000);
+    });
 });
 
 describe('config module load (regression: src/config.ts must not throw on empty env)', () => {
@@ -85,6 +136,8 @@ describe('config module load (regression: src/config.ts must not throw on empty 
         delete process.env.MCP_AUTOMATION_CLIENT_MODE;
         delete process.env.MCP_CONNECTION_TIMEOUT_MS;
         delete process.env.MCP_REQUEST_TIMEOUT_MS;
+        delete process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS;
+        delete process.env.UNREAL_CONNECTION_TIMEOUT;
         vi.resetModules();
 
         const mod = await import('../../src/config.js');

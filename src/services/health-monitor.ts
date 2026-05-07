@@ -55,24 +55,25 @@ export class HealthMonitor {
   }
 
   recordError(errorResponse: Record<string, unknown>) {
-      try {
-        const debugObj = errorResponse._debug as Record<string, unknown> | undefined;
-        this.metrics.recentErrors.push({
-          time: new Date().toISOString(),
-          scope: typeof errorResponse.scope === 'string' ? errorResponse.scope : 'unknown',
-          type: typeof debugObj?.errorType === 'string' ? debugObj.errorType : 'UNKNOWN',
-          message: typeof errorResponse.error === 'string' ? errorResponse.error : (typeof errorResponse.message === 'string' ? errorResponse.message : 'Unknown error'),
-          retriable: Boolean(errorResponse.retriable)
-        });
-        if (this.metrics.recentErrors.length > 20) this.metrics.recentErrors.splice(0, this.metrics.recentErrors.length - 20);
-      } catch (error) {
-        this.logger.debug('Failed to record health monitor error response', error);
-      }
+    try {
+      const debugObj = errorResponse._debug as Record<string, unknown> | undefined;
+      this.metrics.recentErrors.push({
+        time: new Date().toISOString(),
+        scope: typeof errorResponse.scope === 'string' ? errorResponse.scope : 'unknown',
+        type: typeof debugObj?.errorType === 'string' ? debugObj.errorType : 'UNKNOWN',
+        message: typeof errorResponse.error === 'string' ? errorResponse.error : (typeof errorResponse.message === 'string' ? errorResponse.message : 'Unknown error'),
+        retriable: Boolean(errorResponse.retriable)
+      });
+      if (this.metrics.recentErrors.length > 20) this.metrics.recentErrors.splice(0, this.metrics.recentErrors.length - 20);
+    } catch (error) {
+      this.logger.debug('Failed to record health monitor error response', error);
+    }
   }
 
   async performHealthCheck(bridge: UnrealBridge): Promise<boolean> {
     // If not connected, do not attempt any ping (stay quiet)
     if (!bridge.isConnected) {
+      this.markDisconnected();
       return false;
     }
     try {
@@ -97,6 +98,7 @@ export class HealthMonitor {
     this.healthCheckTimer = setInterval(async () => {
       // Only attempt health pings while connected; stay silent otherwise
       if (!bridge.isConnected) {
+        this.markDisconnected();
         // Optionally pause fully after 5 minutes of no success
         const FIVE_MIN_MS = 5 * 60 * 1000;
         if (!this.lastHealthSuccessAt || Date.now() - this.lastHealthSuccessAt > FIVE_MIN_MS) {
@@ -123,13 +125,18 @@ export class HealthMonitor {
   }
 
   stopHealthChecks() {
-      if (this.healthCheckTimer) {
-          clearInterval(this.healthCheckTimer);
-          this.healthCheckTimer = undefined;
-      }
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = undefined;
+    }
   }
 
   setLastHealthSuccessAt(time: number) {
     this.lastHealthSuccessAt = time;
+  }
+
+  private markDisconnected(): void {
+    this.metrics.connectionStatus = 'disconnected';
+    this.metrics.lastHealthCheck = new Date();
   }
 }

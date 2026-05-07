@@ -1,5 +1,4 @@
 import { ReadResourceRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { UnrealBridge } from '../unreal-bridge.js';
 import { AutomationBridge } from '../automation/index.js';
 import { AssetResources } from '../resources/assets.js';
@@ -7,9 +6,25 @@ import { ActorResources } from '../resources/actors.js';
 import { LevelResources } from '../resources/levels.js';
 import { HealthMonitor } from '../services/health-monitor.js';
 
+export type ResourceServer = {
+  setRequestHandler(
+    schema: typeof ReadResourceRequestSchema,
+    handler: (request: { params: { uri: string } }) => Promise<{ contents: Array<{ uri: string; mimeType: string; text: string }> }>
+  ): void;
+};
+
+function redactRecentErrors(errors: Array<{ time: string; scope: string; type: string; message: string; retriable: boolean }>) {
+  return errors.map(error => ({
+    time: error.time,
+    scope: error.scope,
+    type: error.type,
+    retriable: error.retriable
+  }));
+}
+
 export class ResourceHandler {
   constructor(
-    private server: Server,
+    private server: ResourceServer,
     private bridge: UnrealBridge,
     private automationBridge: AutomationBridge,
     private assetResources: AssetResources,
@@ -113,12 +128,8 @@ export class ResourceHandler {
               automationBridgeConnected: automationStatus.connected
             }
           },
-          recentErrors: this.healthMonitor.metrics.recentErrors.slice(-10),
-          automationBridge: automationSummary,
-          raw: {
-            metrics: this.healthMonitor.metrics,
-            automationStatus
-          }
+          recentErrors: redactRecentErrors(this.healthMonitor.metrics.recentErrors.slice(-10)),
+          automationBridge: automationSummary
         };
 
         return {
@@ -141,18 +152,15 @@ export class ResourceHandler {
             capabilityTokenRequired: status.capabilityTokenRequired,
             pendingRequests: status.pendingRequests
           },
-          connections: status.connections,
           timestamps: {
             connectedAt: status.connectedAt,
             lastHandshakeAt: status.lastHandshakeAt,
             lastMessageAt: status.lastMessageAt,
             lastRequestSentAt: status.lastRequestSentAt
           },
-          lastDisconnect: status.lastDisconnect,
-          lastHandshakeFailure: status.lastHandshakeFailure,
-          lastError: status.lastError,
-          lastHandshakeMetadata: status.lastHandshakeMetadata,
-          pendingRequestDetails: status.pendingRequestDetails,
+          lastDisconnect: status.lastDisconnect ? { code: status.lastDisconnect.code, at: status.lastDisconnect.at } : null,
+          lastHandshakeFailure: status.lastHandshakeFailure ? { at: status.lastHandshakeFailure.at } : null,
+          lastError: status.lastError ? { at: status.lastError.at } : null,
           listening: status.webSocketListening
         };
 
