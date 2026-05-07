@@ -88,6 +88,17 @@
 #define MCP_HAS_LEVELEDITOR_SUBSYSTEM 0
 #endif
 
+namespace {
+bool IsSafeLevelConsoleToken(const FString& Value) {
+  const FString Trimmed = Value.TrimStartAndEnd();
+  return !Trimmed.IsEmpty() && !Trimmed.Contains(TEXT("\n")) &&
+         !Trimmed.Contains(TEXT("\r")) && !Trimmed.Contains(TEXT("&&")) &&
+         !Trimmed.Contains(TEXT("||")) && !Trimmed.Contains(TEXT(";")) &&
+         !Trimmed.Contains(TEXT("|")) && !Trimmed.Contains(TEXT("`")) &&
+         !Trimmed.Contains(TEXT(" ")) && !Trimmed.Contains(TEXT("\t"));
+}
+} // namespace
+
 /**
  * Safely creates a new map with proper tick system cleanup to prevent
  * TickTaskManager assertion crashes in UE 5.7+.
@@ -364,7 +375,6 @@ bool UMcpAutomationBridgeSubsystem::HandleLevelAction(
   const bool bIsLevelAction =
       (Lower == TEXT("manage_level") || Lower == TEXT("save_current_level") ||
        Lower == TEXT("create_new_level") || Lower == TEXT("stream_level") ||
-       Lower == TEXT("spawn_light") || Lower == TEXT("build_lighting") ||
        Lower == TEXT("spawn_light") || Lower == TEXT("build_lighting") ||
        Lower == TEXT("bake_lightmap") || Lower == TEXT("list_levels") ||
        Lower == TEXT("get_current_level") ||
@@ -791,6 +801,14 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       SendAutomationResponse(RequestingSocket, RequestId, false,
                              TEXT("savePath required for save_level_as"),
                              nullptr, TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    SavePath = SanitizeProjectRelativePath(SavePath);
+    if (SavePath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("Invalid savePath: contains path traversal (..) or invalid characters"),
+                             nullptr, TEXT("SECURITY_VIOLATION"));
       return true;
     }
 
@@ -1286,6 +1304,13 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
                              Result);
     } else {
       // Streaming level not found - try console command as fallback
+      if (!IsSafeLevelConsoleToken(NormalizedLevelName)) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid streaming level name"), Result,
+                               TEXT("INVALID_ARGUMENT"));
+        return true;
+      }
+
       const FString Cmd =
           FString::Printf(TEXT("StreamLevel %s %s %s"), *NormalizedLevelName,
                           bLoad ? TEXT("Load") : TEXT("Unload"),
@@ -1560,6 +1585,15 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
                                nullptr, TEXT("INVALID_ARGUMENT"));
         return true;
       }
+
+      SourcePath = SanitizeProjectRelativePath(SourcePath);
+      DestinationPath = SanitizeProjectRelativePath(DestinationPath);
+      if (SourcePath.IsEmpty() || DestinationPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid sourcePath or destinationPath"),
+                               nullptr, TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
       
       // CRITICAL FIX: Check if destination already exists BEFORE trying to duplicate
       // This prevents "An asset already exists at this location" errors and makes
@@ -1636,6 +1670,14 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       SendAutomationError(RequestingSocket, RequestId,
                           TEXT("subLevelPath required"),
                           TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    SubLevelPath = SanitizeProjectRelativePath(SubLevelPath);
+    if (SubLevelPath.IsEmpty()) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("Invalid subLevelPath"),
+                          TEXT("SECURITY_VIOLATION"));
       return true;
     }
 
@@ -2008,6 +2050,12 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
                              nullptr, TEXT("INVALID_ARGUMENT"));
       return true;
     }
+    if (DestinationPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("destinationPath required for rename_level"),
+                             nullptr, TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
 
     // Issue #8: Sanitize paths to prevent traversal attacks
     FString SanitizedSource = SanitizeProjectRelativePath(SourcePath);
@@ -2026,12 +2074,6 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     }
     SourcePath = SanitizedSource;
     DestinationPath = SanitizedDest;
-    if (DestinationPath.IsEmpty()) {
-      SendAutomationResponse(RequestingSocket, RequestId, false,
-                             TEXT("destinationPath required for rename_level"),
-                             nullptr, TEXT("INVALID_ARGUMENT"));
-      return true;
-    }
 
     // Use DuplicateAsset + DeleteAsset to rename (avoids "Find/Replace"
     // modal dialog that auto-cancels during automation)
@@ -2161,6 +2203,14 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
 
     ULevel* TargetLevel = nullptr;
     if (!LevelPath.IsEmpty()) {
+      LevelPath = SanitizeProjectRelativePath(LevelPath);
+      if (LevelPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid levelPath"), nullptr,
+                               TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
+
       TArray<ULevel*> Levels = GetAllLevelsFromWorld(World);
       for (ULevel* Level : Levels) {
         if (Level && Level->GetOutermost() && Level->GetOutermost()->GetName() == LevelPath) {
@@ -2247,6 +2297,16 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       Payload->TryGetStringField(TEXT("levelPath"), RequestedLevelPath);
       if (RequestedLevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), RequestedLevelPath);
     }
+
+    if (!RequestedLevelPath.IsEmpty()) {
+      RequestedLevelPath = SanitizeProjectRelativePath(RequestedLevelPath);
+      if (RequestedLevelPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid levelPath"), nullptr,
+                               TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
+    }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
     if (!World) {
@@ -2288,6 +2348,16 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     if (Payload.IsValid()) {
       Payload->TryGetStringField(TEXT("levelPath"), RequestedLevelPath);
       if (RequestedLevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), RequestedLevelPath);
+    }
+
+    if (!RequestedLevelPath.IsEmpty()) {
+      RequestedLevelPath = SanitizeProjectRelativePath(RequestedLevelPath);
+      if (RequestedLevelPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid levelPath"), nullptr,
+                               TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
     }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
@@ -2337,7 +2407,15 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
                              TEXT("levelPath required"), nullptr, TEXT("INVALID_ARGUMENT"));
       return true;
     }
-    
+
+    LevelPath = SanitizeProjectRelativePath(LevelPath);
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("Invalid levelPath"), nullptr,
+                             TEXT("SECURITY_VIOLATION"));
+      return true;
+    }
+
     // Verify level package exists before adding to avoid false positives
     FString FilenameToCheck;
     bool bFileExists = false;
@@ -2378,6 +2456,20 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     if (Payload.IsValid()) {
       Payload->TryGetStringField(TEXT("levelPath"), LevelPath);
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
+    }
+
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("levelPath required"), nullptr, TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    LevelPath = SanitizeProjectRelativePath(LevelPath);
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("Invalid levelPath"), nullptr,
+                             TEXT("SECURITY_VIOLATION"));
+      return true;
     }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
@@ -2422,6 +2514,20 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
       Payload->TryGetBoolField(TEXT("visible"), bVisible);
     }
+
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("levelPath required"), nullptr, TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    LevelPath = SanitizeProjectRelativePath(LevelPath);
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("Invalid levelPath"), nullptr,
+                             TEXT("SECURITY_VIOLATION"));
+      return true;
+    }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
     if (!World) {
@@ -2460,6 +2566,20 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
       Payload->TryGetBoolField(TEXT("locked"), bLocked);
     }
+
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("levelPath required"), nullptr, TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    LevelPath = SanitizeProjectRelativePath(LevelPath);
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("Invalid levelPath"), nullptr,
+                             TEXT("SECURITY_VIOLATION"));
+      return true;
+    }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
     if (!World) {
@@ -2497,6 +2617,16 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     if (Payload.IsValid()) {
       Payload->TryGetStringField(TEXT("levelPath"), LevelPath);
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
+    }
+
+    if (!LevelPath.IsEmpty()) {
+      LevelPath = SanitizeProjectRelativePath(LevelPath);
+      if (LevelPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid levelPath"), nullptr,
+                               TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
     }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
@@ -2546,6 +2676,16 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     if (Payload.IsValid()) {
       Payload->TryGetStringField(TEXT("levelPath"), LevelPath);
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
+    }
+
+    if (!LevelPath.IsEmpty()) {
+      LevelPath = SanitizeProjectRelativePath(LevelPath);
+      if (LevelPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid levelPath"), nullptr,
+                               TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
     }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;

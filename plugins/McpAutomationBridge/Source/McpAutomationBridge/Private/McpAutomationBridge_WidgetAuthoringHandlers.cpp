@@ -753,7 +753,7 @@ namespace
     {
         if (UMcpAutomationBridgeSubsystem* Subsystem = GetAutomationBridgeSubsystem())
         {
-            return Subsystem->GetCurrentErrorCapture().bHasErrors;
+            return Subsystem->HasCapturedErrors();
         }
         return false;
     }
@@ -768,7 +768,7 @@ namespace
         TArray<FString> Errors;
         if (UMcpAutomationBridgeSubsystem* Subsystem = GetAutomationBridgeSubsystem())
         {
-            Errors.Append(Subsystem->GetCurrentErrorCapture().ErrorMessages);
+            Errors.Append(Subsystem->GetCapturedErrorMessages());
         }
         return Errors;
     }

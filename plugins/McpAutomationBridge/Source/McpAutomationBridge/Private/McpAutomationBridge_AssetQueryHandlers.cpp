@@ -59,6 +59,7 @@
 #include "Dom/JsonObject.h"
 #include "AssetRegistry/ARFilter.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "Misc/PackageName.h"
 
 #if WITH_EDITOR
 #include "EditorAssetLibrary.h"
@@ -570,14 +571,45 @@ bool UMcpAutomationBridgeSubsystem::HandleAssetQueryAction(
         FString AssetPath;
         Payload->TryGetStringField(TEXT("assetPath"), AssetPath);
 
+        if (AssetPath.IsEmpty())
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                TEXT("Missing assetPath."), TEXT("INVALID_ARGUMENT"));
+            return true;
+        }
+
+        const FString SanitizedAssetPath = SanitizeProjectRelativePath(AssetPath);
+        if (SanitizedAssetPath.IsEmpty())
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                FString::Printf(TEXT("Invalid assetPath: '%s' contains traversal or invalid characters."), *AssetPath),
+                TEXT("INVALID_PATH"));
+            return true;
+        }
+
         if (ISourceControlModule::Get().IsEnabled())
         {
             ISourceControlProvider& Provider = ISourceControlModule::Get().GetProvider();
-            FSourceControlStatePtr State = Provider.GetState(AssetPath, EStateCacheUsage::Use);
+            const FString PackageName = FPackageName::ObjectPathToPackageName(SanitizedAssetPath);
+            FString FilePath;
+            if (!FPackageName::TryConvertLongPackageNameToFilename(
+                    PackageName, FilePath, FPackageName::GetAssetPackageExtension()) &&
+                !FPackageName::TryConvertLongPackageNameToFilename(
+                    PackageName, FilePath, FPackageName::GetMapPackageExtension()))
+            {
+                SendAutomationError(RequestingSocket, RequestId,
+                    FString::Printf(TEXT("Could not convert assetPath to source-control filename: %s"), *SanitizedAssetPath),
+                    TEXT("INVALID_PATH"));
+                return true;
+            }
+
+            FSourceControlStatePtr State = Provider.GetState(FilePath, EStateCacheUsage::Use);
 
             if (State.IsValid())
             {
                 TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+                Result->SetStringField(TEXT("assetPath"), SanitizedAssetPath);
+                Result->SetStringField(TEXT("filePath"), FilePath);
                 Result->SetBoolField(TEXT("isCheckedOut"), State->IsCheckedOut());
                 Result->SetBoolField(TEXT("isAdded"), State->IsAdded());
                 Result->SetBoolField(TEXT("isDeleted"), State->IsDeleted());

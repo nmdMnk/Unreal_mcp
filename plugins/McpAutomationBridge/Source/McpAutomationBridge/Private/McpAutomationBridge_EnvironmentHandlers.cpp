@@ -623,6 +623,12 @@ bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
                     ErrorCode = TEXT("SECURITY_VIOLATION");
                     Resp->SetStringField(TEXT("error"), Message);
                 }
+                else if (!McpValidateProjectSnapshotFilePath(AbsolutePath, Message))
+                {
+                    bSuccess = false;
+                    ErrorCode = TEXT("SECURITY_VIOLATION");
+                    Resp->SetStringField(TEXT("error"), Message);
+                }
                 else
                 {
                     TSharedPtr<FJsonObject> Snapshot = McpHandlerUtils::CreateResultObject();
@@ -706,6 +712,12 @@ bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
                 {
                     bSuccess = false;
                     Message = FString::Printf(TEXT("Invalid or unsafe path: %s. Path escapes project directory."), *Path);
+                    ErrorCode = TEXT("SECURITY_VIOLATION");
+                    Resp->SetStringField(TEXT("error"), Message);
+                }
+                else if (!McpValidateProjectSnapshotFilePath(AbsolutePath, Message))
+                {
+                    bSuccess = false;
                     ErrorCode = TEXT("SECURITY_VIOLATION");
                     Resp->SetStringField(TEXT("error"), Message);
                 }

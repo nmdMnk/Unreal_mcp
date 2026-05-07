@@ -57,6 +57,8 @@
 #include "McpHandlerUtils.h"
 #include "McpAutomationBridgeSubsystem.h"
 #include "Misc/CommandLine.h"
+#include "Misc/DateTime.h"
+#include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
 
 #if WITH_EDITOR
@@ -148,6 +150,30 @@
 
 #endif // WITH_EDITOR
 
+#if WITH_EDITOR
+namespace {
+bool IsSafeConsoleArgumentToken(const FString &Value) {
+  const FString Trimmed = Value.TrimStartAndEnd();
+  return !Trimmed.IsEmpty() && !Trimmed.Contains(TEXT("\n")) &&
+         !Trimmed.Contains(TEXT("\r")) && !Trimmed.Contains(TEXT("&&")) &&
+         !Trimmed.Contains(TEXT("||")) && !Trimmed.Contains(TEXT(";")) &&
+         !Trimmed.Contains(TEXT("|")) && !Trimmed.Contains(TEXT("`")) &&
+         !Trimmed.Contains(TEXT(" ")) && !Trimmed.Contains(TEXT("\t"));
+}
+
+FString MakeSafeConsoleName(const FString &RawName, const TCHAR *Prefix) {
+  FString CleanName = FPaths::GetBaseFilename(
+      FPaths::GetCleanFilename(RawName.TrimStartAndEnd()));
+  if (!IsSafeConsoleArgumentToken(CleanName)) {
+    CleanName = FString::Printf(
+        TEXT("%s_%s"), Prefix,
+        *FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")));
+  }
+  return CleanName;
+}
+} // namespace
+#endif
+
 // Helper class for capturing export output
 /* UE5.6: Use built-in FStringOutputDevice from UnrealString.h */
 
@@ -221,8 +247,11 @@ AActor *UMcpAutomationBridgeSubsystem::FindActorByName(const FString &Target, bo
 
   // Fallback: try to load as asset if it looks like a path
   if (Target.StartsWith(TEXT("/"))) {
-    if (UObject *Obj = UEditorAssetLibrary::LoadAsset(Target)) {
-      return Cast<AActor>(Obj);
+    const FString SafeTargetPath = SanitizeProjectRelativePath(Target);
+    if (!SafeTargetPath.IsEmpty()) {
+      if (UObject *Obj = UEditorAssetLibrary::LoadAsset(SafeTargetPath)) {
+        return Cast<AActor>(Obj);
+      }
     }
   }
 #endif
@@ -262,15 +291,18 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSpawn(
   // avoid LogEditorAssetSubsystem errors
   if ((ClassPath.StartsWith(TEXT("/")) || ClassPath.Contains(TEXT("/"))) &&
       !ClassPath.StartsWith(TEXT("/Script/"))) {
-    if (UObject *Loaded = UEditorAssetLibrary::LoadAsset(ClassPath)) {
-      if (UBlueprint *BP = Cast<UBlueprint>(Loaded))
-        ResolvedClass = BP->GeneratedClass;
-      else if (UClass *C = Cast<UClass>(Loaded))
-        ResolvedClass = C;
-      else if (UStaticMesh *Mesh = Cast<UStaticMesh>(Loaded))
-        ResolvedStaticMesh = Mesh;
-      else if (USkeletalMesh *SkelMesh = Cast<USkeletalMesh>(Loaded))
-        ResolvedSkeletalMesh = SkelMesh;
+    const FString SafeClassPath = SanitizeProjectRelativePath(ClassPath);
+    if (!SafeClassPath.IsEmpty()) {
+      if (UObject *Loaded = UEditorAssetLibrary::LoadAsset(SafeClassPath)) {
+        if (UBlueprint *BP = Cast<UBlueprint>(Loaded))
+          ResolvedClass = BP->GeneratedClass;
+        else if (UClass *C = Cast<UClass>(Loaded))
+          ResolvedClass = C;
+        else if (UStaticMesh *Mesh = Cast<UStaticMesh>(Loaded))
+          ResolvedStaticMesh = Mesh;
+        else if (USkeletalMesh *SkelMesh = Cast<USkeletalMesh>(Loaded))
+          ResolvedSkeletalMesh = SkelMesh;
+      }
     }
   }
   if (!ResolvedClass && !ResolvedStaticMesh && !ResolvedSkeletalMesh)
@@ -278,10 +310,13 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSpawn(
 
   // If explicit mesh path provided for a general spawn request
   if (!ResolvedStaticMesh && !ResolvedSkeletalMesh && !MeshPath.IsEmpty()) {
-    if (UObject *MeshObj = UEditorAssetLibrary::LoadAsset(MeshPath)) {
-      ResolvedStaticMesh = Cast<UStaticMesh>(MeshObj);
-      if (!ResolvedStaticMesh)
-        ResolvedSkeletalMesh = Cast<USkeletalMesh>(MeshObj);
+    const FString SafeMeshPath = SanitizeProjectRelativePath(MeshPath);
+    if (!SafeMeshPath.IsEmpty()) {
+      if (UObject *MeshObj = UEditorAssetLibrary::LoadAsset(SafeMeshPath)) {
+        ResolvedStaticMesh = Cast<UStaticMesh>(MeshObj);
+        if (!ResolvedStaticMesh)
+          ResolvedSkeletalMesh = Cast<USkeletalMesh>(MeshObj);
+      }
     }
   }
 
@@ -503,11 +538,14 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSpawnBlueprint(
 
   if (!ResolvedClass && (BlueprintPath.StartsWith(TEXT("/")) ||
                          BlueprintPath.Contains(TEXT("/")))) {
-    if (UObject *Loaded = UEditorAssetLibrary::LoadAsset(BlueprintPath)) {
-      if (UBlueprint *BP = Cast<UBlueprint>(Loaded))
-        ResolvedClass = BP->GeneratedClass;
-      else if (UClass *C = Cast<UClass>(Loaded))
-        ResolvedClass = C;
+    const FString SafeBlueprintPath = SanitizeProjectRelativePath(BlueprintPath);
+    if (!SafeBlueprintPath.IsEmpty()) {
+      if (UObject *Loaded = UEditorAssetLibrary::LoadAsset(SafeBlueprintPath)) {
+        if (UBlueprint *BP = Cast<UBlueprint>(Loaded))
+          ResolvedClass = BP->GeneratedClass;
+        else if (UClass *C = Cast<UClass>(Loaded))
+          ResolvedClass = C;
+      }
     }
   }
   if (!ResolvedClass)
@@ -1055,9 +1093,12 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorAddComponent(
     FString MeshPath;
     if (Payload->TryGetStringField(TEXT("meshPath"), MeshPath) &&
         !MeshPath.IsEmpty()) {
-      if (UObject *LoadedMesh = UEditorAssetLibrary::LoadAsset(MeshPath)) {
-        if (UStaticMesh *Mesh = Cast<UStaticMesh>(LoadedMesh)) {
-          SMC->SetStaticMesh(Mesh);
+      const FString SafeMeshPath = SanitizeProjectRelativePath(MeshPath);
+      if (!SafeMeshPath.IsEmpty()) {
+        if (UObject *LoadedMesh = UEditorAssetLibrary::LoadAsset(SafeMeshPath)) {
+          if (UStaticMesh *Mesh = Cast<UStaticMesh>(LoadedMesh)) {
+            SMC->SetStaticMesh(Mesh);
+          }
         }
       }
     }
@@ -1281,10 +1322,13 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorGetComponents(
   AActor *Found = FindActorByName(TargetName);
   // Fallback: Check if it's a Blueprint asset to inspect CDO components
   if (!Found) {
-    if (UObject *Asset = UEditorAssetLibrary::LoadAsset(TargetName)) {
-      if (UBlueprint *BP = Cast<UBlueprint>(Asset)) {
-        if (BP->GeneratedClass) {
-          Found = Cast<AActor>(BP->GeneratedClass->GetDefaultObject());
+    const FString SafeTargetPath = SanitizeProjectRelativePath(TargetName);
+    if (!SafeTargetPath.IsEmpty()) {
+      if (UObject *Asset = UEditorAssetLibrary::LoadAsset(SafeTargetPath)) {
+        if (UBlueprint *BP = Cast<UBlueprint>(Asset)) {
+          if (BP->GeneratedClass) {
+            Found = Cast<AActor>(BP->GeneratedClass->GetDefaultObject());
+          }
         }
       }
     }
@@ -2801,8 +2845,13 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetViewMode(
     Chosen = TEXT("StationaryLightOverlap");
   else if (LowerMode == TEXT("reflectionoverride"))
     Chosen = TEXT("ReflectionOverride");
-  else
+  else if (IsSafeConsoleArgumentToken(Mode))
     Chosen = Mode;
+  else {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("INVALID_ARGUMENT"),
+                              TEXT("Invalid viewMode"), nullptr);
+    return true;
+  }
 
   const FString Cmd = FString::Printf(TEXT("viewmode %s"), *Chosen);
   if (GEditor->Exec(nullptr, *Cmd)) {
@@ -2935,6 +2984,13 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorOpenAsset(
   if (AssetPath.IsEmpty()) {
     SendStandardErrorResponse(this, Socket, RequestId, TEXT("INVALID_ARGUMENT"),
                               TEXT("assetPath required"), nullptr);
+    return true;
+  }
+
+  AssetPath = SanitizeProjectRelativePath(AssetPath);
+  if (AssetPath.IsEmpty()) {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("SECURITY_VIOLATION"),
+                              TEXT("Invalid assetPath"), nullptr);
     return true;
   }
 
@@ -3146,37 +3202,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorConsoleCommand(
     const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
     TSharedPtr<FMcpBridgeWebSocket> Socket) {
 #if WITH_EDITOR
-  if (!GEditor) {
-    SendStandardErrorResponse(this, Socket, RequestId, TEXT("EDITOR_NOT_AVAILABLE"),
-                              TEXT("Editor not available"), nullptr);
-    return true;
-  }
-
-  FString Command;
-  Payload->TryGetStringField(TEXT("command"), Command);
-  if (Command.IsEmpty()) {
-    SendStandardErrorResponse(this, Socket, RequestId, TEXT("INVALID_ARGUMENT"),
-                              TEXT("command parameter is required"), nullptr);
-    return true;
-  }
-
-  // Execute the console command in editor context
-  if (!GEditor) {
-    SendStandardErrorResponse(this, Socket, RequestId, TEXT("EDITOR_NOT_AVAILABLE"),
-                              TEXT("Editor not available"), nullptr);
-    return true;
-  }
-  UWorld* World = GEditor->GetEditorWorldContext().World();
-  GEditor->Exec(World, *Command);
-
-  TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-  Resp->SetBoolField(TEXT("success"), true);
-  Resp->SetStringField(TEXT("command"), Command);
-  Resp->SetStringField(TEXT("message"), TEXT("Console command executed"));
-
-  SendAutomationResponse(Socket, RequestId, true,
-                         TEXT("Console command executed"), Resp, FString());
-  return true;
+  return HandleConsoleCommandAction(RequestId, TEXT("console_command"), Payload, Socket);
 #else
   SendStandardErrorResponse(this, Socket, RequestId, TEXT("NOT_IMPLEMENTED"),
                               TEXT("Console command requires editor build."), nullptr);
@@ -3239,6 +3265,8 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorStartRecording(
   if (RecordingName.IsEmpty()) {
     RecordingName = FString::Printf(TEXT("Recording_%s"),
         *FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")));
+  } else {
+    RecordingName = MakeSafeConsoleName(RecordingName, TEXT("Recording"));
   }
 
   // Use console command to start demo recording
@@ -3656,6 +3684,13 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorCloseAsset(
     return true;
   }
 
+  AssetPath = SanitizeProjectRelativePath(AssetPath);
+  if (AssetPath.IsEmpty()) {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("SECURITY_VIOLATION"),
+                              TEXT("Invalid assetPath"), nullptr);
+    return true;
+  }
+
   UAssetEditorSubsystem* AssetEditorSS = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
   if (!AssetEditorSS) {
     SendStandardErrorResponse(this, Socket, RequestId, TEXT("SUBSYSTEM_MISSING"),
@@ -3809,6 +3844,12 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetEditorMode(
   if (Mode.IsEmpty()) {
     SendStandardErrorResponse(this, Socket, RequestId, TEXT("INVALID_ARGUMENT"),
                               TEXT("mode required"), nullptr);
+    return true;
+  }
+
+  if (!IsSafeConsoleArgumentToken(Mode)) {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("INVALID_ARGUMENT"),
+                              TEXT("Invalid editor mode"), nullptr);
     return true;
   }
 
@@ -3992,8 +4033,16 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorOpenLevel(
   }
 
   // Normalize the level path
-  if (!LevelPath.StartsWith(TEXT("/Game/")) && !LevelPath.StartsWith(TEXT("/Engine/"))) {
+  if (!LevelPath.StartsWith(TEXT("/"))) {
     LevelPath = FString::Printf(TEXT("/Game/%s"), *LevelPath);
+  }
+
+  LevelPath = SanitizeProjectRelativePath(LevelPath);
+  if (LevelPath.IsEmpty() ||
+      !(LevelPath.StartsWith(TEXT("/Game/")) || LevelPath.StartsWith(TEXT("/Engine/")))) {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("SECURITY_VIOLATION"),
+                              TEXT("Invalid levelPath"), nullptr);
+    return true;
   }
 
   // Remove map suffix if present

@@ -401,49 +401,7 @@ static void ApplyBlendSpaceConfiguration(UObject *BlendSpaceAsset,
   }
 #endif
 }
-#endif /**                                                                     \
-        * @brief Executes a list of editor console commands against the        \
-        * current editor world.                                                \
-        *                                                                      \
-        * Skips empty or whitespace-only commands. If any command fails or the \
-        * editor/world is unavailable, an explanatory message is written to    \
-        * OutErrorMessage.                                                     \
-        *                                                                      \
-        * @param Commands Array of editor command strings to execute.          \
-        * @param OutErrorMessage Populated with an error description when      \
-        * execution fails.                                                     \
-        * @return true if all non-empty commands executed successfully, false  \
-        * otherwise.                                                           \
-        */
-
-static bool ExecuteEditorCommandsInternal(const TArray<FString> &Commands,
-                                          FString &OutErrorMessage) {
-  OutErrorMessage.Reset();
-
-  if (!GEditor) {
-    OutErrorMessage = TEXT("Editor instance unavailable");
-    return false;
-  }
-
-  UWorld *EditorWorld = nullptr;
-  FWorldContext &EditorContext = GEditor->GetEditorWorldContext(false);
-  EditorWorld = EditorContext.World();
-
-  for (const FString &Command : Commands) {
-    const FString Trimmed = Command.TrimStartAndEnd();
-    if (Trimmed.IsEmpty()) {
-      continue;
-    }
-
-    if (!GEditor->Exec(EditorWorld, *Trimmed)) {
-      OutErrorMessage = FString::Printf(
-          TEXT("Failed to execute editor command: %s"), *Trimmed);
-      return false;
-    }
-  }
-
-  return true;
-}
+#endif
 } // namespace
 #else
 #define MCP_HAS_BLENDSPACE_FACTORY 0

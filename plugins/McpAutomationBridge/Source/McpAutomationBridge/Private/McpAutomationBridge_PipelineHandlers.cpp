@@ -66,8 +66,13 @@ bool UMcpAutomationBridgeSubsystem::HandlePipelineAction(
         return true;
     }
 
-    // Extract subaction
-    const FString SubAction = GetJsonStringField(Payload, TEXT("subAction"));
+    // Extract subaction. Native MCP clients send the public tool action in
+    // "action"; TS bridge fallback sends the internal "subAction" field.
+    FString SubAction = GetJsonStringField(Payload, TEXT("subAction"));
+    if (SubAction.IsEmpty())
+    {
+        SubAction = GetJsonStringField(Payload, TEXT("action"));
+    }
 
     // -------------------------------------------------------------------------
     // run_ubt: Launch UnrealBuildTool process
@@ -88,6 +93,76 @@ bool UMcpAutomationBridgeSubsystem::HandlePipelineAction(
         if (ExtraArgs.IsEmpty())
         {
             Payload->TryGetStringField(TEXT("arguments"), ExtraArgs);
+        }
+
+        Target.TrimStartAndEndInline();
+        Platform.TrimStartAndEndInline();
+        Configuration.TrimStartAndEndInline();
+        ExtraArgs.TrimStartAndEndInline();
+
+        if (Target.IsEmpty())
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                TEXT("Target is required for run_ubt."), TEXT("INVALID_ARGUMENT"));
+            return true;
+        }
+
+        if (Platform.IsEmpty())
+        {
+#if PLATFORM_WINDOWS
+            Platform = TEXT("Win64");
+#elif PLATFORM_MAC
+            Platform = TEXT("Mac");
+#else
+            Platform = TEXT("Linux");
+#endif
+        }
+
+        if (Configuration.IsEmpty())
+        {
+            Configuration = TEXT("Development");
+        }
+
+        auto ValidateBuildToken = [&](const FString& Value, const TCHAR* FieldName) -> bool {
+            if (!McpIsSafeUbtPositionalToken(Value))
+            {
+                SendAutomationError(RequestingSocket, RequestId,
+                    FString::Printf(TEXT("Invalid %s for run_ubt: %s must be a positional token"), FieldName, *Value),
+                    TEXT("INVALID_ARGUMENT"));
+                return false;
+            }
+            return true;
+        };
+
+        if (!ValidateBuildToken(Target, TEXT("target")) ||
+            !ValidateBuildToken(Platform, TEXT("platform")) ||
+            !ValidateBuildToken(Configuration, TEXT("configuration")))
+        {
+            return true;
+        }
+
+        if (!McpIsAllowedUbtPlatform(Platform))
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                FString::Printf(TEXT("Platform is not allowed for run_ubt: %s"), *Platform),
+                TEXT("INVALID_ARGUMENT"));
+            return true;
+        }
+
+        if (!McpIsAllowedUbtConfiguration(Configuration))
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                FString::Printf(TEXT("Configuration is not allowed for run_ubt: %s"), *Configuration),
+                TEXT("INVALID_ARGUMENT"));
+            return true;
+        }
+
+        if (!McpIsSafeUbtArgumentList(ExtraArgs))
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                TEXT("UBT arguments contain unsafe characters."),
+                TEXT("INVALID_ARGUMENT"));
+            return true;
         }
 
         // Construct the platform build wrapper path. On Linux/macOS the UBT .exe
