@@ -10,6 +10,9 @@ describe('AutomationBridge Host Validation', () => {
         delete process.env.MCP_AUTOMATION_ALLOW_NON_LOOPBACK;
         delete process.env.MCP_AUTOMATION_HOST;
         delete process.env.MCP_AUTOMATION_WS_HOST;
+        delete process.env.MCP_AUTOMATION_WS_PORT;
+        delete process.env.MCP_AUTOMATION_CLIENT_PORT;
+        delete process.env.MCP_AUTOMATION_PORT;
     });
 
     afterEach(() => {

@@ -10,6 +10,7 @@ export interface AutomationBridgeOptions {
     serverName?: string;
     serverVersion?: string;
     heartbeatIntervalMs?: number;
+    connectionTimeoutMs?: number;
     maxPendingRequests?: number;
     maxConcurrentConnections?: number;
     maxQueuedRequests?: number;

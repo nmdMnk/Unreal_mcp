@@ -36,6 +36,15 @@ interface ResponseWithAction extends AutomationBridgeResponseMessage {
     action?: string;
 }
 
+const CONSOLIDATED_TOOL_ACTIONS = new Set([
+    'animation_physics',
+    'create_effect',
+    'build_environment',
+    'system_control',
+    'manage_ui',
+    'inspect'
+]);
+
 export class MessageHandler {
     private log = new Logger('MessageHandler');
 
@@ -204,16 +213,7 @@ export class MessageHandler {
             if (expected && echoed && typeof echoed === 'string') {
                 const got = echoed.toLowerCase();
 
-                const consolidatedToolActions = new Set([
-                    'animation_physics',
-                    'create_effect',
-                    'build_environment',
-                    'system_control',
-                    'manage_ui',
-                    'inspect'
-                ]);
-
-                if (consolidatedToolActions.has(expected) && got !== expected) {
+                if (CONSOLIDATED_TOOL_ACTIONS.has(expected) && got !== expected) {
                     return response;
                 }
 

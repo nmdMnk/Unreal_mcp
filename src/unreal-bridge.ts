@@ -51,6 +51,15 @@ interface BridgeConsoleResponse {
   [key: string]: unknown;
 }
 
+function parsePositiveIntegerEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 export class UnrealBridge {
   private log = new Logger('UnrealBridge');
   private connected = false;
@@ -162,8 +171,9 @@ export class UnrealBridge {
 
     this.connectPromise = ErrorHandler.retryWithBackoff(
       () => {
-        const envTimeout = process.env.UNREAL_CONNECTION_TIMEOUT ? parseInt(process.env.UNREAL_CONNECTION_TIMEOUT, 10) : 30000;
-        const actualTimeout = envTimeout > 0 ? envTimeout : timeoutMs;
+        const rawEnvTimeout = process.env.UNREAL_CONNECTION_TIMEOUT;
+        const envTimeout = parsePositiveIntegerEnv(rawEnvTimeout);
+        const actualTimeout = envTimeout ?? (rawEnvTimeout === undefined || rawEnvTimeout === '' ? 30000 : timeoutMs);
         return this.connect(actualTimeout);
       },
       {

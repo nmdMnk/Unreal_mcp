@@ -49,7 +49,7 @@ export class HandshakeHandler extends EventEmitter {
                 }
 
                 const typeHint = typeof parsed.type === 'string' ? parsed.type : 'unknown';
-            this.log.warn(`Expected bridge_ack handshake, received ${typeHint}`, validation.error.issues);
+                this.log.warn(`Expected bridge_ack handshake, received ${typeHint}`, validation.error.issues);
                 socket.close(4004, 'Handshake expected bridge_ack');
                 cleanup();
                 reject(new Error(`Handshake expected bridge_ack, got ${typeHint}`));
@@ -83,7 +83,7 @@ export class HandshakeHandler extends EventEmitter {
                         type: 'bridge_hello',
                         capabilityToken: this.capabilityToken || undefined
                     };
-                    this.log.debug(`Sending bridge_hello (delayed): ${JSON.stringify(helloPayload)}`);
+                    this.log.debug('Sending bridge_hello (delayed)');
                     socket.send(JSON.stringify(helloPayload));
                 } else {
                     this.log.warn('Socket closed before bridge_hello could be sent');

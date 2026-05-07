@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AutomationBridge } from './bridge.js';
+import { DEFAULT_AUTOMATION_PORT } from '../constants.js';
 
 describe('AutomationBridge Host Validation', () => {
     const originalEnv = process.env;
@@ -10,6 +11,9 @@ describe('AutomationBridge Host Validation', () => {
         delete process.env.MCP_AUTOMATION_ALLOW_NON_LOOPBACK;
         delete process.env.MCP_AUTOMATION_HOST;
         delete process.env.MCP_AUTOMATION_WS_HOST;
+        delete process.env.MCP_AUTOMATION_WS_PORT;
+        delete process.env.MCP_AUTOMATION_CLIENT_PORT;
+        delete process.env.MCP_AUTOMATION_PORT;
     });
 
     afterEach(() => {
@@ -255,6 +259,54 @@ describe('AutomationBridge Host Validation', () => {
         it('should use default when no host provided', () => {
             const bridge = new AutomationBridge({ port: 8091 });
             expect(bridge.getStatus().host).toBe('127.0.0.1');
+        });
+
+        it('should reject partially numeric port strings from environment', () => {
+            process.env.MCP_AUTOMATION_WS_PORT = '8092abc';
+            const bridge = new AutomationBridge({});
+            expect(bridge.getStatus().configuredPorts[0]).toBe(DEFAULT_AUTOMATION_PORT);
+        });
+
+        it('should reject non-decimal port strings from environment', () => {
+            process.env.MCP_AUTOMATION_WS_PORT = '0x1f9b';
+            const bridge = new AutomationBridge({});
+            expect(bridge.getStatus().configuredPorts[0]).toBe(DEFAULT_AUTOMATION_PORT);
+        });
+
+        it('should accept the documented MCP_AUTOMATION_PORT alias', () => {
+            process.env.MCP_AUTOMATION_PORT = '8097';
+            const bridge = new AutomationBridge({});
+            const status = bridge.getStatus();
+
+            expect(status.configuredPorts[0]).toBe(8097);
+            expect(status.port).toBe(8097);
+        });
+
+        it('should prefer the websocket-specific port over MCP_AUTOMATION_PORT', () => {
+            process.env.MCP_AUTOMATION_PORT = '8097';
+            process.env.MCP_AUTOMATION_WS_PORT = '8098';
+            const bridge = new AutomationBridge({});
+            const status = bridge.getStatus();
+
+            expect(status.configuredPorts[0]).toBe(8098);
+            expect(status.port).toBe(8098);
+        });
+
+        it('should use options.host for the actual client URL when clientHost is absent', () => {
+            const bridge = new AutomationBridge({ host: '::1', port: 8098, enabled: false });
+            const getClientUrl = (bridge as unknown as { getClientUrl(): string }).getClientUrl.bind(bridge);
+
+            expect(bridge.getStatus().host).toBe('::1');
+            expect(getClientUrl()).toBe('ws://[::1]:8098');
+        });
+
+        it('should use MCP_AUTOMATION_WS_HOST for the actual client URL when clientHost is absent', () => {
+            process.env.MCP_AUTOMATION_WS_HOST = '::1';
+            const bridge = new AutomationBridge({ port: 8098, enabled: false });
+            const getClientUrl = (bridge as unknown as { getClientUrl(): string }).getClientUrl.bind(bridge);
+
+            expect(bridge.getStatus().host).toBe('::1');
+            expect(getClientUrl()).toBe('ws://[::1]:8098');
         });
 
         it('should handle null host', () => {

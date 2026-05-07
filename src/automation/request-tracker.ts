@@ -67,7 +67,7 @@ export class RequestTracker {
         const promise = new Promise<AutomationBridgeResponseMessage>((resolve, reject) => {
             const timeout = setTimeout(() => {
                 if (this.pendingRequests.has(requestId)) {
-                    this.pendingRequests.delete(requestId);
+                    this.cleanupRequest(requestId);
                     reject(new Error(`Request ${requestId} timed out after ${timeoutMs}ms`));
                 }
             }, timeoutMs);
@@ -75,7 +75,7 @@ export class RequestTracker {
             // Set up absolute timeout cap to prevent indefinite extension
             const absoluteTimeout = setTimeout(() => {
                 if (this.pendingRequests.has(requestId)) {
-                    this.pendingRequests.delete(requestId);
+                    this.cleanupRequest(requestId);
                     const totalMs = ABSOLUTE_MAX_TIMEOUT_MS;
                     reject(new Error(`Request ${requestId} exceeded absolute max timeout (${totalMs}ms)`));
                 }
@@ -151,7 +151,7 @@ export class RequestTracker {
         
         const newTimeout = setTimeout(() => {
             if (this.pendingRequests.has(requestId)) {
-                this.pendingRequests.delete(requestId);
+                this.cleanupRequest(requestId);
                 pending.reject(new Error(`Request ${requestId} timed out after extension`));
             }
         }, PROGRESS_EXTENSION_MS);
@@ -237,7 +237,7 @@ export class RequestTracker {
             if (this.coalescedRequests.get(key) === promise) {
                 this.coalescedRequests.delete(key);
             }
-        });
+        }).catch(() => undefined);
     }
 
     public createCoalesceKey(action: string, payload: Record<string, unknown>): string {
@@ -246,7 +246,23 @@ export class RequestTracker {
         if (!readOnlyActions.some(a => action.startsWith(a))) return '';
 
         // Create a stable hash of the payload
-        const stablePayload = JSON.stringify(payload, Object.keys(payload).sort());
+        const stablePayload = JSON.stringify(stabilizeJsonValue(payload));
         return `${action}:${createHash('md5').update(stablePayload).digest('hex')}`;
     }
+}
+
+function stabilizeJsonValue(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(item => stabilizeJsonValue(item));
+    }
+
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([key, child]) => [key, stabilizeJsonValue(child)])
+        );
+    }
+
+    return value;
 }
