@@ -12,7 +12,6 @@ import { HealthMonitor } from './services/health-monitor.js';
 import { ServerSetup } from './server-setup.js';
 import { startMetricsServer } from './services/metrics-server.js';
 import { config } from './config.js';
-import { GraphQLServer } from './graphql/server.js';
 
 const require = createRequire(import.meta.url);
 const packageInfo: { name?: string; version?: string } = (() => {
@@ -115,14 +114,6 @@ export function createServer() {
   // Optionally expose Prometheus-style metrics via /metrics
   const metricsServer = startMetricsServer({ healthMonitor, automationBridge, logger: log });
 
-  // Initialize GraphQL server (controlled by GRAPHQL_ENABLED env var)
-  const graphqlServer = new GraphQLServer(bridge, automationBridge);
-  graphqlServer.start().catch((error) => {
-    log.warn('GraphQL server failed to start:', error);
-  });
-
-
-
   // Initialize response validation with schemas
   log.debug('Initializing response validation...');
   const toolDefs = consolidatedToolDefinitions as Array<{ name: string; outputSchema?: Record<string, unknown> }>;
@@ -154,7 +145,7 @@ export function createServer() {
   const serverSetup = new ServerSetup(server, bridge, automationBridge, log, healthMonitor);
   serverSetup.setup(); // Register tools, resources, and prompts
 
-  return { server, bridge, automationBridge, graphqlServer, metricsServer };
+  return { server, bridge, automationBridge, metricsServer };
 }
 
 // Export configuration schema for session UI and runtime validation
@@ -180,7 +171,7 @@ export default function createServerDefault({ config }: { config?: Record<string
 }
 
 export async function startStdioServer() {
-  const { server, bridge, automationBridge, graphqlServer, metricsServer } = createServer();
+  const { server, bridge, automationBridge, metricsServer } = createServer();
   const transport = new StdioServerTransport();
   let shuttingDown = false;
 
@@ -231,12 +222,6 @@ export async function startStdioServer() {
       await closeMetricsServer();
     } catch (error) {
       log.warn('Failed to close metrics server cleanly', error);
-    }
-
-    try {
-      await graphqlServer.stop();
-    } catch (error) {
-      log.warn('Failed to stop GraphQL server cleanly', error);
     }
 
     try {
