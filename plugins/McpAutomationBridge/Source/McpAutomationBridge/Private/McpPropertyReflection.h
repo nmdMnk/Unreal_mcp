@@ -269,9 +269,19 @@ namespace McpPropertyReflection
         }
         
         double X = 0.0, Y = 0.0, Z = 0.0;
-        JsonObject->TryGetNumberField(TEXT("x"), X);
-        JsonObject->TryGetNumberField(TEXT("y"), Y);
-        JsonObject->TryGetNumberField(TEXT("z"), Z);
+        if (!JsonObject->TryGetNumberField(TEXT("x"), X))
+        {
+            JsonObject->TryGetNumberField(TEXT("X"), X);
+        }
+        if (!JsonObject->TryGetNumberField(TEXT("y"), Y))
+        {
+            JsonObject->TryGetNumberField(TEXT("Y"), Y);
+        }
+        if (!JsonObject->TryGetNumberField(TEXT("z"), Z))
+        {
+            JsonObject->TryGetNumberField(TEXT("Z"), Z);
+        }
+
         OutVector = FVector(X, Y, Z);
         return true;
     }
@@ -330,9 +340,19 @@ namespace McpPropertyReflection
         }
         
         double Pitch = 0.0, Yaw = 0.0, Roll = 0.0;
-        JsonObject->TryGetNumberField(TEXT("pitch"), Pitch);
-        JsonObject->TryGetNumberField(TEXT("yaw"), Yaw);
-        JsonObject->TryGetNumberField(TEXT("roll"), Roll);
+        if (!JsonObject->TryGetNumberField(TEXT("pitch"), Pitch))
+        {
+            JsonObject->TryGetNumberField(TEXT("Pitch"), Pitch);
+        }
+        if (!JsonObject->TryGetNumberField(TEXT("yaw"), Yaw))
+        {
+            JsonObject->TryGetNumberField(TEXT("Yaw"), Yaw);
+        }
+        if (!JsonObject->TryGetNumberField(TEXT("roll"), Roll))
+        {
+            JsonObject->TryGetNumberField(TEXT("Roll"), Roll);
+        }
+
         OutRotator = FRotator(Pitch, Yaw, Roll);
         return true;
     }
@@ -476,107 +496,5 @@ namespace McpPropertyReflection
         FArrayProperty* ArrayProp,
         const TArray<TSharedPtr<FJsonValue>>& JsonArray,
         FString& OutError);
-
-    // =========================================================================
-    // Output Capture Utility
-    // =========================================================================
-
-    /**
-     * Captures log output written to GLog into an in-memory list of lines.
-     * Attach as an FOutputDevice to collect serialized log messages.
-     */
-    struct FMcpOutputCapture : public FOutputDevice
-    {
-        TArray<FString> Lines;
-
-        /**
-         * Capture a log line, trim trailing newlines, and append to Lines.
-         */
-        virtual void Serialize(const TCHAR* V, ELogVerbosity::Type Verbosity, const FName& Category) override
-        {
-            if (!V)
-            {
-                return;
-            }
-            
-            FString S(V);
-            while (S.EndsWith(TEXT("\n")))
-            {
-                S.RemoveAt(S.Len() - 1);
-            }
-            Lines.Add(S);
-        }
-
-        /**
-         * Get all captured lines and clear the internal buffer.
-         */
-        TArray<FString> Consume()
-        {
-            TArray<FString> Tmp = MoveTemp(Lines);
-            Lines.Empty();
-            return Tmp;
-        }
-    };
-
-    // =========================================================================
-    // JSON String Extraction Utility
-    // =========================================================================
-
-    /**
-     * Extract all top-level JSON objects from a string that may contain
-     * mixed text and JSON content.
-     *
-     * @param In The input string that may contain JSON objects
-     * @return Array of complete top-level JSON object strings
-     */
-    inline TArray<FString> ExtractTopLevelJsonObjects(const FString& In)
-    {
-        TArray<FString> Results;
-        int32 Depth = 0;
-        int32 Start = INDEX_NONE;
-        
-        for (int32 i = 0; i < In.Len(); ++i)
-        {
-            const TCHAR C = In[i];
-            if (C == '{')
-            {
-                if (Depth == 0)
-                {
-                    Start = i;
-                }
-                Depth++;
-            }
-            else if (C == '}')
-            {
-                Depth--;
-                if (Depth == 0 && Start != INDEX_NONE)
-                {
-                    Results.Add(In.Mid(Start, i - Start + 1));
-                    Start = INDEX_NONE;
-                }
-            }
-        }
-        
-        return Results;
-    }
-
-    /**
-     * Convert a string to its UTF-8 hexadecimal representation for debugging.
-     */
-    inline FString HexifyUtf8(const FString& In)
-    {
-        FTCHARToUTF8 Converter(*In);
-        const uint8* Bytes = reinterpret_cast<const uint8*>(Converter.Get());
-        int32 Len = Converter.Length();
-        
-        FString Hex;
-        Hex.Reserve(Len * 2);
-        for (int32 i = 0; i < Len; ++i)
-        {
-            Hex += FString::Printf(TEXT("%02x"), Bytes[i]);
-        }
-        
-        return Hex;
-    }
 
 } // namespace McpPropertyReflection
