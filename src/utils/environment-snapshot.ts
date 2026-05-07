@@ -3,6 +3,76 @@ import path from 'node:path';
 import { DEFAULT_SKYLIGHT_INTENSITY, DEFAULT_SUN_INTENSITY, DEFAULT_TIME_OF_DAY } from '../constants.js';
 import type { StandardActionResponse } from '../types/tool-interfaces.js';
 
+function isPathWithinDirectory(candidate: string, directory: string): boolean {
+  const relative = path.relative(directory, candidate);
+  return relative === '' || (relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return undefined;
+  }
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+async function validateSnapshotFilesystemTarget(targetPath: string): Promise<{ success: false; error: string } | { success: true }> {
+  const cwd = path.resolve(process.cwd());
+  let realCwd: string;
+  try {
+    realCwd = await fs.realpath(cwd);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: `Failed to inspect project directory: ${message}` };
+  }
+
+  const absoluteTarget = path.resolve(targetPath);
+  const relativeTarget = path.relative(cwd, absoluteTarget);
+  if (relativeTarget === '' || relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
+    return { success: false, error: 'SECURITY_VIOLATION: Snapshot path must be within the project directory' };
+  }
+
+  let current = cwd;
+  const segments = relativeTarget.split(path.sep).filter(segment => segment.length > 0);
+  for (const segment of segments) {
+    current = path.join(current, segment);
+
+    try {
+      const currentStat = await fs.lstat(current);
+      if (currentStat.isSymbolicLink()) {
+        return { success: false, error: 'SECURITY_VIOLATION: Snapshot path cannot contain symbolic link components' };
+      }
+
+      const realCurrent = await fs.realpath(current);
+      if (!isPathWithinDirectory(realCurrent, realCwd)) {
+        return { success: false, error: 'SECURITY_VIOLATION: Snapshot path must resolve within the project directory' };
+      }
+    } catch (error) {
+      const code = getErrorCode(error);
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        return { success: true };
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Failed to inspect snapshot path: ${message}` };
+    }
+  }
+
+  return { success: true };
+}
+
+function validateSnapshotFilename(filename: string): { success: false; error: string } | { success: true } {
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return { success: false, error: 'SECURITY_VIOLATION: Filename cannot contain path separators or traversal' };
+  }
+
+  if (filename.includes(':')) {
+    return { success: false, error: 'SECURITY_VIOLATION: Filename cannot contain drive or stream separators' };
+  }
+
+  return { success: true };
+}
+
 export function validateSnapshotPath(inputPath: unknown): { isValid: false; error: string } | { isValid: true; safePath: string } {
   if (!inputPath || typeof inputPath !== 'string') {
     return { isValid: false, error: 'Path is required' };
@@ -17,29 +87,30 @@ export function validateSnapshotPath(inputPath: unknown): { isValid: false; erro
     return { isValid: false, error: 'SECURITY_VIOLATION: Absolute paths with drive letters are not allowed' };
   }
 
-  const normalized = path.normalize(trimmed);
-  if (normalized.includes('..') || trimmed.includes('..')) {
+  const slashNormalized = trimmed.replace(/\\/g, '/');
+  const rawSegments = slashNormalized.split('/').filter(segment => segment.length > 0);
+  if (rawSegments.includes('..')) {
     return { isValid: false, error: 'SECURITY_VIOLATION: Path traversal (..) is not allowed' };
   }
 
   const cwd = process.cwd();
-  if (trimmed.startsWith('/')) {
+  if (slashNormalized.startsWith('/')) {
     const systemPathPrefixes = ['/etc/', '/var/', '/usr/', '/bin/', '/sbin/', '/root/', '/home/', '/opt/', '/proc/', '/sys/', '/dev/', '/tmp/'];
     for (const prefix of systemPathPrefixes) {
-      if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
+      if (slashNormalized.toLowerCase().startsWith(prefix.toLowerCase())) {
         return { isValid: false, error: `SECURITY_VIOLATION: System directory paths (${prefix}) are not allowed` };
       }
     }
 
     const exactSystemPaths = ['/etc', '/var', '/usr', '/bin', '/sbin', '/root', '/home', '/opt', '/proc', '/sys', '/dev', '/tmp'];
-    if (exactSystemPaths.some(sp => trimmed.toLowerCase() === sp.toLowerCase())) {
+    if (exactSystemPaths.some(sp => slashNormalized.toLowerCase() === sp.toLowerCase())) {
       return { isValid: false, error: 'SECURITY_VIOLATION: System directory paths are not allowed' };
     }
 
     const allowedUePaths = ['/Temp/', '/Saved/', '/Game/'];
     const isAllowedUePath = allowedUePaths.some(uePath =>
-      trimmed.toLowerCase().startsWith(uePath.toLowerCase()) ||
-      trimmed.toLowerCase() === uePath.slice(0, -1).toLowerCase()
+      slashNormalized.toLowerCase().startsWith(uePath.toLowerCase()) ||
+      slashNormalized.toLowerCase() === uePath.slice(0, -1).toLowerCase()
     );
 
     if (!isAllowedUePath) {
@@ -47,12 +118,12 @@ export function validateSnapshotPath(inputPath: unknown): { isValid: false; erro
     }
 
     let mappedPath: string;
-    if (trimmed.toLowerCase().startsWith('/temp')) {
-      mappedPath = path.join(cwd, 'temp', trimmed.slice(6));
-    } else if (trimmed.toLowerCase().startsWith('/saved')) {
-      mappedPath = path.join(cwd, 'Saved', trimmed.slice(7));
-    } else if (trimmed.toLowerCase().startsWith('/game')) {
-      mappedPath = path.join(cwd, 'Content', trimmed.slice(6));
+    if (slashNormalized.toLowerCase().startsWith('/temp')) {
+      mappedPath = path.join(cwd, 'temp', slashNormalized.slice(6));
+    } else if (slashNormalized.toLowerCase().startsWith('/saved')) {
+      mappedPath = path.join(cwd, 'Saved', slashNormalized.slice(7));
+    } else if (slashNormalized.toLowerCase().startsWith('/game')) {
+      mappedPath = path.join(cwd, 'Content', slashNormalized.slice(6));
     } else {
       return { isValid: false, error: 'SECURITY_VIOLATION: Unrecognized UE path' };
     }
@@ -66,7 +137,7 @@ export function validateSnapshotPath(inputPath: unknown): { isValid: false; erro
     return { isValid: true, safePath: finalPath };
   }
 
-  const resolvedPath = path.resolve(cwd, trimmed);
+  const resolvedPath = path.resolve(cwd, path.normalize(slashNormalized));
   const cwdWithSep = cwd.endsWith(path.sep) ? cwd : cwd + path.sep;
   if (resolvedPath !== cwd && !resolvedPath.startsWith(cwdWithSep)) {
     return { isValid: false, error: 'SECURITY_VIOLATION: Path must be within the project directory' };
@@ -100,8 +171,9 @@ function getSnapshotTarget(params: { path?: unknown; filename?: unknown }): { su
   }
 
   if (rawFilename) {
-    if (rawFilename.includes('..') || rawFilename.includes('/') || rawFilename.includes('\\')) {
-      return { success: false, error: 'SECURITY_VIOLATION: Filename cannot contain path separators or traversal' };
+    const filenameValidation = validateSnapshotFilename(rawFilename);
+    if (!filenameValidation.success) {
+      return filenameValidation;
     }
     return { success: true, targetPath: path.join(basePathValidation.safePath, rawFilename) };
   }
@@ -118,6 +190,11 @@ export async function exportEnvironmentSnapshot(params: { path?: unknown; filena
     const target = getSnapshotTarget(params);
     if (!target.success) {
       return target;
+    }
+
+    const filesystemTarget = await validateSnapshotFilesystemTarget(target.targetPath);
+    if (!filesystemTarget.success) {
+      return filesystemTarget;
     }
 
     await fs.mkdir(path.dirname(target.targetPath), { recursive: true });
@@ -147,6 +224,11 @@ export async function importEnvironmentSnapshot(params: { path?: unknown; filena
   }
 
   try {
+    const filesystemTarget = await validateSnapshotFilesystemTarget(target.targetPath);
+    if (!filesystemTarget.success) {
+      return filesystemTarget;
+    }
+
     let parsed: Record<string, unknown> | undefined = undefined;
     try {
       const contents = await fs.readFile(target.targetPath, 'utf8');
