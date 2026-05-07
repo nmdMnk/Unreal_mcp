@@ -13,7 +13,7 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { executeAutomationRequest, getTimeoutMs } from './common-handlers.js';
+import { executeAutomationRequest, getTimeoutMs, normalizePathFields } from './common-handlers.js';
 
 
 /**
@@ -52,36 +52,6 @@ function validateLevelName(levelName: string): string | null {
 }
 
 /**
- * Normalize path fields to ensure they start with /Game/ and use forward slashes.
- * Returns a copy of the args with normalized paths.
- */
-function normalizePathFields(args: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...args };
-  const pathFields = [
-    'levelPath', 'sublevelPath', 'levelAssetPath', 'hlodLayerPath', 'templateLevel',
-    'actorPath', 'parentLevel', 'dataLayerAssetPath'
-  ];
-
-  for (const field of pathFields) {
-    const value = result[field];
-    if (typeof value === 'string' && value.length > 0) {
-      let normalized = value.replace(/\\/g, '/');
-      // Replace /Content/ with /Game/ for common user mistake
-      if (normalized.startsWith('/Content/')) {
-        normalized = '/Game/' + normalized.slice('/Content/'.length);
-      }
-      // Ensure path starts with /Game/ if it doesn't start with a valid root
-      if (!normalized.startsWith('/Game/') && !normalized.startsWith('/Engine/') && !normalized.startsWith('/')) {
-        normalized = '/Game/' + normalized;
-      }
-      result[field] = normalized;
-    }
-  }
-
-  return result;
-}
-
-/**
  * Handles all level structure actions for the manage_level_structure tool.
  */
 export async function handleLevelStructureTools(
@@ -90,7 +60,13 @@ export async function handleLevelStructureTools(
   tools: ITools
 ): Promise<Record<string, unknown>> {
   // Normalize path fields before sending to C++
-  const argsRecord = normalizePathFields(args as Record<string, unknown>);
+  const argsRecord = normalizePathFields(
+    args as Record<string, unknown>,
+    [
+      'levelPath', 'sublevelPath', 'levelAssetPath', 'hlodLayerPath', 'templateLevel',
+      'actorPath', 'parentLevel', 'dataLayerAssetPath'
+    ]
+  );
   const timeoutMs = getTimeoutMs();
 
   // All actions are dispatched to C++ via automation bridge

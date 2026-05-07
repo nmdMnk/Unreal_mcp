@@ -15,7 +15,7 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs } from './common-handlers.js';
+import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs, normalizePathFields } from './common-handlers.js';
 
 /**
  * Normalize an asset path for StaticLoadObject which requires the full
@@ -46,7 +46,15 @@ export async function handleAudioAuthoringTools(
 
   // All actions are dispatched to C++ via automation bridge
   const sendRequest = async (subAction: string): Promise<Record<string, unknown>> => {
-    const payload: Record<string, unknown> = { ...argsRecord, subAction };
+    const payload: Record<string, unknown> = normalizePathFields({ ...argsRecord, subAction }, [
+      'assetPath',
+      'attenuationPath',
+      'soundClassPath',
+      'speakerPath',
+      'reverbEffect',
+      'effectPresetPath',
+      'parentPath'
+    ]);
 
     // Normalize asset paths for StaticLoadObject compatibility (needs /Game/Path/Asset.AssetName)
     if (payload.assetPath && typeof payload.assetPath === 'string') {

@@ -7,7 +7,7 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
 import type { AutomationResponse } from '../../types/automation-responses.js';
-import { executeAutomationRequest } from './common-handlers.js';
+import { executeAutomationRequest, normalizePathFields } from './common-handlers.js';
 import { sanitizePath } from '../../utils/path-security.js';
 import {
   normalizeArgs,
@@ -34,24 +34,7 @@ import { MATERIAL_AUTHORING_ACTIONS } from '../consolidated-tool-definitions.js'
 
 /** Normalize asset path: format conversion + security validation */
 function normalizeAssetPath(p: string): string {
-  let normalized = p.replace(/\\/g, '/');
-  // /Content/Foo → /Game/Foo
-  if (normalized.startsWith('/Content/')) {
-    normalized = '/Game/' + normalized.slice('/Content/'.length);
-  }
-  // Content/Foo → /Game/Foo (no leading slash)
-  if (normalized.startsWith('Content/')) {
-    normalized = '/Game/' + normalized.slice('Content/'.length);
-  }
-  // Game/Foo → /Game/Foo (missing leading slash)
-  if (normalized.startsWith('Game/')) {
-    normalized = '/' + normalized;
-  }
-  // Bare name with no slash → /Game/ prefix; paths with slashes get leading / (custom mount points)
-  if (!normalized.startsWith('/') && normalized.length > 0) {
-    normalized = normalized.includes('/') ? '/' + normalized : '/Game/' + normalized;
-  }
-  // Validate with shared security utility (blocks traversal, illegal chars, ensures valid root)
+  const normalized = normalizePathFields({ path: p }, ['path']).path as string;
   return sanitizePath(normalized);
 }
 

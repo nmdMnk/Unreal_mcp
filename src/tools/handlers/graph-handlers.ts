@@ -1,7 +1,7 @@
 import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { GraphArgs, HandlerArgs, AutomationResponse } from '../../types/handler-types.js';
-import { executeAutomationRequest } from './common-handlers.js';
+import { executeAutomationRequest, promoteScalarResultFields } from './common-handlers.js';
 import { TOOL_ACTIONS } from '../../utils/action-constants.js';
 
 // AutomationResponse imported from types/handler-types.js
@@ -11,20 +11,6 @@ interface ProcessedGraphArgs extends GraphArgs {
     subAction?: string;
     nodeCategory?: string;
     [key: string]: unknown;
-}
-
-function promoteScalarResultFields(response: AutomationResponse): Record<string, unknown> {
-    const result = response.result;
-    if (!result || typeof result !== 'object' || Array.isArray(result)) return response as Record<string, unknown>;
-
-    const promoted: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(result)) {
-        if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-            promoted[key] = value;
-        }
-    }
-
-    return { ...response, ...promoted } as Record<string, unknown>;
 }
 
 // Blueprint node type aliases: map human-friendly names to K2Node class names

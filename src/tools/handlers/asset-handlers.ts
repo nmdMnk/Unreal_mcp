@@ -435,10 +435,6 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         const assetPath = extractString(params, 'assetPath');
         const tags = extractOptionalArray<string>(params, 'tags') ?? [];
 
-        if (!assetPath) {
-          return ResponseFactory.error('INVALID_ARGUMENT', 'assetPath is required');
-        }
-
         // Note: Array.isArray check is unnecessary - extractOptionalArray always returns an array
 
         // Forward to C++ automation bridge which uses UEditorAssetLibrary::SetMetadataTag

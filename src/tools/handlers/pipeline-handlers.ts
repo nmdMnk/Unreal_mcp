@@ -9,6 +9,9 @@ import util from 'util';
 
 /** Promisified child_process.exec for async shell commands. */
 const execAsync = util.promisify(exec);
+const ALLOWED_UBT_PLATFORMS = new Set(['Win64', 'Mac', 'Linux', 'LinuxArm64', 'Android', 'IOS', 'TVOS', 'HoloLens', 'VisionOS']);
+const ALLOWED_UBT_CONFIGURATIONS = new Set(['Debug', 'DebugGame', 'Development', 'Shipping', 'Test']);
+const BLOCKED_UBT_OVERRIDE_OPTIONS = new Set(['project', 'projectfile', 'target', 'mode']);
 
 /** Reject UBT argument strings containing shell-dangerous characters. */
 function validateUbtArgumentsString(extraArgs: string): void {
@@ -16,13 +19,78 @@ function validateUbtArgumentsString(extraArgs: string): void {
     return;
   }
 
-  const forbiddenChars = ['\n', '\r', ';', '|', '`', '&&', '||', '>', '<'];
+  const forbiddenChars = ['\n', '\r', ';', '|', '`', '&&', '||', '>', '<', '"', "'"];
   for (const char of forbiddenChars) {
     if (extraArgs.includes(char)) {
       throw new Error(
         `UBT arguments contain forbidden character(s) and are blocked for safety. Blocked: ${JSON.stringify(char)}.`
       );
     }
+  }
+
+  for (const token of tokenizeArgs(extraArgs)) {
+    validateUbtExtraArgumentToken(token);
+  }
+}
+
+function validateUbtArgumentToken(token: string, context: string): void {
+  if (!token || token.trim().length === 0) {
+    throw new Error(`${context} must be a non-empty UBT token.`);
+  }
+
+  const trimmed = token.trim();
+  if (!/^[A-Za-z0-9_\-.=:/\\+]+$/.test(trimmed)) {
+    throw new Error(`${context} contains unsafe UBT argument characters.`);
+  }
+}
+
+function validateUbtPositionalToken(token: string, context: string): void {
+  validateUbtArgumentToken(token, context);
+  const trimmed = token.trim();
+  if (/^[-/@]/.test(trimmed) || trimmed.includes('=') || trimmed.includes(':') || trimmed.includes('/') || trimmed.includes('\\')) {
+    throw new Error(`${context} must be a positional UBT token and cannot be a switch or path.`);
+  }
+}
+
+function validateUbtTarget(target: string): void {
+  validateUbtPositionalToken(target, 'run_ubt.target');
+}
+
+function validateUbtPlatform(platform: string): void {
+  validateUbtPositionalToken(platform, 'run_ubt.platform');
+  if (!ALLOWED_UBT_PLATFORMS.has(platform)) {
+    throw new Error(`run_ubt.platform is not allowed: ${platform}`);
+  }
+}
+
+function validateUbtConfiguration(configuration: string): void {
+  validateUbtPositionalToken(configuration, 'run_ubt.configuration');
+  if (!ALLOWED_UBT_CONFIGURATIONS.has(configuration)) {
+    throw new Error(`run_ubt.configuration is not allowed: ${configuration}`);
+  }
+}
+
+function getUbtOptionName(token: string): string | undefined {
+  const trimmed = token.trim().toLowerCase();
+  if (!trimmed.startsWith('-') && !trimmed.startsWith('/')) {
+    return undefined;
+  }
+
+  const withoutPrefix = trimmed.replace(/^[-/]+/, '');
+  const separatorIndex = withoutPrefix.search(/[=:]/);
+  return separatorIndex >= 0 ? withoutPrefix.slice(0, separatorIndex) : withoutPrefix;
+}
+
+function validateUbtExtraArgumentToken(token: string): void {
+  const trimmed = token.trim();
+  if (trimmed.startsWith('@')) {
+    throw new Error('UBT response-file arguments are blocked for safety.');
+  }
+  validateUbtArgumentToken(token, 'run_ubt.arguments');
+
+  const optionName = getUbtOptionName(trimmed);
+  if (optionName && BLOCKED_UBT_OVERRIDE_OPTIONS.has(optionName)) {
+    throw new Error(`UBT argument ${optionName} cannot override the managed invocation.`);
   }
 }
 
@@ -296,6 +364,9 @@ export async function handlePipelineTools(action: string, args: PipelineArgs, to
         throw new Error('Target is required for run_ubt');
       }
 
+      validateUbtTarget(target);
+      validateUbtPlatform(platform);
+      validateUbtConfiguration(configuration);
       validateUbtArgumentsString(extraArgs);
 
       const discoveredUbtPath = await findUbtExecutable();

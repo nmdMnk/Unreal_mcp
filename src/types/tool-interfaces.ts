@@ -6,6 +6,7 @@ export interface IBaseTool {
 
 export interface StandardActionResponse<T = unknown> {
     success: boolean;
+    message?: string;
     data?: T;
     warnings?: string[];
     error?: string | {

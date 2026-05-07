@@ -593,9 +593,10 @@ export async function handleSequenceTools(action: string, args: Record<string, u
 	}
     default:
       // Ensure subAction is set for compatibility with C++ handler expectations
-      if (args.action && !args.subAction) {
-        args.subAction = args.action;
+      const payload = { ...args };
+      if (payload.action && !payload.subAction) {
+        payload.subAction = payload.action;
       }
-      return await executeAutomationRequest(tools, 'manage_sequence', args);
+      return await executeAutomationRequest(tools, 'manage_sequence', payload);
   }
 }

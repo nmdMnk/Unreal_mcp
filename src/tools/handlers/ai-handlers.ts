@@ -17,7 +17,7 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs } from './common-handlers.js';
+import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs, normalizePathFields } from './common-handlers.js';
 
 
 /**
@@ -28,7 +28,16 @@ export async function handleAITools(
   args: HandlerArgs,
   tools: ITools
 ): Promise<Record<string, unknown>> {
-  const argsRecord = args as Record<string, unknown>;
+  const argsRecord = normalizePathFields(args as Record<string, unknown>, [
+    'controllerPath',
+    'behaviorTreePath',
+    'blackboardPath',
+    'queryPath',
+    'blueprintPath',
+    'stateTreePath',
+    'definitionPath',
+    'configPath'
+  ]);
   const timeoutMs = getTimeoutMs();
 
   // All actions are dispatched to C++ via automation bridge

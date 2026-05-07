@@ -1,7 +1,7 @@
 import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, BlueprintArgs } from '../../types/handler-types.js';
-import { executeAutomationRequest } from './common-handlers.js';
+import { executeAutomationRequest, promoteScalarResultFields } from './common-handlers.js';
 
 
 /**
@@ -24,23 +24,10 @@ function hasBlueprintPathTraversal(path: string | undefined): boolean {
   return path.split('/').some((segment) => segment === '..');
 }
 
-function promoteScalarResultFields(response: Record<string, unknown>): Record<string, unknown> {
-  const result = response.result;
-  if (!result || typeof result !== 'object' || Array.isArray(result)) return response;
-
-  const promoted: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(result)) {
-    if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-      promoted[key] = value;
-    }
-  }
-
-  return { ...response, ...promoted };
-}
-
 export async function handleBlueprintTools(action: string, args: HandlerArgs, tools: ITools): Promise<Record<string, unknown>> {
-  const argsTyped = args as BlueprintArgs;
-  const argsRecord = args as Record<string, unknown>;
+  const normalizedArgs = { ...(args as Record<string, unknown>) };
+  const argsTyped = normalizedArgs as BlueprintArgs;
+  const argsRecord = normalizedArgs;
   
   // Normalize any blueprintPath in the arguments
   if (argsTyped.blueprintPath) {

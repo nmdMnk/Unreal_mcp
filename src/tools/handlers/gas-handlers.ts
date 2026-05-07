@@ -13,7 +13,7 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs } from './common-handlers.js';
+import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs, normalizePathFields } from './common-handlers.js';
 import { sanitizeAssetName, normalizeAndSanitizeAssetPath } from '../../utils/validation.js';
 
 
@@ -25,7 +25,15 @@ export async function handleGASTools(
   args: HandlerArgs,
   tools: ITools
 ): Promise<Record<string, unknown>> {
-  const argsRecord = args as Record<string, unknown>;
+  const argsRecord = normalizePathFields(args as Record<string, unknown>, [
+    'blueprintPath',
+    'attributeSetPath',
+    'abilityPath',
+    'effectPath',
+    'cuePath',
+    'assetPath',
+    'path'
+  ]);
   const timeoutMs = getTimeoutMs();
 
   // All actions are dispatched to C++ via automation bridge

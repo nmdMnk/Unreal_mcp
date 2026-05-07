@@ -19,38 +19,7 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { executeAutomationRequest, getTimeoutMs } from './common-handlers.js';
-
-
-/**
- * Normalize path fields to ensure they start with /Game/ and use forward slashes.
- * Returns a copy of the args with normalized paths.
- */
-function normalizePathFields(args: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...args };
-  const pathFields = [
-    'volumePath', 'reverbEffect', 'damageType', 'areaClass'
-  ];
-
-  for (const field of pathFields) {
-    const value = result[field];
-    if (typeof value === 'string' && value.length > 0) {
-      let normalized = value.replace(/\\/g, '/');
-      // Replace /Content/ with /Game/ for common user mistake
-      if (normalized.startsWith('/Content/')) {
-        normalized = '/Game/' + normalized.slice('/Content/'.length);
-      }
-      // Ensure path starts with /Game/ if it doesn't start with a valid root
-      // Allow plugin paths like /MyPlugin/Assets to pass through unchanged
-      if (!normalized.startsWith('/')) {
-        normalized = '/Game/' + normalized;
-      }
-      result[field] = normalized;
-    }
-  }
-
-  return result;
-}
+import { executeAutomationRequest, getTimeoutMs, normalizePathFields } from './common-handlers.js';
 
 /**
  * Normalize parameter names from snake_case to camelCase for C++ compatibility.
@@ -85,7 +54,10 @@ export async function handleVolumeTools(
   tools: ITools
 ): Promise<Record<string, unknown>> {
   // Normalize path fields and parameter names before sending to C++
-  const argsRecord = normalizeParamNames(normalizePathFields(args as Record<string, unknown>));
+  const argsRecord = normalizeParamNames(normalizePathFields(
+    args as Record<string, unknown>,
+    ['volumePath', 'reverbEffect', 'damageType', 'areaClass']
+  ));
   const timeoutMs = getTimeoutMs();
 
   // All actions are dispatched to C++ via automation bridge
