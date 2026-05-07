@@ -184,7 +184,7 @@ This document maps the TypeScript tool definitions to their corresponding C++ ha
 | :--- | :--- | :--- | :--- |
 | `execute_command` | `McpAutomationBridge_EditorFunctionHandlers.cpp` | `HandleExecuteEditorFunction` | |
 | `console_command` | `McpAutomationBridge_EditorFunctionHandlers.cpp` | `HandleConsoleCommandAction` | |
-| `run_ubt` | *None* | *None* | Handled in TypeScript (`child_process`) |
+| `run_ubt` | `McpAutomationBridge_PipelineHandlers.cpp` | `HandlePipelineAction` | TypeScript runs local UBT when discoverable, otherwise falls back to native `manage_pipeline` execution. |
 | `run_tests` | `McpAutomationBridge_TestHandlers.cpp` | `HandleTestAction` | |
 | `subscribe` | `McpAutomationBridge_LogHandlers.cpp` | `HandleLogAction` | |
 | `unsubscribe` | `McpAutomationBridge_LogHandlers.cpp` | `HandleLogAction` | |

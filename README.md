@@ -297,8 +297,16 @@ MCP_AUTOMATION_ALLOW_NON_LOOPBACK=false
 LOG_LEVEL=info  # debug | info | warn | error
 
 # Optional
-MCP_AUTOMATION_REQUEST_TIMEOUT_MS=120000
+MCP_CONNECTION_TIMEOUT_MS=5000
+MCP_REQUEST_TIMEOUT_MS=120000
 ASSET_LIST_TTL_MS=10000
+
+# Optional Prometheus metrics endpoint
+# Loopback-only by default. Non-loopback metrics requires both explicit opt-in and a token.
+# MCP_METRICS_PORT=9100
+# MCP_METRICS_HOST=127.0.0.1
+# MCP_METRICS_ALLOW_NON_LOOPBACK=false
+# MCP_METRICS_TOKEN=change-me
 
 # Custom content mount points (comma-separated)
 # Plugins with CanContainContent register mount points beyond /Game/.

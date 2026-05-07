@@ -118,6 +118,7 @@ Runs in GitHub Actions on every push/PR. Uses mock mode to validate server start
 ```bash
 MCP_AUTOMATION_HOST=127.0.0.1  # Default
 MCP_AUTOMATION_PORT=8091       # Default
+MCP_CONNECTION_TIMEOUT_MS=5000 # Connection and handshake timeout
 ```
 
 ## Troubleshooting

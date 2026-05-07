@@ -127,7 +127,7 @@ src/
 ├── utils/           # Shared utilities
 └── services/        # Background services
 
-Plugins/
+plugins/
 └── McpAutomationBridge/  # C++ Unreal plugin
 ```
 
