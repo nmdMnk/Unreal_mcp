@@ -65,6 +65,73 @@ bool UMcpAutomationBridgeSubsystem::HandleSystemControlAction(
     
     FString AdditionalArgs;
     Payload->TryGetStringField(TEXT("additionalArgs"), AdditionalArgs);
+    if (AdditionalArgs.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("arguments"), AdditionalArgs);
+    }
+
+    Target.TrimStartAndEndInline();
+    Platform.TrimStartAndEndInline();
+    Configuration.TrimStartAndEndInline();
+    AdditionalArgs.TrimStartAndEndInline();
+
+    auto ValidateBuildToken = [&](const FString& Value, const TCHAR* FieldName) -> bool {
+      if (!McpIsSafeUbtPositionalToken(Value)) {
+        SendAutomationError(
+            RequestingSocket, RequestId,
+            FString::Printf(TEXT("Invalid %s for run_ubt: %s must be a positional token"), FieldName, *Value),
+            TEXT("INVALID_ARGUMENT"));
+        return false;
+      }
+      return true;
+    };
+
+    if (Target.IsEmpty()) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("Target is required for run_ubt"),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    if (Platform.IsEmpty()) {
+#if PLATFORM_WINDOWS
+      Platform = TEXT("Win64");
+#elif PLATFORM_MAC
+      Platform = TEXT("Mac");
+#else
+      Platform = TEXT("Linux");
+#endif
+    }
+
+    if (Configuration.IsEmpty()) {
+      Configuration = TEXT("Development");
+    }
+
+    if (!ValidateBuildToken(Target, TEXT("target")) ||
+        !ValidateBuildToken(Platform, TEXT("platform")) ||
+        !ValidateBuildToken(Configuration, TEXT("configuration"))) {
+      return true;
+    }
+
+    if (!McpIsAllowedUbtPlatform(Platform)) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          FString::Printf(TEXT("Platform is not allowed for run_ubt: %s"), *Platform),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    if (!McpIsAllowedUbtConfiguration(Configuration)) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          FString::Printf(TEXT("Configuration is not allowed for run_ubt: %s"), *Configuration),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    if (!McpIsSafeUbtArgumentList(AdditionalArgs)) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("additionalArgs contains unsafe UBT argument characters"),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
 
     // Build UBT path
     FString EngineDir = FPaths::EngineDir();
@@ -72,8 +139,10 @@ bool UMcpAutomationBridgeSubsystem::HandleSystemControlAction(
     
 #if PLATFORM_WINDOWS
     UBTPath = FPaths::Combine(EngineDir, TEXT("Build/BatchFiles/Build.bat"));
+#elif PLATFORM_MAC
+    UBTPath = FPaths::Combine(EngineDir, TEXT("Build/BatchFiles/Mac/Build.sh"));
 #else
-    UBTPath = FPaths::Combine(EngineDir, TEXT("Build/BatchFiles/Build.sh"));
+    UBTPath = FPaths::Combine(EngineDir, TEXT("Build/BatchFiles/Linux/Build.sh"));
 #endif
 
     if (!FPaths::FileExists(UBTPath)) {
@@ -87,15 +156,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSystemControlAction(
     FString Arguments;
     
     // Target (project or engine target)
-    if (!Target.IsEmpty()) {
-      Arguments += Target + TEXT(" ");
-    } else {
-      // Default to current project
-      FString ProjectPath = FPaths::GetProjectFilePath();
-      if (!ProjectPath.IsEmpty()) {
-        Arguments += FString::Printf(TEXT("-project=\"%s\" "), *ProjectPath);
-      }
-    }
+    Arguments += Target + TEXT(" ");
     
     // Platform
     if (!Platform.IsEmpty()) {
@@ -115,6 +176,11 @@ bool UMcpAutomationBridgeSubsystem::HandleSystemControlAction(
       Arguments += Configuration + TEXT(" ");
     } else {
       Arguments += TEXT("Development ");
+    }
+
+    const FString ProjectPath = FPaths::GetProjectFilePath();
+    if (!ProjectPath.IsEmpty()) {
+      Arguments += FString::Printf(TEXT("-Project=\"%s\" "), *ProjectPath);
     }
     
     // Additional args
@@ -221,6 +287,13 @@ bool UMcpAutomationBridgeSubsystem::HandleSystemControlAction(
     // If specific test name provided, use it as filter
     if (!TestName.IsEmpty() && Filter.IsEmpty()) {
       Filter = TestName;
+    }
+    Filter.TrimStartAndEndInline();
+    if (!McpIsSafeAutomationTestFilter(Filter)) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("Test filter contains unsafe characters"),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
     }
     
     // Build automation test command

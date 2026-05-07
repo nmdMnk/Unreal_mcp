@@ -7,6 +7,7 @@
 #include "CoreMinimal.h"
 #include "Dom/JsonObject.h"
 #include "HAL/PlatformTime.h"
+#include "HAL/PlatformFileManager.h"
 #include "JsonObjectConverter.h"
 #include "Misc/FileHelper.h"
 #include "Misc/OutputDevice.h"
@@ -63,8 +64,6 @@ static inline FString SanitizeIncomingJson(const FString &In) {
   return Out;
 }
 
-// Sanitize a project-relative path to prevent traversal attacks.
-// Ensures the path starts with a valid root (e.g. /Game, /Engine, /Plugin) and
 /**
  * Normalize and validate a project-relative asset path.
  *
@@ -208,6 +207,230 @@ static inline FString SanitizeProjectFilePath(const FString &InPath) {
   // Unlike asset paths, file paths are permissive and allow any project-relative
   // location (/Temp, /Saved, /Config, etc.) as long as they don't escape the project.
   return CleanPath;
+}
+
+/** Validate native snapshot file paths before file read/write operations. */
+static inline bool McpValidateProjectSnapshotFilePath(const FString &AbsolutePath,
+                                                      FString &OutError) {
+  IPlatformFile &PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+  FString NormalizedAbsolute = FPaths::ConvertRelativePathToFull(AbsolutePath);
+  FPaths::NormalizeFilename(NormalizedAbsolute);
+
+  FString NormalizedProjectDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+  FPaths::NormalizeDirectoryName(NormalizedProjectDir);
+  if (!NormalizedProjectDir.EndsWith(TEXT("/"))) {
+    NormalizedProjectDir += TEXT("/");
+  }
+
+  if (!NormalizedAbsolute.StartsWith(NormalizedProjectDir, ESearchCase::IgnoreCase)) {
+    OutError = TEXT("SECURITY_VIOLATION: Snapshot path escapes project directory");
+    return false;
+  }
+
+  FString RelativePath = NormalizedAbsolute.RightChop(NormalizedProjectDir.Len());
+  TArray<FString> Segments;
+  RelativePath.ParseIntoArray(Segments, TEXT("/"), true);
+
+  FString CurrentPath = NormalizedProjectDir;
+  if (CurrentPath.EndsWith(TEXT("/"))) {
+    CurrentPath.LeftChopInline(1);
+  }
+
+  for (const FString &Segment : Segments) {
+    CurrentPath = FPaths::Combine(CurrentPath, Segment);
+    FPaths::NormalizeFilename(CurrentPath);
+
+    if (!PlatformFile.FileExists(*CurrentPath) &&
+        !PlatformFile.DirectoryExists(*CurrentPath)) {
+      break;
+    }
+
+    const ESymlinkResult SymlinkResult = PlatformFile.IsSymlink(*CurrentPath);
+    if (SymlinkResult == ESymlinkResult::Symlink) {
+      OutError = TEXT("SECURITY_VIOLATION: Snapshot path cannot contain symbolic link components");
+      return false;
+    }
+    if (SymlinkResult == ESymlinkResult::Unimplemented) {
+      OutError = TEXT("SECURITY_VIOLATION: Snapshot path symlink validation is unavailable on this platform");
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Return true when a console/process argument string contains separators that
+ * can chain multiple commands or escape the intended command shape.
+ */
+static inline bool McpContainsUnsafeCommandSeparator(const FString &Value) {
+  return Value.Contains(TEXT("\n")) || Value.Contains(TEXT("\r")) ||
+         Value.Contains(TEXT("&&")) || Value.Contains(TEXT("||")) ||
+         Value.Contains(TEXT(";")) || Value.Contains(TEXT("|")) ||
+         Value.Contains(TEXT("`"));
+}
+
+/** Validate a single console argument token, not an arbitrary command line. */
+static inline bool McpIsSafeConsoleArgumentToken(const FString &Value) {
+  const FString Trimmed = Value.TrimStartAndEnd();
+  return !Trimmed.IsEmpty() && !McpContainsUnsafeCommandSeparator(Trimmed) &&
+         !Trimmed.Contains(TEXT(" ")) && !Trimmed.Contains(TEXT("\t"));
+}
+
+/** Match TS-side UBT argument hardening for native-direct MCP requests. */
+static inline bool McpHasUnsafeUbtArgumentCharacters(const FString &Value) {
+  return McpContainsUnsafeCommandSeparator(Value) || Value.Contains(TEXT(">")) ||
+         Value.Contains(TEXT("<"));
+}
+
+static inline bool McpIsSafeUbtArgumentToken(const FString &Value) {
+  const FString Trimmed = Value.TrimStartAndEnd();
+  if (Trimmed.IsEmpty() || McpHasUnsafeUbtArgumentCharacters(Trimmed) ||
+      Trimmed.Contains(TEXT("\"")) || Trimmed.Contains(TEXT("'"))) {
+    return false;
+  }
+
+  for (int32 Index = 0; Index < Trimmed.Len(); ++Index) {
+    const TCHAR Char = Trimmed[Index];
+    const bool bAllowed = FChar::IsAlnum(Char) || Char == TEXT('_') ||
+                          Char == TEXT('-') || Char == TEXT('.') ||
+                          Char == TEXT('=') || Char == TEXT(':') ||
+                          Char == TEXT('/') || Char == TEXT('\\') ||
+                          Char == TEXT('+');
+    if (!bAllowed) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+static inline bool McpIsSafeUbtPositionalToken(const FString &Value) {
+  const FString Trimmed = Value.TrimStartAndEnd();
+  if (!McpIsSafeUbtArgumentToken(Trimmed) || Trimmed.StartsWith(TEXT("-")) ||
+      Trimmed.StartsWith(TEXT("/")) || Trimmed.StartsWith(TEXT("@")) ||
+      Trimmed.Contains(TEXT("=")) || Trimmed.Contains(TEXT(":")) ||
+      Trimmed.Contains(TEXT("/")) || Trimmed.Contains(TEXT("\\"))) {
+    return false;
+  }
+
+  for (int32 Index = 0; Index < Trimmed.Len(); ++Index) {
+    const TCHAR Char = Trimmed[Index];
+    const bool bAllowed = FChar::IsAlnum(Char) || Char == TEXT('_') ||
+                          Char == TEXT('-') || Char == TEXT('.') ||
+                          Char == TEXT('+');
+    if (!bAllowed) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+static inline bool McpIsAllowedUbtPlatform(const FString &Value) {
+  const FString Trimmed = Value.TrimStartAndEnd();
+  return Trimmed.Equals(TEXT("Win64"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("Mac"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("Linux"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("LinuxArm64"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("Android"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("IOS"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("TVOS"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("HoloLens"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("VisionOS"), ESearchCase::IgnoreCase);
+}
+
+static inline bool McpIsAllowedUbtConfiguration(const FString &Value) {
+  const FString Trimmed = Value.TrimStartAndEnd();
+  return Trimmed.Equals(TEXT("Debug"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("DebugGame"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("Development"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("Shipping"), ESearchCase::IgnoreCase) ||
+         Trimmed.Equals(TEXT("Test"), ESearchCase::IgnoreCase);
+}
+
+static inline bool McpIsBlockedUbtOverrideArgument(const FString &Value) {
+  const FString Trimmed = Value.TrimStartAndEnd().ToLower();
+  if (Trimmed.StartsWith(TEXT("@"))) {
+    return true;
+  }
+  if (!Trimmed.StartsWith(TEXT("-")) && !Trimmed.StartsWith(TEXT("/"))) {
+    return false;
+  }
+
+  FString WithoutPrefix = Trimmed;
+  while (WithoutPrefix.StartsWith(TEXT("-")) || WithoutPrefix.StartsWith(TEXT("/"))) {
+    WithoutPrefix.RightChopInline(1);
+  }
+  int32 EqualsIndex = INDEX_NONE;
+  int32 ColonIndex = INDEX_NONE;
+  WithoutPrefix.FindChar(TEXT('='), EqualsIndex);
+  WithoutPrefix.FindChar(TEXT(':'), ColonIndex);
+
+  int32 SeparatorIndex = INDEX_NONE;
+  if (EqualsIndex != INDEX_NONE && ColonIndex != INDEX_NONE) {
+    SeparatorIndex = FMath::Min(EqualsIndex, ColonIndex);
+  } else if (EqualsIndex != INDEX_NONE) {
+    SeparatorIndex = EqualsIndex;
+  } else {
+    SeparatorIndex = ColonIndex;
+  }
+
+  const FString OptionName = SeparatorIndex == INDEX_NONE
+                                 ? WithoutPrefix
+                                 : WithoutPrefix.Left(SeparatorIndex);
+  return OptionName == TEXT("project") || OptionName == TEXT("projectfile") ||
+         OptionName == TEXT("target") || OptionName == TEXT("mode");
+}
+
+static inline bool McpIsSafeUbtExtraArgumentToken(const FString &Value) {
+  return McpIsSafeUbtArgumentToken(Value) &&
+         !McpIsBlockedUbtOverrideArgument(Value);
+}
+
+static inline bool McpIsSafeUbtArgumentList(const FString &Value) {
+  const FString Trimmed = Value.TrimStartAndEnd();
+  if (Trimmed.IsEmpty()) {
+    return true;
+  }
+  if (McpHasUnsafeUbtArgumentCharacters(Trimmed)) {
+    return false;
+  }
+
+  TArray<FString> Tokens;
+  Trimmed.ParseIntoArrayWS(Tokens);
+  for (const FString &Token : Tokens) {
+    if (!McpIsSafeUbtExtraArgumentToken(Token)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+static inline bool McpIsSafeAutomationTestFilter(const FString &Value) {
+  const FString Trimmed = Value.TrimStartAndEnd();
+  if (Trimmed.IsEmpty()) {
+    return true;
+  }
+  if (McpContainsUnsafeCommandSeparator(Trimmed)) {
+    return false;
+  }
+
+  for (int32 Index = 0; Index < Trimmed.Len(); ++Index) {
+    const TCHAR Char = Trimmed[Index];
+    const bool bAllowed = FChar::IsAlnum(Char) || Char == TEXT('_') ||
+                          Char == TEXT('-') || Char == TEXT('.') ||
+                          Char == TEXT(':') || Char == TEXT('/') ||
+                          Char == TEXT('+') || Char == TEXT('^') ||
+                          Char == TEXT('$');
+    if (!bAllowed) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -837,6 +1060,17 @@ static inline TArray<FString> ExtractTopLevelJsonObjects(const FString &In) {
   int32 Start = INDEX_NONE;
   for (int32 i = 0; i < In.Len(); ++i) {
     const TCHAR C = In[i];
+    if (C == '"') {
+      for (++i; i < In.Len(); ++i) {
+        if (In[i] == '\\') {
+          ++i;
+        } else if (In[i] == '"') {
+          break;
+        }
+      }
+      continue;
+    }
+
     if (C == '{') {
       if (Depth == 0)
         Start = i;
@@ -871,7 +1105,6 @@ static inline FString HexifyUtf8(const FString &In) {
   return Hex;
 }
 
-// Lightweight output capture to collect log lines emitted during
 /**
  * Captures log output written to GLog into an in-memory list of lines.
  *
@@ -1103,14 +1336,9 @@ ExportPropertyToJsonValue(void *TargetContainer, FProperty *Property) {
           continue;
         }
 
-        // Fallback: Use ExportText_Direct for unsupported inner types
+        // Fallback: use version-compatible export for unsupported inner types.
         FString ElemStr;
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
-        Inner->ExportTextItem_Direct(ElemStr, ElemPtr, nullptr, nullptr, PPF_None);
-#else
-        // UE 5.0: Use ExportText_Direct
-        Inner->ExportText_Direct(ElemStr, ElemPtr, nullptr, nullptr, PPF_None, nullptr);
-#endif
+        MCP_PROPERTY_EXPORT_TEXT(Inner, ElemStr, ElemPtr, nullptr, nullptr, PPF_None);
         Out.Add(MakeShared<FJsonValueString>(ElemStr));
       }
     }
@@ -1160,14 +1388,9 @@ ExportPropertyToJsonValue(void *TargetContainer, FProperty *Property) {
         MapObj->SetBoolField(KeyStr,
                              (*reinterpret_cast<const uint8 *>(ValuePtr)) != 0);
       } else {
-        // Use ExportText_Direct for unsupported value types
+        // Use version-compatible export for unsupported value types.
         FString ValueStr;
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
-        ValueProp->ExportTextItem_Direct(ValueStr, ValuePtr, nullptr, nullptr, PPF_None);
-#else
-        // UE 5.0: Use ExportText_Direct
-        ValueProp->ExportText_Direct(ValueStr, ValuePtr, nullptr, nullptr, PPF_None, nullptr);
-#endif
+        MCP_PROPERTY_EXPORT_TEXT(ValueProp, ValueStr, ValuePtr, nullptr, nullptr, PPF_None);
         MapObj->SetStringField(KeyStr, ValueStr);
       }
     }
@@ -1202,14 +1425,9 @@ ExportPropertyToJsonValue(void *TargetContainer, FProperty *Property) {
         Out.Add(MakeShared<FJsonValueNumber>(
             (double)*reinterpret_cast<const float *>(ElemPtr)));
       } else {
-        // Use ExportText_Direct for unsupported set element types
+        // Use version-compatible export for unsupported set element types.
         FString ElemStr;
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
-        ElemProp->ExportTextItem_Direct(ElemStr, ElemPtr, nullptr, nullptr, PPF_None);
-#else
-        // UE 5.0: Use ExportText_Direct
-        ElemProp->ExportText_Direct(ElemStr, ElemPtr, nullptr, nullptr, PPF_None, nullptr);
-#endif
+        MCP_PROPERTY_EXPORT_TEXT(ElemProp, ElemStr, ElemPtr, nullptr, nullptr, PPF_None);
         Out.Add(MakeShared<FJsonValueString>(ElemStr));
       }
     }
