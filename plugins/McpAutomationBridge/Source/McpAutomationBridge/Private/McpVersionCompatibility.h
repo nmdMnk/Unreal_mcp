@@ -148,7 +148,7 @@
     (Property)->ExportTextItem_Direct(OutText, ValuePtr, DefaultValuePtr, Container, Flags)
 #else
   #define MCP_PROPERTY_EXPORT_TEXT(Property, OutText, ValuePtr, DefaultValuePtr, Container, Flags) \
-    (Property)->ExportText_Direct(OutText, ValuePtr, DefaultValuePtr, Flags, Container)
+    (Property)->ExportText_Direct(OutText, ValuePtr, DefaultValuePtr, Container, Flags, nullptr)
 #endif
 
 // =============================================================================

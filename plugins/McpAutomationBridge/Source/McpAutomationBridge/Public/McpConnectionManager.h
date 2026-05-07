@@ -99,7 +99,6 @@ private:
 	
 	bool bRequireCapabilityToken = false;
 	bool bEnableTls = false;
-	bool bEnvListenPortsSet = false;
 	bool bHeartbeatTrackingEnabled = false;
 
 	// State

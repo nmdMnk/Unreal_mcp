@@ -110,6 +110,7 @@ void UMcpAutomationBridgeSubsystem::ProcessAutomationRequest(
   bProcessingAutomationRequest = true;
   CurrentRequestOrigin = Origin;
   bool bDispatchHandled = false;
+  bool bErrorCaptureStarted = false;
   FString ConsumedHandlerLabel = TEXT("unknown-handler");
   const double DispatchStartSeconds = FPlatformTime::Seconds();
 
@@ -127,8 +128,13 @@ void UMcpAutomationBridgeSubsystem::ProcessAutomationRequest(
       // =====================================================================
       // End Error Capture and check for captured errors
       // =====================================================================
-      TArray<FString> CapturedErrors = EndErrorCapture();
-      bool bHadEngineErrors = HasCapturedErrors();
+      TArray<FString> CapturedErrors;
+      bool bHadEngineErrors = false;
+      if (bErrorCaptureStarted)
+      {
+        CapturedErrors = EndErrorCapture();
+        bHadEngineErrors = HasCapturedErrors();
+      }
       
       if (bHadEngineErrors && bDispatchHandled)
       {
@@ -187,6 +193,7 @@ void UMcpAutomationBridgeSubsystem::ProcessAutomationRequest(
       // Note: BeginErrorCapture is placed inside the try block to avoid
       // capturing our own catch-block error logging.
       BeginErrorCapture();
+      bErrorCaptureStarted = true;
 
       // Map this requestId to the requesting socket so responses can be
       // delivered reliably

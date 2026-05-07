@@ -5,26 +5,46 @@ using System.Runtime.InteropServices;
 
 public class McpAutomationBridge : ModuleRules
 {
-    // ============================================================================
-    // NATIVE WINDOWS API FOR ACTUAL MEMORY DETECTION
-    // ============================================================================
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MEMORYSTATUSEX
+    private static class WindowsMemoryHelper
     {
-        internal uint dwLength;
-        internal uint dwMemoryLoad;
-        internal ulong ullTotalPhys;
-        internal ulong ullAvailPhys;
-        internal ulong ullTotalPageFile;
-        internal ulong ullAvailPageFile;
-        internal ulong ullTotalVirtual;
-        internal ulong ullAvailVirtual;
-        internal ulong ullAvailExtendedVirtual;
-    }
+        // ============================================================================
+        // NATIVE WINDOWS API FOR ACTUAL MEMORY DETECTION
+        // ============================================================================
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MEMORYSTATUSEX
+        {
+            internal uint dwLength;
+            internal uint dwMemoryLoad;
+            internal ulong ullTotalPhys;
+            internal ulong ullAvailPhys;
+            internal ulong ullTotalPageFile;
+            internal ulong ullAvailPageFile;
+            internal ulong ullTotalVirtual;
+            internal ulong ullAvailVirtual;
+            internal ulong ullAvailExtendedVirtual;
+        }
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
+        public static bool TryGetMemoryMB(out long availableMemoryMB, out long totalMemoryMB)
+        {
+            var memStatus = new MEMORYSTATUSEX();
+            memStatus.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+
+            if (GlobalMemoryStatusEx(ref memStatus))
+            {
+                availableMemoryMB = (long)(memStatus.ullAvailPhys / (1024 * 1024));
+                totalMemoryMB = (long)(memStatus.ullTotalPhys / (1024 * 1024));
+                return true;
+            }
+
+            availableMemoryMB = 0;
+            totalMemoryMB = 0;
+            return false;
+        }
+    }
 
     /// <summary>
     /// Configures build rules, dependencies, and compile-time feature definitions for the McpAutomationBridge module based on the provided build target.
@@ -77,13 +97,10 @@ public class McpAutomationBridge : ModuleRules
                         var targetRules = (TargetRules)innerField.GetValue(Target);
                         if (targetRules != null)
                         {
-#pragma warning disable 618  // bUndefinedIdentifierErrors is obsolete in UE5.5+, but we need it for older versions
-                            if (targetRules.bUndefinedIdentifierErrors)
+                            if (TrySetBooleanMember(targetRules, "bUndefinedIdentifierErrors", false, true))
                             {
-                                targetRules.bUndefinedIdentifierErrors = false;
                                 Console.WriteLine("McpAutomationBridge: Disabled bUndefinedIdentifierErrors for UE 5.0-5.2 MSVC build");
                             }
-#pragma warning restore 618
 
                             // Add __has_feature macro to global definitions (affects all compilations, including SharedPCH)
                             // Define as non-variadic macro that discards its argument, e.g., __has_feature(address_sanitizer) -> 0
@@ -96,9 +113,9 @@ public class McpAutomationBridge : ModuleRules
                         }
                     }
                 }
-                catch
+                catch (Exception Ex)
                 {
-                    // Non-fatal; may succeed via alternative mechanisms
+                    Console.WriteLine(string.Format("McpAutomationBridge: WARNING: Could not disable bUndefinedIdentifierErrors for UE 5.{0}: {1}", Target.Version.MinorVersion, Ex.Message));
                 }
                 Console.WriteLine(string.Format("McpAutomationBridge: Applied MSVC __has_feature compatibility for UE 5.{0}", Target.Version.MinorVersion));
             }
@@ -120,7 +137,7 @@ public class McpAutomationBridge : ModuleRules
         bUseUnity = true;
         NumIncludedBytesPerUnityCPPOverride = 256 * 1024;
 
-PublicDependencyModuleNames.AddRange(new string[]
+        PublicDependencyModuleNames.AddRange(new string[]
         {
             "Core","CoreUObject","Engine","Json","JsonUtilities",
             "LevelSequence", "MovieScene", "MovieSceneTracks", "GameplayTags",
@@ -226,11 +243,11 @@ PublicDependencyModuleNames.AddRange(new string[]
             // BehaviorTreeEditor (optional plugin) - for Behavior Tree graph editing
             AddOptionalDynamicModule(Target, EngineDir, "BehaviorTreeEditor", "BehaviorTreeEditor");
 
-	// DataValidation (optional plugin) - for data validation
-		AddOptionalDynamicModule(Target, EngineDir, "DataValidation", "DataValidation");
+            // DataValidation (optional plugin) - for data validation
+            AddOptionalDynamicModule(Target, EngineDir, "DataValidation", "DataValidation");
 
-		// Synthesis (optional plugin) - for source effect presets (EQ, Chorus, Delay, etc.)
-		AddOptionalDynamicModule(Target, EngineDir, "Synthesis", "Synthesis");
+            // Synthesis (optional plugin) - for source effect presets (EQ, Chorus, Delay, etc.)
+            AddOptionalDynamicModule(Target, EngineDir, "Synthesis", "Synthesis");
 
             // Phase: IKRig and Vehicles (optional plugins)
             AddOptionalDynamicModule(Target, EngineDir, "IKRig", "IKRig");
@@ -295,7 +312,7 @@ PublicDependencyModuleNames.AddRange(new string[]
                 PublicDefinitions.Add("MCP_ENABLE_EDIT_AND_CONTINUE=1");
             }
 
-            // Control Rig Factory Support - detection is handled in source code via __has_include
+            // Control Rig Factory Support - detection is handled in source headers.
             // Do not define MCP_HAS_CONTROLRIG_FACTORY here to avoid redefinition warnings
         }
         else
@@ -311,14 +328,70 @@ PublicDependencyModuleNames.AddRange(new string[]
         // COMPILER WARNING SETTINGS (UE 5.6+ Compatibility)
         // ============================================================================
         // UE 5.6+ treats variable shadowing (C4456, C4458, C4459) as errors by default.
-        // Use ShadowVariableWarningLevel directly on ModuleRules - works in all UE versions.
-        // UE 5.0-5.5: Direct property on ModuleRules
-        // UE 5.6-5.7: Forwarding property to CppCompileWarningSettings.ShadowVariableWarningLevel
-        // This allows compilation while we systematically fix shadowing issues.
+        // Set the shadow warning level through reflection so this rule file remains
+        // warning-clean across UE versions where the public API moved from
+        // ModuleRules.ShadowVariableWarningLevel to CppCompileWarningSettings.
         // TODO: Fix variable shadowing in handler files, then remove this override
         if (Target.Version.MajorVersion == 5 && Target.Version.MinorVersion >= 6)
         {
-            ShadowVariableWarningLevel = WarningLevel.Warning;
+            SetShadowVariableWarningLevel(WarningLevel.Warning);
+        }
+    }
+
+    private static bool TrySetBooleanMember(object target, string memberName, bool value, bool onlyIfCurrentlyTrue = false)
+    {
+        const System.Reflection.BindingFlags Flags = System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Instance;
+
+        var property = target.GetType().GetProperty(memberName, Flags);
+        if (property != null && property.PropertyType == typeof(bool) && property.CanWrite)
+        {
+            var current = (bool)property.GetValue(target);
+            if (!onlyIfCurrentlyTrue || current)
+            {
+                property.SetValue(target, value);
+                return true;
+            }
+            return false;
+        }
+
+        var field = target.GetType().GetField(memberName, Flags);
+        if (field != null && field.FieldType == typeof(bool))
+        {
+            var current = (bool)field.GetValue(target);
+            if (!onlyIfCurrentlyTrue || current)
+            {
+                field.SetValue(target, value);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void SetShadowVariableWarningLevel(WarningLevel level)
+    {
+        const System.Reflection.BindingFlags Flags = System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Instance;
+
+        var cppSettingsProperty = GetType().GetProperty("CppCompileWarningSettings", Flags);
+        object cppSettings = cppSettingsProperty?.GetValue(this);
+        if (cppSettings != null)
+        {
+            var shadowProperty = cppSettings.GetType().GetProperty("ShadowVariableWarningLevel", Flags);
+            if (shadowProperty != null && shadowProperty.CanWrite)
+            {
+                shadowProperty.SetValue(cppSettings, level);
+                return;
+            }
+        }
+
+        var legacyProperty = GetType().GetProperty("ShadowVariableWarningLevel", Flags);
+        if (legacyProperty != null && legacyProperty.CanWrite)
+        {
+            legacyProperty.SetValue(this, level);
         }
     }
 
@@ -361,13 +434,11 @@ PublicDependencyModuleNames.AddRange(new string[]
             // Try Windows API first (most accurate)
             if (Environment.OSVersion.Platform == PlatformID.Win32NT)
             {
-                var memStatus = new MEMORYSTATUSEX();
-                memStatus.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
-                
-                if (GlobalMemoryStatusEx(ref memStatus))
+                long AvailableMemory;
+                long TotalMemory;
+                if (WindowsMemoryHelper.TryGetMemoryMB(out AvailableMemory, out TotalMemory))
                 {
-                    // Return available physical memory in MB
-                    return (long)(memStatus.ullAvailPhys / (1024 * 1024));
+                    return AvailableMemory;
                 }
             }
         }
@@ -401,12 +472,11 @@ PublicDependencyModuleNames.AddRange(new string[]
         {
             if (Environment.OSVersion.Platform == PlatformID.Win32NT)
             {
-                var memStatus = new MEMORYSTATUSEX();
-                memStatus.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
-                
-                if (GlobalMemoryStatusEx(ref memStatus))
+                long AvailableMemory;
+                long TotalMemory;
+                if (WindowsMemoryHelper.TryGetMemoryMB(out AvailableMemory, out TotalMemory))
                 {
-                    return (long)(memStatus.ullTotalPhys / (1024 * 1024));
+                    return TotalMemory;
                 }
             }
         }

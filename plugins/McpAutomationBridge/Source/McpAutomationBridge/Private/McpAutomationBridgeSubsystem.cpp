@@ -1,6 +1,5 @@
-// Ensure the subsystem type and bridge socket types are available
-// Include helpers first to ensure MCP_HAS_CONTROLRIG_FACTORY is properly defined
-// before McpAutomationBridgeSubsystem.h sets default values
+// Ensure the subsystem type and bridge socket helpers are available before the
+// generated subsystem header pulls in UE version-dependent declarations.
 #if WITH_EDITOR
 #include "McpAutomationBridgeHelpers.h"
 #endif
@@ -89,9 +88,6 @@ private:
 // Define the subsystem log category declared in the public header.
 DEFINE_LOG_CATEGORY(LogMcpAutomationBridgeSubsystem);
 
-// Sanitize incoming text for logging: replace control characters with
-// '?' and truncate long messages so logs remain readable and do not
-// attempt to render unprintable glyphs in the editor which can spam
 /**
  * @brief Produces a log-safe copy of a string by replacing control characters
  * and truncating long input.
@@ -253,6 +249,7 @@ void UMcpAutomationBridgeSubsystem::Deinitialize() {
 
   // Clean up RequestErrorDevice to prevent dangling pointer in GLog
   if (RequestErrorDevice.IsValid()) {
+    FScopeLock Lock(&ErrorCaptureMutex);
     if (GLog)
       GLog->RemoveOutputDevice(RequestErrorDevice.Get());
     RequestErrorDevice.Reset();
@@ -343,7 +340,14 @@ TArray<FString> UMcpAutomationBridgeSubsystem::EndErrorCapture()
 
 bool UMcpAutomationBridgeSubsystem::HasCapturedErrors() const
 {
+    FScopeLock Lock(&ErrorCaptureMutex);
     return CurrentErrorCapture.bHasErrors.load();
+}
+
+TArray<FString> UMcpAutomationBridgeSubsystem::GetCapturedErrorMessages() const
+{
+    FScopeLock Lock(&ErrorCaptureMutex);
+    return CurrentErrorCapture.ErrorMessages;
 }
 
 /**
@@ -933,7 +937,7 @@ void UMcpAutomationBridgeSubsystem::InitializeHandlers() {
                   [this](const FString &R, const FString &A,
                          const TSharedPtr<FJsonObject> &P,
                          TSharedPtr<FMcpBridgeWebSocket> S) {
-                    return HandleExecuteEditorFunction(R, A, P, S);
+                    return HandleConsoleCommandAction(R, A, P, S);
                   });
   RegisterHandler(TEXT("inspect"), [this](const FString &R, const FString &A,
                                           const TSharedPtr<FJsonObject> &P,
@@ -1430,22 +1434,31 @@ bool UMcpAutomationBridgeSubsystem::ExecuteEditorCommands(
   }
 
   for (const FString &Command : Commands) {
-    if (Command.IsEmpty()) {
+    const FString TrimmedCommand = Command.TrimStartAndEnd();
+    if (TrimmedCommand.IsEmpty()) {
       continue;
+    }
+
+    if (McpContainsUnsafeCommandSeparator(TrimmedCommand)) {
+      OutErrorMessage = FString::Printf(
+          TEXT("Rejected unsafe editor command: %s"), *TrimmedCommand);
+      UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+             TEXT("ExecuteEditorCommands: %s"), *OutErrorMessage);
+      return false;
     }
 
     // Execute the command via GEditor
     // Note: GEditor->Exec returns true if the command was handled
-    if (!GEditor->Exec(EditorWorld, *Command)) {
+    if (!GEditor->Exec(EditorWorld, *TrimmedCommand)) {
       OutErrorMessage =
-          FString::Printf(TEXT("Failed to execute command: %s"), *Command);
+          FString::Printf(TEXT("Failed to execute command: %s"), *TrimmedCommand);
       UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
              TEXT("ExecuteEditorCommands: %s"), *OutErrorMessage);
       return false;
     }
 
     UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
-           TEXT("ExecuteEditorCommands: Executed '%s'"), *Command);
+           TEXT("ExecuteEditorCommands: Executed '%s'"), *TrimmedCommand);
   }
 
   return true;

@@ -32,14 +32,29 @@ FMcpNativeTransport::~FMcpNativeTransport()
 bool FMcpNativeTransport::Start(int32 Port, const FString& PluginDir, bool bLoadAllTools,
 	const FString& InUserInstructions, const FString& InListenHost, bool bInAllowNonLoopback)
 {
+	if (Port <= 0 || Port > 65535)
+	{
+		UE_LOG(LogMcpNativeTransport, Error,
+			TEXT("Invalid Native MCP port %d. Port must be between 1 and 65535."), Port);
+		return false;
+	}
+
 	ListenPort = Port;
 	UserInstructions = InUserInstructions;
 	bAllowNonLoopback = bInAllowNonLoopback;
 
 	// Validate listen host against loopback policy
 	ListenHost = InListenHost.IsEmpty() ? TEXT("127.0.0.1") : InListenHost;
-	bool bIsLoopback = ListenHost == TEXT("127.0.0.1") || ListenHost == TEXT("localhost")
-		|| ListenHost == TEXT("::1");
+	if (ListenHost.Equals(TEXT("localhost"), ESearchCase::IgnoreCase))
+	{
+		ListenHost = TEXT("127.0.0.1");
+	}
+	else if (ListenHost == TEXT("[::1]"))
+	{
+		ListenHost = TEXT("::1");
+	}
+
+	bool bIsLoopback = ListenHost == TEXT("127.0.0.1") || ListenHost == TEXT("::1");
 	if (!bIsLoopback && !bAllowNonLoopback)
 	{
 		UE_LOG(LogMcpNativeTransport, Warning,
@@ -686,6 +701,7 @@ bool FMcpNativeTransport::ReadHttpRequest(FSocket* Socket, FParsedHttpRequest& O
 
 	// Parse headers
 	OutRequest.ContentLength = 0;
+	bool bHasContentLength = false;
 	for (int32 i = 1; i < Lines.Num(); ++i)
 	{
 		FString Key, Value;
@@ -696,7 +712,22 @@ bool FMcpNativeTransport::ReadHttpRequest(FSocket* Socket, FParsedHttpRequest& O
 
 			if (Key.Equals(TEXT("Content-Length"), ESearchCase::IgnoreCase))
 			{
-				OutRequest.ContentLength = FCString::Atoi(*Value);
+				if (bHasContentLength)
+				{
+					UE_LOG(LogMcpNativeTransport, Warning, TEXT("Duplicate Content-Length header"));
+					return false;
+				}
+
+				int32 ParsedContentLength = 0;
+				if (!LexTryParseString(ParsedContentLength, *Value))
+				{
+					UE_LOG(LogMcpNativeTransport, Warning,
+						TEXT("Invalid Content-Length header: %s"), *Value);
+					return false;
+				}
+
+				OutRequest.ContentLength = ParsedContentLength;
+				bHasContentLength = true;
 			}
 			else if (Key.Equals(TEXT("Mcp-Session-Id"), ESearchCase::IgnoreCase))
 			{
@@ -715,10 +746,10 @@ bool FMcpNativeTransport::ReadHttpRequest(FSocket* Socket, FParsedHttpRequest& O
 
 	// Read body
 	static constexpr int32 MaxBodySize = 5 * 1024 * 1024;  // 5MB
-	if (OutRequest.ContentLength > MaxBodySize)
+	if (OutRequest.ContentLength < 0 || OutRequest.ContentLength > MaxBodySize)
 	{
 		UE_LOG(LogMcpNativeTransport, Warning,
-			TEXT("HTTP body too large: %d bytes"), OutRequest.ContentLength);
+			TEXT("Invalid HTTP body size: %d bytes"), OutRequest.ContentLength);
 		return false;
 	}
 
@@ -787,7 +818,7 @@ bool FMcpNativeTransport::SendHttpResponse(FSocket* Socket, int32 StatusCode,
 	case 429: StatusText = TEXT("Too Many Requests"); break;
 	case 500: StatusText = TEXT("Internal Server Error"); break;
 	case 503: StatusText = TEXT("Service Unavailable"); break;
-	default:  StatusText = TEXT("OK"); break;
+	default:  StatusText = TEXT("Unknown"); break;
 	}
 
 	FTCHARToUTF8 BodyUtf8(*Body);

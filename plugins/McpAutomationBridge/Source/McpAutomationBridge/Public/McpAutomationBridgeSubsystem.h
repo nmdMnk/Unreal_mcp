@@ -5,6 +5,7 @@
 #include "Dom/JsonObject.h"
 #include "EditorSubsystem.h"
 #include "HAL/CriticalSection.h"
+#include "Runtime/Launch/Resources/Version.h"
 #include "Templates/SharedPointer.h"
 #include "Engine/DataAsset.h"
 class FMcpNativeTransport;
@@ -16,7 +17,6 @@ class FMcpNativeTransport;
 // Note: In UE 5.1-5.4 the header is in Private folder, but the class is exported with CONTROLRIGEDITOR_API
 // so we use forward declaration instead of including the header
 #ifndef MCP_HAS_CONTROLRIG_FACTORY
-  #include "Runtime/Launch/Resources/Version.h"
   #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
     #define MCP_HAS_CONTROLRIG_FACTORY 1
   #else
@@ -194,6 +194,9 @@ public:
   
   /** Check if any errors were captured during the current request */
   bool HasCapturedErrors() const;
+
+  /** Return a thread-safe snapshot of captured engine error messages. */
+  TArray<FString> GetCapturedErrorMessages() const;
 
   // Friend class for error capture device to access private members
   friend class FMcpRequestErrorDevice;
