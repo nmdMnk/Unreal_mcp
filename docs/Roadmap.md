@@ -31,7 +31,6 @@ This roadmap outlines the comprehensive development plan for expanding the Unrea
 
 ## Phase 4: System & Developer Experience (Completed)
 
-- [x] **GraphQL API**: Read/write access to assets and actors via GraphQL.
 - [x] **Pipeline Integration**: Direct UBT execution with output streaming.
 - [x] **Documentation**: Comprehensive handler mappings and API references.
 - [x] **Metrics Dashboard**: `ue://health` view backed by bridge/server metrics.
