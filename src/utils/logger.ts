@@ -27,7 +27,7 @@ export class Logger {
   }
   warn(...args: unknown[]) {
     if (!this.shouldLog('warn')) return;
-    console.warn(`[${this.scope}]`, ...args);
+    console.error(`[${this.scope}]`, ...args);
   }
   error(...args: unknown[]) {
     if (this.shouldLog('error')) console.error(`[${this.scope}]`, ...args);

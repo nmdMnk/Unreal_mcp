@@ -145,10 +145,15 @@ export class ErrorHandler {
 
     const errorMessage = (errorObj?.message || String(error)).toLowerCase();
 
+    // Timeout errors should use timeout-specific guidance instead of the
+    // broader connection category below.
+    if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+      return ErrorType.TIMEOUT;
+    }
+
     // Connection errors
     if (
       errorMessage.includes('econnrefused') ||
-      errorMessage.includes('timeout') ||
       errorMessage.includes('connection') ||
       errorMessage.includes('network')
     ) {
@@ -183,11 +188,6 @@ export class ErrorHandler {
       errorMessage.includes('missing')
     ) {
       return ErrorType.PARAMETER;
-    }
-
-    // Timeout errors
-    if (errorMessage.includes('timeout')) {
-      return ErrorType.TIMEOUT;
     }
 
     return ErrorType.UNKNOWN;

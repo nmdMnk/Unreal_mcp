@@ -22,6 +22,19 @@ type LogEntry = {
 const log = new Logger('LogReader');
 let cachedLogPath: string | undefined;
 
+function isPathWithin(candidate: string, directory: string): boolean {
+  const directoryWithSep = directory.endsWith(path.sep) ? directory : directory + path.sep;
+  return candidate === directory || candidate.startsWith(directoryWithSep);
+}
+
+async function realpathIfReadable(targetPath: string): Promise<string | undefined> {
+  try {
+    return await fs.realpath(targetPath);
+  } catch {
+    return undefined;
+  }
+}
+
 async function resolveLogPath(override?: string): Promise<string | undefined> {
   if (override && typeof override === 'string' && override.trim()) {
     if (!override.toLowerCase().endsWith('.log')) {
@@ -36,16 +49,19 @@ async function resolveLogPath(override?: string): Promise<string | undefined> {
       allowedDirs.push(path.resolve(path.join(path.dirname(projectPath), 'Saved', 'Logs')));
     }
 
-    const isAllowed = allowedDirs.some(dir => resolvedPath === dir || resolvedPath.startsWith(dir + path.sep));
+    const realOverride = await realpathIfReadable(resolvedPath);
+    const realAllowedDirs = (await Promise.all(allowedDirs.map(dir => realpathIfReadable(dir))))
+      .filter((dir): dir is string => dir !== undefined);
+    const isAllowed = realOverride !== undefined && realAllowedDirs.some(dir => isPathWithin(realOverride, dir));
     if (!isAllowed) {
       log.warn(`Blocked attempt to read log from unauthorized location: ${override}`);
       return undefined;
     }
 
     try {
-      const st = await fs.stat(override);
+      const st = await fs.stat(realOverride);
       if (st.isFile()) {
-        cachedLogPath = resolvedPath;
+        cachedLogPath = realOverride;
         return cachedLogPath;
       }
     } catch (error) {
@@ -71,15 +87,23 @@ async function resolveLogPath(override?: string): Promise<string | undefined> {
 async function findLatestLogInDir(dir: string): Promise<string | undefined> {
   if (!dir) return undefined;
   try {
-    const entries = await fs.readdir(dir);
+    const realDir = await realpathIfReadable(dir);
+    if (!realDir) return undefined;
+
+    const entries = await fs.readdir(realDir);
     const logFiles = entries.filter(name => name.toLowerCase().endsWith('.log'));
     if (logFiles.length === 0) return undefined;
 
     const stats = await Promise.all(logFiles.map(async name => {
-      const fp = path.join(dir, name);
+      const fp = path.join(realDir, name);
       try {
-        const st = await fs.stat(fp);
-        return { p: fp, m: st.mtimeMs };
+        const realFile = await realpathIfReadable(fp);
+        if (!realFile || !isPathWithin(realFile, realDir)) return null;
+
+        const st = await fs.stat(realFile);
+        if (!st.isFile()) return null;
+
+        return { p: realFile, m: st.mtimeMs };
       } catch {
         return null;
       }

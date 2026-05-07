@@ -27,7 +27,8 @@ const INVALID_CHARS = /[@#%$&*()+=\[\]{}<>?|\\;:'"`,~!\s]/g;
  * SQL injection patterns to reject in asset names
  * These patterns could be dangerous if passed to database queries or eval contexts
  */
-const SQL_INJECTION_PATTERNS = /('|";|--|\bDROP\b|\bDELETE\b|\bINSERT\b|\bUPDATE\b|\bEXEC\b|\bEXECUTE\b)/gi;
+const SQL_INJECTION_PATTERNS = /('|";|--|\bDROP\b|\bDELETE\b|\bINSERT\b|\bUPDATE\b|\bEXEC\b|\bEXECUTE\b)/i;
+const SQL_INJECTION_REPLACE_PATTERNS = /('|";|--|\bDROP\b|\bDELETE\b|\bINSERT\b|\bUPDATE\b|\bEXEC\b|\bEXECUTE\b)/gi;
 
 /**
  * Reserved keywords that shouldn't be used as names
@@ -86,7 +87,7 @@ export function sanitizeAssetName(name: string): string {
   // Check for SQL injection patterns and reject early
   if (SQL_INJECTION_PATTERNS.test(sanitized)) {
     // Replace dangerous patterns with underscores instead of throwing
-    sanitized = sanitized.replace(SQL_INJECTION_PATTERNS, '_');
+    sanitized = sanitized.replace(SQL_INJECTION_REPLACE_PATTERNS, '_');
   }
 
   // Replace invalid characters with underscores
@@ -160,10 +161,10 @@ export function normalizeAndSanitizeAssetPath(path: string): string {
     return '/Game';
   }
 
-  // Ensure the first segment is a valid root (Game, Engine, Script, Temp, or configured extras)
+  // Ensure the first segment is a valid root (Game, Engine, Script, Temp, Niagara, or configured extras)
   const additionalRoots = getAdditionalPathPrefixes()
     .map(p => p.replace(/^\//, '').replace(/\/$/, ''));
-  const ROOTS = new Set(['Game', 'Engine', 'Script', 'Temp', ...additionalRoots]);
+  const ROOTS = new Set(['Game', 'Engine', 'Script', 'Temp', 'Niagara', ...additionalRoots]);
   if (!ROOTS.has(segments[0])) {
     segments = ['Game', ...segments];
   }
