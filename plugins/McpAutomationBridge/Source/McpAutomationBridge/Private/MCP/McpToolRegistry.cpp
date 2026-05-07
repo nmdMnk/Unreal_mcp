@@ -4,6 +4,39 @@
 #include "MCP/McpToolRegistry.h"
 #include "MCP/McpToolDefinition.h"
 
+namespace
+{
+bool IsCanonicalMcpToolName(const FString& Name)
+{
+	static const TSet<FString> CanonicalToolNames = {
+		TEXT("manage_tools"),
+		TEXT("manage_asset"),
+		TEXT("manage_blueprint"),
+		TEXT("control_actor"),
+		TEXT("control_editor"),
+		TEXT("manage_level"),
+		TEXT("build_environment"),
+		TEXT("animation_physics"),
+		TEXT("system_control"),
+		TEXT("manage_sequence"),
+		TEXT("inspect"),
+		TEXT("manage_audio"),
+		TEXT("manage_geometry"),
+		TEXT("manage_effect"),
+		TEXT("manage_gas"),
+		TEXT("manage_character"),
+		TEXT("manage_combat"),
+		TEXT("manage_ai"),
+		TEXT("manage_inventory"),
+		TEXT("manage_interaction"),
+		TEXT("manage_networking"),
+		TEXT("manage_level_structure")
+	};
+
+	return CanonicalToolNames.Contains(Name);
+}
+}
+
 FMcpToolRegistry& FMcpToolRegistry::Get()
 {
 	static FMcpToolRegistry Instance;
@@ -19,6 +52,11 @@ void FMcpToolRegistry::Register(FMcpToolDefinition* Tool)
 
 	FScopeLock Lock(&CacheMutex);
 	const FString Name = Tool->GetName();
+	if (!IsCanonicalMcpToolName(Name))
+	{
+		return;
+	}
+
 	if (ToolsByName.Contains(Name))
 	{
 		return; // Already registered (possible with unity builds reloading)

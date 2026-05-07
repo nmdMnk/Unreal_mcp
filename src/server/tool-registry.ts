@@ -17,13 +17,13 @@ import { LevelResources } from '../resources/levels.js';
 import { getProjectSetting } from '../utils/ini-reader.js';
 import { config } from '../config.js';
 import { mcpClients } from 'mcp-client-capabilities';
-import { dynamicToolManager } from '../tools/dynamic-tool-manager.js';
+import { dynamicToolManager, type ToolCategory } from '../tools/dynamic-tool-manager.js';
 
 // Parse default categories from config
 function parseDefaultCategories(): string[] {
-    const raw = config.MCP_DEFAULT_CATEGORIES || 'core';
+    const raw = config.MCP_DEFAULT_CATEGORIES || 'all';
     const cats = raw.split(',').map(c => c.trim().toLowerCase()).filter(c => c.length > 0);
-    return cats.length > 0 ? cats : ['core'];
+    return cats.length > 0 ? cats : ['all'];
 }
 
 // Check if a client supports tools.listChanged based on known client capabilities
@@ -68,52 +68,9 @@ export class ToolRegistry {
         private ensureConnected: () => Promise<boolean>
     ) { }
     
-    private async handlePipelineCall(args: Record<string, unknown>): Promise<Record<string, unknown>> {
-        const action = args.action as string;
-        if (action === 'set_categories') {
-            const newCats = Array.isArray(args.categories) ? args.categories as string[] : [];
-            this.currentCategories = newCats.length > 0 ? newCats : ['all'];
-            this.logger.info(`MCP Categories updated to: ${this.currentCategories.join(', ')}`);
-            
-            // Trigger list_changed notification
-            this.server.notification({
-                method: 'notifications/tools/list_changed',
-                params: {}
-            }).catch(err => this.logger.error('Failed to send list_changed notification', err));
-
-            return { success: true, message: `Categories updated to ${this.currentCategories.join(', ')}`, categories: this.currentCategories };
-        } else if (action === 'list_categories') {
-            const categories = dynamicToolManager.listCategories();
-            return { 
-                success: true, 
-                categories: this.currentCategories, 
-                available: ['core', 'world', 'authoring', 'gameplay', 'utility', 'all'],
-                categoryDetails: categories.map(c => ({
-                    name: c.name,
-                    enabled: c.enabled,
-                    toolCount: c.toolCount,
-                    enabledCount: c.enabledCount
-                }))
-            };
-        } else if (action === 'get_status') {
-            const status = dynamicToolManager.getStatus();
-            return { 
-                success: true, 
-                categories: this.currentCategories,
-                toolCount: status.totalTools,
-                enabledCount: status.enabledTools,
-                disabledCount: status.disabledTools,
-                filteredCount: dynamicToolManager.getEnabledToolDefinitions().length
-            };
-        }
-        // Delegate unknown actions (like run_ubt) to the registered handler in consolidated-tool-handlers
-        // This allows handlePipelineTools to process run_ubt etc.
-        return { _delegateToHandler: true, action, args };
-    }
-
     private async handleManageToolsCall(args: Record<string, unknown>): Promise<Record<string, unknown>> {
         const action = args.action as string;
-        type ToolCategory = 'core' | 'world' | 'authoring' | 'gameplay' | 'utility';
+        const validCategories: ToolCategory[] = ['core', 'world', 'gameplay', 'utility', 'all'];
         
         // Helper to safely extract string array
         const getStringArray = (key: string): string[] => {
@@ -135,7 +92,7 @@ export class ToolRegistry {
                 const toolStates = dynamicToolManager.listTools();
                 const tools = toolStates.map(state => ({
                     name: state.name,
-                    enabled: state.enabled,
+                    enabled: dynamicToolManager.isToolEnabled(state.name),
                     category: state.category,
                     description: state.description.substring(0, 100) + (state.description.length > 100 ? '...' : '')
                 }));
@@ -218,7 +175,6 @@ export class ToolRegistry {
                 if (!category) {
                     return { success: false, error: 'No category specified.', errorCode: 'MISSING_CATEGORY' };
                 }
-                const validCategories: ToolCategory[] = ['core', 'world', 'authoring', 'gameplay', 'utility'];
                 if (!validCategories.includes(category)) {
                     return { 
                         success: false, 
@@ -243,7 +199,6 @@ export class ToolRegistry {
                 if (!category) {
                     return { success: false, error: 'No category specified.', errorCode: 'MISSING_CATEGORY' };
                 }
-                const validCategories: ToolCategory[] = ['core', 'world', 'authoring', 'gameplay', 'utility'];
                 if (!validCategories.includes(category)) {
                     return { 
                         success: false, 
@@ -437,7 +392,7 @@ export class ToolRegistry {
             const allTools = dynamicToolManager.getAllToolDefinitions();
             const status = dynamicToolManager.getStatus();
             
-            // Filter by: 1) tool enabled in DynamicToolManager, 2) category, 3) hide manage_pipeline from non-dynamic clients
+            // Filter by: 1) tool enabled in DynamicToolManager, 2) category
             const filtered = allTools
                 .filter((t: ToolDefinition) => {
                     // Check if tool is enabled
@@ -449,22 +404,48 @@ export class ToolRegistry {
                         return false;
                     }
                     
-                    // Hide manage_pipeline from clients that can't use it
-                    if (!supportsListChanged && t.name === 'manage_pipeline') return false;
-                    
                     return true;
                 });
             
             this.logger.debug(`Tool filtering: ${status.enabledTools}/${status.totalTools} enabled, ${filtered.length} visible`);
             
             const sanitized = filtered.map((t: ToolDefinition) => {
-                try {
-                    const copy = JSON.parse(JSON.stringify(t)) as Record<string, unknown>;
-                    delete copy.outputSchema;
-                    return copy;
-                } catch (_e) {
-                    return t;
+                const properties: Record<string, unknown> = {};
+                const actionValues = new Set<string>();
+                let actionDescription = 'Action to perform.';
+                const sourceProperties = isRecord(t.inputSchema.properties) ? t.inputSchema.properties : {};
+                for (const [name, schema] of Object.entries(sourceProperties)) {
+                    if (properties[name] === undefined) properties[name] = schema;
                 }
+                const sourceAction = isRecord(sourceProperties.action) ? sourceProperties.action : undefined;
+                if (typeof sourceAction?.description === 'string') actionDescription = sourceAction.description;
+                if (Array.isArray(sourceAction?.enum)) {
+                    for (const value of sourceAction.enum) {
+                        if (typeof value === 'string') actionValues.add(value);
+                    }
+                }
+                const actionSchema: Record<string, unknown> = {
+                    type: 'string',
+                    description: actionDescription
+                };
+                if (actionValues.size > 0) {
+                    actionSchema.enum = Array.from(actionValues);
+                }
+                const parameterNames = Object.keys(properties).filter(name => name !== 'action');
+                const parameterSummary = parameterNames.length > 0 ? ` Params by action: ${parameterNames.join(', ')}.` : '';
+                const actionGuidance = ' Required: action. Select one enum value, then provide only parameters relevant to that action.';
+
+                return {
+                    name: t.name,
+                    description: `${t.description}${actionGuidance}${parameterSummary}`,
+                    category: t.category,
+                    inputSchema: {
+                        type: 'object',
+                        properties: { action: actionSchema },
+                        required: ['action'],
+                        additionalProperties: true
+                    }
+                };
             });
             return { tools: sanitized };
         });
@@ -472,16 +453,6 @@ export class ToolRegistry {
         this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const { name } = request.params;
             let args: Record<string, unknown> = request.params.arguments || {};
-
-            if (name === 'manage_pipeline') {
-                const result = await this.handlePipelineCall(args);
-                // If handler indicates delegation, fall through to consolidated handler
-                if (result._delegateToHandler) {
-                    // Fall through to the consolidated handler below
-                } else {
-                    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-                }
-            }
 
             // Handle manage_tools for dynamic tool management
             if (name === 'manage_tools') {
@@ -495,6 +466,21 @@ export class ToolRegistry {
                     }).catch(err => this.logger.error('Failed to send list_changed notification', err));
                 }
                 return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+            }
+
+            if (!dynamicToolManager.getToolState(name)) {
+                return {
+                    content: [{ type: 'text', text: `Unknown tool: ${name}` }],
+                    isError: true
+                };
+            }
+
+            if (!dynamicToolManager.isToolEnabled(name)) {
+                this.healthMonitor.trackPerformance(Date.now(), false);
+                return {
+                    content: [{ type: 'text', text: `Cannot execute tool '${name}': tool is disabled or not available.` }],
+                    isError: true
+                };
             }
 
             const startTime = Date.now();

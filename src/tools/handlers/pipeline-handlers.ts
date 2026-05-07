@@ -283,7 +283,7 @@ async function findBundledDotNetRoot(ubtPath: string): Promise<string | undefine
   return undefined;
 }
 
-/** Dispatch pipeline actions (run_ubt, etc.) to local UBT or the C++ bridge. */
+/** Dispatch system_control pipeline actions to local UBT or the C++ bridge. */
 export async function handlePipelineTools(action: string, args: PipelineArgs, tools: ITools) {
   switch (action) {
     case 'run_ubt': {
@@ -307,7 +307,7 @@ export async function handlePipelineTools(action: string, args: PipelineArgs, to
           tools,
           'manage_pipeline',
           { ...args, subAction: action },
-          'Automation bridge not available for manage_pipeline'
+          'Automation bridge not available for run_ubt'
         );
         return cleanObject(res);
       }
@@ -425,13 +425,7 @@ export async function handlePipelineTools(action: string, args: PipelineArgs, to
     }
 
     default: {
-      const res = await executeAutomationRequest(
-        tools,
-        'manage_pipeline',
-        { ...args, subAction: action },
-        'Automation bridge not available for manage_pipeline'
-      );
-      return cleanObject(res);
+      return cleanObject({ success: false, error: 'UNKNOWN_ACTION', message: `Unknown system_control pipeline action: ${action}` });
     }
   }
 }

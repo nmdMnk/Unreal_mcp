@@ -23,7 +23,7 @@ An Unreal Engine editor plugin that enables AI assistants (Claude, Cursor, Winds
 | **Audio** | Sound cues, audio components, MetaSounds |
 | **System** | Console commands, UBT, tests, logs, project settings, Python execution |
 
-**200+ automation actions** across 36 MCP tools.
+**200+ automation actions** across 22 MCP tools.
 
 ---
 
@@ -67,12 +67,12 @@ An Unreal Engine editor plugin that enables AI assistants (Claude, Cursor, Winds
    - ✅ Level Sequence Editor (for `manage_sequence`)
    - ✅ Control Rig (for `animation_physics`)
    - ✅ GeometryScripting (for `manage_geometry`)
-   - ✅ Behavior Tree Editor (for `manage_behavior_tree`)
+   - ✅ Behavior Tree Editor (for `manage_ai` Behavior Trees)
    - ✅ Niagara Editor (for Niagara authoring)
    - ✅ Gameplay Abilities (for `manage_gas`)
    - ✅ MetaSound (for `manage_audio` MetaSounds)
    - ✅ StateTree (for `manage_ai` State Trees)
-   - ✅ Enhanced Input (for `manage_input`)
+   - ✅ Enhanced Input (for `manage_networking` input mappings)
    - ✅ Environment Query Editor (for AI/EQS)
    - ✅ Smart Objects (for AI smart objects)
    - ✅ Chaos Cloth (for cloth simulation)
@@ -190,7 +190,7 @@ Configure in **Edit → Project Settings → Plugins → MCP Automation Bridge**
 - **Enable Native MCP**: Enable built-in HTTP/SSE MCP server (default: off)
 - **Native MCP Port**: HTTP port for native MCP transport (default: 3000)
 - **Listen Host**: Bind address (default: 127.0.0.1)
-- **Load All Tools on Start**: Load all 36 tools at startup (default: off — only 8 core tools)
+- **Load All Tools on Start**: Load all 22 canonical tools at startup (default: on)
 - **Native MCP Instructions**: Custom instructions for AI clients
 - **Require Capability Token**: Enforce token authentication on WS and HTTP transports
 

@@ -85,15 +85,43 @@ bool UMcpAutomationBridgeSubsystem::HandlePipelineAction(
         
         FString ExtraArgs;
         Payload->TryGetStringField(TEXT("extraArgs"), ExtraArgs);
+        if (ExtraArgs.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("arguments"), ExtraArgs);
+        }
 
-        // Construct UBT executable path
-        // Location: Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.exe
+        // Construct the platform build wrapper path. On Linux/macOS the UBT .exe
+        // wrapper does not exist; Build.sh/Build.bat is the stable editor-owned
+        // entry point across installed and source engine layouts.
+#if PLATFORM_WINDOWS
         const FString UBTPath = FPaths::ConvertRelativePathToFull(
-            FPaths::EngineDir() / TEXT("Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.exe"));
-        
+            FPaths::EngineDir() / TEXT("Build/BatchFiles/Build.bat"));
+#elif PLATFORM_MAC
+        const FString UBTPath = FPaths::ConvertRelativePathToFull(
+            FPaths::EngineDir() / TEXT("Build/BatchFiles/Mac/Build.sh"));
+#else
+        const FString UBTPath = FPaths::ConvertRelativePathToFull(
+            FPaths::EngineDir() / TEXT("Build/BatchFiles/Linux/Build.sh"));
+#endif
+
+        if (!FPaths::FileExists(UBTPath))
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                FString::Printf(TEXT("UBT build wrapper not found at: %s"), *UBTPath),
+                TEXT("UBT_NOT_FOUND"));
+            return true;
+        }
+
+        FString ProjectPath = FPaths::GetProjectFilePath();
+        FString ProjectArg;
+        if (!ProjectPath.IsEmpty())
+        {
+            ProjectArg = FString::Printf(TEXT(" -Project=\"%s\""), *ProjectPath);
+        }
+
         // Build command line
-        const FString Params = FString::Printf(TEXT("%s %s %s %s"), 
-            *Target, *Platform, *Configuration, *ExtraArgs);
+        const FString Params = FString::Printf(TEXT("%s %s %s%s %s"),
+            *Target, *Platform, *Configuration, *ProjectArg, *ExtraArgs);
 
         // Spawn UBT as detached process
         FProcHandle ProcHandle = FPlatformProcess::CreateProc(
@@ -111,7 +139,8 @@ bool UMcpAutomationBridgeSubsystem::HandlePipelineAction(
         if (ProcHandle.IsValid())
         {
             TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
-            Result->SetStringField(TEXT("action"), TEXT("run_ubt"));
+            Result->SetStringField(TEXT("action"), TEXT("manage_pipeline"));
+            Result->SetStringField(TEXT("subAction"), TEXT("run_ubt"));
             Result->SetStringField(TEXT("target"), Target);
             Result->SetStringField(TEXT("platform"), Platform);
             Result->SetStringField(TEXT("configuration"), Configuration);
@@ -135,69 +164,36 @@ bool UMcpAutomationBridgeSubsystem::HandlePipelineAction(
     {
         TArray<TSharedPtr<FJsonValue>> Categories;
 
-        // Core Actor & Asset Tools
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_actor")));
+        // Canonical public MCP tools
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_tools")));
         Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_asset")));
         Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_blueprint")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_level")));
-
-        // Editor & System Tools
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("control_actor")));
         Categories.Add(MakeShared<FJsonValueString>(TEXT("control_editor")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("system_control")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_pipeline")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("inspect")));
-
-        // Visual & Effects Tools
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_lighting")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_effect")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_material_authoring")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_texture")));
-
-        // Animation & Physics Tools
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_level")));
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("build_environment")));
         Categories.Add(MakeShared<FJsonValueString>(TEXT("animation_physics")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_skeleton")));
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("system_control")));
         Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_sequence")));
-
-        // Audio Tools
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("inspect")));
         Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_audio")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_audio_authoring")));
-
-        // Gameplay Tools
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_geometry")));
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_effect")));
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_gas")));
         Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_character")));
         Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_combat")));
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_ai")));
         Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_inventory")));
         Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_interaction")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_gas")));
-
-        // AI Tools
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_ai")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_behavior_tree")));
-
-        // World Building Tools
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("build_environment")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_geometry")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_level_structure")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_volumes")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_navigation")));
-
-        // UI Tools
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_widget_authoring")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_input")));
-
-        // Networking & Multiplayer Tools
         Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_networking")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_sessions")));
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_game_framework")));
-
-        // Performance Tools
-        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_performance")));
+        Categories.Add(MakeShared<FJsonValueString>(TEXT("manage_level_structure")));
 
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetArrayField(TEXT("categories"), Categories);
         Result->SetNumberField(TEXT("count"), Categories.Num());
 
         SendAutomationResponse(RequestingSocket, RequestId, true, 
-            FString::Printf(TEXT("Listed %d automation categories"), Categories.Num()), Result);
+            FString::Printf(TEXT("Listed %d canonical MCP tools"), Categories.Num()), Result);
         return true;
     }
 
@@ -227,7 +223,7 @@ bool UMcpAutomationBridgeSubsystem::HandlePipelineAction(
 
         // Action statistics
         Result->SetNumberField(TEXT("totalActions"), 1069);
-        Result->SetNumberField(TEXT("toolCategories"), 35);
+        Result->SetNumberField(TEXT("toolCategories"), 22);
 
         // Runtime info
         Result->SetStringField(TEXT("platform"), *UGameplayStatics::GetPlatformName());

@@ -1189,10 +1189,10 @@ export async function runToolTests(toolName, testCases) {
       }, 15000).catch(err => console.warn('⚠️  TestCylinder may already exist:', err?.message || err));
       // === End Geometry Setup ===
 
-      // === Navigation Setup for manage_navigation tests ===
+      // === Navigation Setup for manage_ai navigation tests ===
       // Create NavMeshBoundsVolume so RecastNavMesh can be generated
       await callToolOnce({
-        name: 'manage_volumes',
+        name: 'manage_level_structure',
         arguments: {
           action: 'create_nav_mesh_bounds_volume',
           volumeName: 'TestNavMeshBounds',
@@ -1203,7 +1203,7 @@ export async function runToolTests(toolName, testCases) {
 
       // Trigger navigation rebuild to generate RecastNavMesh
       await callToolOnce({
-        name: 'manage_navigation',
+        name: 'manage_ai',
         arguments: { action: 'rebuild_navigation' }
       }, 30000).catch(err => console.warn('⚠️  Navigation rebuild may have failed:', err?.message || err));
 
@@ -1215,7 +1215,7 @@ export async function runToolTests(toolName, testCases) {
 
       // Add NavModifier component to BP_Test blueprint
       await callToolOnce({
-        name: 'manage_navigation',
+        name: 'manage_ai',
         arguments: {
           action: 'create_nav_modifier_component',
           blueprintPath: '/Game/MCPTest/BP_Test',
@@ -1232,41 +1232,41 @@ export async function runToolTests(toolName, testCases) {
       }, 15000).catch(err => console.warn('⚠️  NavTestActor may already exist:', err?.message || err));
       // === End Navigation Setup ===
 
-      // === Spline Setup for manage_splines tests ===
+      // === Spline Setup for build_environment spline tests ===
       // Create TestSpline for spline manipulation tests
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_spline_actor', actorName: 'TestSpline', location: {x:0,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestSpline may already exist:', err?.message || err));
 
       // Create template spline actors for specialized spline tests
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_road_spline', actorName: 'TestRoad', location: {x:500,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestRoad may already exist:', err?.message || err));
 
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_river_spline', actorName: 'TestRiver', location: {x:1000,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestRiver may already exist:', err?.message || err));
 
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_fence_spline', actorName: 'TestFence', location: {x:1500,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestFence may already exist:', err?.message || err));
 
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_wall_spline', actorName: 'TestWall', location: {x:2000,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestWall may already exist:', err?.message || err));
 
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_cable_spline', actorName: 'TestCable', location: {x:2500,y:0,z:100} }
       }, 15000).catch(err => console.warn('⚠️  TestCable may already exist:', err?.message || err));
 
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_pipe_spline', actorName: 'TestPipe', location: {x:3000,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestPipe may already exist:', err?.message || err));
 

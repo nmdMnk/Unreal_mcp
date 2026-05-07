@@ -17,13 +17,13 @@ class FMcpToolDefinition
 public:
 	virtual ~FMcpToolDefinition() = default;
 
-	/** MCP tool name (e.g. "manage_lighting"). Used as the "name" field in tools/list. */
+	/** MCP tool name (e.g. "build_environment"). Used as the "name" field in tools/list. */
 	virtual FString GetName() const = 0;
 
 	/** Human-readable description shown to the LLM. */
 	virtual FString GetDescription() const = 0;
 
-	/** Category for dynamic tool management (core, world, authoring, gameplay, utility). */
+	/** Category for dynamic tool management (core, world, gameplay, utility). */
 	virtual FString GetCategory() const = 0;
 
 	/**

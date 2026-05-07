@@ -4,7 +4,7 @@ All notable changes to the MCP Automation Bridge plugin will be documented in th
 
 ---
 
-## [0.6.0] - 2026-04-05
+## [Unreleased]
 
 ### Security
 - **Capability token enforcement** on native MCP transport — validates `X-MCP-Capability-Token` header when `bRequireCapabilityToken` is enabled (mirrors WebSocket bridge logic)
@@ -22,9 +22,9 @@ All notable changes to the MCP Automation Bridge plugin will be documented in th
 - **Multiple concurrent sessions** — Cursor, Claude Code, and other clients can connect simultaneously
 - **Session management** with `Mcp-Session-Id` header, 1-hour inactivity timeout, `DELETE /mcp` termination
 - **Dynamic tool manager** — enable/disable tools and categories at runtime via `manage_tools`
-- **36 tool schemas** generated from self-describing C++ tool classes with full `inputSchema` and categories (core, world, authoring, gameplay, utility)
+- **Native tool schemas** generated from self-describing C++ tool classes with full `inputSchema` and categories (core, world, authoring, gameplay, utility); the TypeScript bridge exposes 22 canonical parent MCP tools.
 - **`listChanged` notifications** — broadcast `notifications/tools/list_changed` to all active SSE connections when tool state changes
-- **Load All Tools on Start** project setting — toggle between core-only (8 tools) and all tools (36) at startup
+- **Load All Tools on Start** project setting — toggle between the core set and all available native tool schemas at startup
 - **Status bar indicator** — `● MCP :3000 (2)` in UE editor status bar, click to open settings
 - **Server identity config** — `server-info.json` for name/version/instructions, plus `NativeMCPInstructions` project setting for custom instructions
 - **Client info logging** — log connecting client name and version from `initialize` request
@@ -33,6 +33,7 @@ All notable changes to the MCP Automation Bridge plugin will be documented in th
 - **Plugin-packaging scripts** for Win/Mac/Linux — build and package the plugin via RunUAT BuildPlugin, with smart arg parsing
 
 ### Changed
+- Tool categories now use four groups: `core`, `world`, `gameplay`, and `utility`. The singleton `authoring` category was removed, and `manage_blueprint` moved into `core`.
 - `manage_blueprint` schema: `location`, `rotation`, `scale` changed from flat number arrays to structured objects with named sub-fields (`x`/`y`/`z` or `pitch`/`yaw`/`roll`) — matches TypeScript schema
 - `system_control` schema: removed `export_asset` action (not in TypeScript schema) and `additionalArgs` parameter (C++-only, never used by TS clients)
 - `control_editor` schema: added `set_editor_mode` action (was missing from C++, present in TS)
@@ -61,7 +62,7 @@ All notable changes to the MCP Automation Bridge plugin will be documented in th
 | `Private/MCP/McpToolRegistry.h/cpp` | Singleton registry for self-describing C++ tool definitions |
 | `Private/MCP/McpSchemaBuilder.h/cpp` | Fluent builder for MCP tool inputSchema JSON |
 | `Private/MCP/McpDynamicToolManager.h/cpp` | Runtime tool enable/disable, protected tools, initial state reset |
-| `Private/MCP/Tools/McpTool_*.cpp` | 36 self-describing tool definition classes with schema + dispatch |
+| `Private/MCP/Tools/McpTool_*.cpp` | Native self-describing tool definition classes with schema + dispatch |
 | `Private/UI/SMcpStatusBarWidget.h/cpp` | Editor status bar MCP indicator |
 | `Resources/MCP/server-info.json` | Server name, version, default instructions |
 

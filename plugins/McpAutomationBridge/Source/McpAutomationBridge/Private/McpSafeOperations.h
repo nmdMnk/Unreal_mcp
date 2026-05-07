@@ -144,26 +144,90 @@ inline bool McpSafeAssetSave(UObject* Asset)
         return false;
     }
 
-    Asset->MarkPackageDirty();
-    FAssetRegistryModule::AssetCreated(Asset);
+    UPackage* Package = Cast<UPackage>(Asset);
+    if (!Package)
+    {
+        Package = Asset->GetOutermost();
+    }
+    if (!Package)
+    {
+        return false;
+    }
 
-#if MCP_HAS_PACKAGE_TOOLS
-    TArray<UObject*> ObjectsToSave;
-    ObjectsToSave.Add(Asset);
+    const FString PackageName = Package->GetName();
+    if (PackageName.StartsWith(TEXT("/Temp/")) ||
+        PackageName.StartsWith(TEXT("/Transient/")) ||
+        PackageName.StartsWith(TEXT("/Engine/Transient")) ||
+        Package->HasAnyFlags(RF_Transient))
+    {
+        return false;
+    }
 
-    FlushRenderingCommands();
+    Package->SetDirtyFlag(true);
+    if (Asset != Package)
+    {
+        Asset->MarkPackageDirty();
+        FAssetRegistryModule::AssetCreated(Asset);
+    }
 
-    const bool bSaved = UPackageTools::SavePackagesForObjects(ObjectsToSave);
-    if (bSaved)
+    auto ScanSavedPackage = [&PackageName]()
     {
         TArray<FString> PathsToScan;
-        PathsToScan.Add(FPaths::GetPath(Asset->GetOutermost()->GetName()));
+        PathsToScan.Add(FPaths::GetPath(PackageName));
         FAssetRegistryModule& AssetRegistryModule =
             FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
         AssetRegistryModule.Get().ScanPathsSynchronous(PathsToScan, false);
+    };
+
+    auto PackageExistsOnDisk = [&PackageName]()
+    {
+        FString AssetFilename;
+        FString MapFilename;
+        const bool bHasAssetFilename = FPackageName::TryConvertLongPackageNameToFilename(
+            PackageName, AssetFilename, FPackageName::GetAssetPackageExtension());
+        const bool bHasMapFilename = FPackageName::TryConvertLongPackageNameToFilename(
+            PackageName, MapFilename, FPackageName::GetMapPackageExtension());
+
+        return
+            (bHasAssetFilename && IFileManager::Get().FileExists(*FPaths::ConvertRelativePathToFull(AssetFilename))) ||
+            (bHasMapFilename && IFileManager::Get().FileExists(*FPaths::ConvertRelativePathToFull(MapFilename)));
+    };
+
+#if MCP_HAS_PACKAGE_TOOLS
+    if (Asset != Package)
+    {
+        TArray<UObject*> ObjectsToSave;
+        ObjectsToSave.Add(Asset);
+
+        FlushRenderingCommands();
+
+        const bool bSaved = UPackageTools::SavePackagesForObjects(ObjectsToSave);
+        if (bSaved && PackageExistsOnDisk())
+        {
+            ScanSavedPackage();
+            return true;
+        }
+
+        if (bSaved)
+        {
+            UE_LOG(LogMcpSafeOperations, Warning,
+                TEXT("McpSafeAssetSave: SavePackagesForObjects reported success but no package file exists for %s; trying package save fallback"),
+                *PackageName);
+        }
     }
 
-    return bSaved;
+    TArray<UPackage*> PackagesToSave;
+    PackagesToSave.Add(Package);
+    const bool bPromptSaveSucceeded = FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
+    const bool bExistsOnDisk = PackageExistsOnDisk();
+
+    if (bPromptSaveSucceeded || bExistsOnDisk)
+    {
+        ScanSavedPackage();
+        return true;
+    }
+
+    return false;
 #else
     return false;
 #endif
@@ -1458,9 +1522,8 @@ inline int32 DeleteAnimationRigClusterOrdered(const TArray<FAssetData>& ClusterA
 
         if (!UnloadLoadedPackagesForAssets(InMemoryOnlyAssets, TEXT("DeleteAnimationRigClusterOrdered[InMemoryOnly]")))
         {
-            UE_LOG(LogMcpSafeOperations, Error,
-                TEXT("DeleteAnimationRigClusterOrdered: Failed to unload one or more in-memory-only packages before delete"));
-            return INDEX_NONE;
+            UE_LOG(LogMcpSafeOperations, Warning,
+                TEXT("DeleteAnimationRigClusterOrdered: One or more in-memory-only packages remained loaded before delete; continuing with filesystem-backed cleanup"));
         }
     }
 
@@ -2262,6 +2325,40 @@ RiskyAnimationAssets.Num(), SafeAssets.Num(), WorldAssets.Num());
     TArray<FAssetData> RemainingAssets;
     AssetRegistry.GetAssets(RemainingFilter, RemainingAssets);
 
+    TArray<FAssetData> RemainingFileBackedAssets;
+    auto AssetDataHasBackingFile = [](const FAssetData& AssetData)
+    {
+        const FString PackagePath = AssetData.PackageName.ToString();
+
+        FString AssetFilename;
+        if (FPackageName::TryConvertLongPackageNameToFilename(PackagePath, AssetFilename, FPackageName::GetAssetPackageExtension()))
+        {
+            if (IFileManager::Get().FileExists(*FPaths::ConvertRelativePathToFull(AssetFilename)))
+            {
+                return true;
+            }
+        }
+
+        FString MapFilename;
+        if (FPackageName::TryConvertLongPackageNameToFilename(PackagePath, MapFilename, FPackageName::GetMapPackageExtension()))
+        {
+            if (IFileManager::Get().FileExists(*FPaths::ConvertRelativePathToFull(MapFilename)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    for (const FAssetData& RemainingAsset : RemainingAssets)
+    {
+        if (AssetDataHasBackingFile(RemainingAsset))
+        {
+            RemainingFileBackedAssets.Add(RemainingAsset);
+        }
+    }
+
     TArray<FString> RemainingSubPaths;
     AssetRegistry.GetSubPaths(FolderPath, RemainingSubPaths, true);
 
@@ -2277,11 +2374,18 @@ RiskyAnimationAssets.Num(), SafeAssets.Num(), WorldAssets.Num());
         UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeDeleteFolder: Successfully deleted '%s'"), *FolderPath);
         return true;
     }
+    else if (RemainingFileBackedAssets.Num() == 0 && RemainingSubPaths.Num() == 0 && !bDirectoryExistsOnDisk)
+    {
+        UE_LOG(LogMcpSafeOperations, Warning,
+            TEXT("McpSafeDeleteFolder: Physical folder '%s' deleted; only %d in-memory package(s) without backing files remain"),
+            *FolderPath, RemainingAssets.Num());
+        return true;
+    }
     else
     {
         UE_LOG(LogMcpSafeOperations, Warning,
-            TEXT("McpSafeDeleteFolder: Directory still exists after deletion attempt (remainingAssets=%d remainingSubPaths=%d existsOnDisk=%d)"),
-            RemainingAssets.Num(), RemainingSubPaths.Num(), bDirectoryExistsOnDisk ? 1 : 0);
+            TEXT("McpSafeDeleteFolder: Directory still exists after deletion attempt (remainingAssets=%d remainingFileBackedAssets=%d remainingSubPaths=%d existsOnDisk=%d)"),
+            RemainingAssets.Num(), RemainingFileBackedAssets.Num(), RemainingSubPaths.Num(), bDirectoryExistsOnDisk ? 1 : 0);
 
 for (const FAssetData& RemainingAsset : RemainingAssets)
 {

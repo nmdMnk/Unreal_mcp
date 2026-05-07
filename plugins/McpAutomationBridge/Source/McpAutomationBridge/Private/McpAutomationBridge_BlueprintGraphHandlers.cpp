@@ -100,7 +100,7 @@
 #endif
 
 /**
- * Process a "manage_blueprint_graph" automation request to inspect or modify a
+ * Process a canonical "manage_blueprint" graph request to inspect or modify a
  * Blueprint graph.
  *
  * The Payload JSON controls the specific operation via the "subAction" field
@@ -113,20 +113,19 @@
  * @param RequestId Unique identifier for the automation request (used in
  * responses).
  * @param Action The requested action name; this handler only processes
- * "manage_blueprint_graph".
+ * "manage_blueprint".
  * @param Payload JSON object containing action options such as
  * "assetPath"/"blueprintPath", "graphName", "subAction" and subaction-specific
  * fields (nodeType, nodeId, pin names, positions, etc.).
  * @param RequestingSocket WebSocket used to send responses and errors back to
  * the requester.
- * @return `true` if the request was handled by this function (Action ==
- * "manage_blueprint_graph"), `false` otherwise.
+ * @return `true` if the request was handled by this function, `false` otherwise.
  */
 bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     const FString &RequestId, const FString &Action,
     const TSharedPtr<FJsonObject> &Payload,
     TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
-  if (Action != TEXT("manage_blueprint_graph")) {
+  if (Action != TEXT("manage_blueprint")) {
     return false;
   }
 

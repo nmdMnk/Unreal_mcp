@@ -126,4 +126,152 @@ const testCases = [
   { scenario: 'ACTION: rebuild_material', toolName: 'manage_asset', arguments: { action: 'rebuild_material', assetPath: BASE_MATERIAL }, expected: 'success' },
 ];
 
+// === MATERIAL AUTHORING ACTIONS ===
+{
+  /**
+   * manage_asset material authoring action integration tests
+   * Exercises real material, material function, and material instance mutations.
+   */
+
+  const TEST_FOLDER = '/Game/MCPTest/AuthoringAssets';
+  const ts = Date.now();
+
+  const MATERIAL_NAME = `Testmaterial_${ts}`;
+  const MATERIAL_PATH = `${TEST_FOLDER}/${MATERIAL_NAME}`;
+  const FUNCTION_NAME = `Testmaterial_function_${ts}`;
+  const FUNCTION_PATH = `${TEST_FOLDER}/${FUNCTION_NAME}`;
+  const INSTANCE_NAME = `Testmaterial_instance_${ts}`;
+  const INSTANCE_PATH = `${TEST_FOLDER}/${INSTANCE_NAME}`;
+  const LANDSCAPE_MATERIAL_NAME = `Testlandscape_material_${ts}`;
+  const LANDSCAPE_MATERIAL_PATH = `${TEST_FOLDER}/${LANDSCAPE_MATERIAL_NAME}`;
+  const LANDSCAPE_LAYER_PATH = `${LANDSCAPE_MATERIAL_PATH}/Grass`;
+  const DECAL_MATERIAL_NAME = `Testdecal_material_${ts}`;
+  const DECAL_MATERIAL_PATH = `${TEST_FOLDER}/${DECAL_MATERIAL_NAME}`;
+  const POST_PROCESS_MATERIAL_NAME = `Testpost_process_material_${ts}`;
+  const POST_PROCESS_MATERIAL_PATH = `${TEST_FOLDER}/${POST_PROCESS_MATERIAL_NAME}`;
+  const TEXTURE_NAME = `Testmaterial_texture_${ts}`;
+  const TEXTURE_PATH = `${TEST_FOLDER}/${TEXTURE_NAME}`;
+
+  testCases.push(
+    // === SETUP ===
+    { scenario: 'Setup: create test folder', toolName: 'manage_asset', arguments: { action: 'create_folder', path: TEST_FOLDER }, expected: 'success|already exists' },
+    { scenario: 'Setup: create texture parameter asset', toolName: 'manage_asset', arguments: { action: 'create_noise_texture', name: TEXTURE_NAME, path: TEST_FOLDER, width: 32, height: 32 }, expected: 'success|already exists' },
+
+    // === CREATE ===
+    { scenario: 'CREATE: create_material', toolName: 'manage_asset', arguments: { action: 'create_material', name: MATERIAL_NAME, path: TEST_FOLDER, materialDomain: 'Surface', blendMode: 'Opaque', shadingModel: 'DefaultLit' }, expected: 'success|already exists' },
+
+    // === CONFIG ===
+    { scenario: 'CONFIG: set_blend_mode', toolName: 'manage_asset', arguments: { action: 'set_blend_mode', assetPath: MATERIAL_PATH, blendMode: 'Masked' }, expected: 'success' },
+    { scenario: 'CONFIG: set_shading_model', toolName: 'manage_asset', arguments: { action: 'set_shading_model', assetPath: MATERIAL_PATH, shadingModel: 'DefaultLit' }, expected: 'success' },
+    { scenario: 'CONFIG: set_material_domain', toolName: 'manage_asset', arguments: { action: 'set_material_domain', assetPath: MATERIAL_PATH, domain: 'Surface' }, expected: 'success' },
+
+    // === ADD ===
+    { scenario: 'ADD: add_texture_sample', toolName: 'manage_asset', arguments: { action: 'add_texture_sample', assetPath: MATERIAL_PATH, texturePath: TEXTURE_PATH, parameterName: 'AlbedoTex', x: -600, y: -300 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_texture_coordinate', toolName: 'manage_asset', arguments: { action: 'add_texture_coordinate', assetPath: MATERIAL_PATH, coordinateIndex: 0, uTiling: 1, vTiling: 1, x: -800, y: -300 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_scalar_parameter', toolName: 'manage_asset', arguments: { action: 'add_scalar_parameter', assetPath: MATERIAL_PATH, parameterName: 'RoughnessParam', defaultValue: 0.5, group: 'MCP', x: -400, y: 120 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_vector_parameter', toolName: 'manage_asset', arguments: { action: 'add_vector_parameter', assetPath: MATERIAL_PATH, parameterName: 'TintParam', defaultValue: { r: 0.1, g: 0.4, b: 0.8, a: 1 }, group: 'MCP', x: -400, y: 260 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_static_switch_parameter', toolName: 'manage_asset', arguments: { action: 'add_static_switch_parameter', assetPath: MATERIAL_PATH, parameterName: 'UseDetailParam', defaultValue: true, group: 'MCP', x: -400, y: 400 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_math_node', toolName: 'manage_asset', arguments: { action: 'add_math_node', assetPath: MATERIAL_PATH, operation: 'Multiply', constA: 0.5, constB: 2, x: -100, y: 120 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_world_position', toolName: 'manage_asset', arguments: { action: 'add_world_position', assetPath: MATERIAL_PATH, x: -100, y: -450 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_vertex_normal', toolName: 'manage_asset', arguments: { action: 'add_vertex_normal', assetPath: MATERIAL_PATH, x: -100, y: -320 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_pixel_depth', toolName: 'manage_asset', arguments: { action: 'add_pixel_depth', assetPath: MATERIAL_PATH, x: -100, y: -190 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_fresnel', toolName: 'manage_asset', arguments: { action: 'add_fresnel', assetPath: MATERIAL_PATH, x: -100, y: -60 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_reflection_vector', toolName: 'manage_asset', arguments: { action: 'add_reflection_vector', assetPath: MATERIAL_PATH, x: -100, y: 70 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_panner', toolName: 'manage_asset', arguments: { action: 'add_panner', assetPath: MATERIAL_PATH, speedX: 0.25, speedY: 0.5, x: -100, y: 200 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_rotator', toolName: 'manage_asset', arguments: { action: 'add_rotator', assetPath: MATERIAL_PATH, speed: 0.2, x: -100, y: 330 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_noise', toolName: 'manage_asset', arguments: { action: 'add_noise', assetPath: MATERIAL_PATH, scale: 8, levels: 2, x: 150, y: -320 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_voronoi', toolName: 'manage_asset', arguments: { action: 'add_voronoi', assetPath: MATERIAL_PATH, scale: 8, x: 150, y: -190 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_if', toolName: 'manage_asset', arguments: { action: 'add_if', assetPath: MATERIAL_PATH, x: 150, y: -60 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_switch', toolName: 'manage_asset', arguments: { action: 'add_switch', assetPath: MATERIAL_PATH, x: 150, y: 70 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_custom_expression', toolName: 'manage_asset', arguments: { action: 'add_custom_expression', assetPath: MATERIAL_PATH, code: 'return 0.25;', outputType: 'Float1', description: 'MCP test custom expression', x: 150, y: 200 }, expected: 'success|already exists' },
+
+    // === CONNECT ===
+    { scenario: 'CONNECT: connect_nodes', toolName: 'manage_asset', arguments: { action: 'connect_nodes', assetPath: MATERIAL_PATH, sourceNodeId: 'RoughnessParam', targetNodeId: 'Main', inputName: 'Roughness' }, expected: 'success' },
+    { scenario: 'ACTION: disconnect_nodes', toolName: 'manage_asset', arguments: { action: 'disconnect_nodes', assetPath: MATERIAL_PATH, nodeId: 'Main', pinName: 'Roughness' }, expected: 'success' },
+
+    // === MATERIAL FUNCTIONS ===
+    { scenario: 'CREATE: create_material_function', toolName: 'manage_asset', arguments: { action: 'create_material_function', name: FUNCTION_NAME, path: TEST_FOLDER, description: 'MCP material function test' }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_function_input', toolName: 'manage_asset', arguments: { action: 'add_function_input', functionPath: FUNCTION_PATH, inputName: 'InputColor', inputType: 'Vector3', x: -250, y: 0 }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_function_output', toolName: 'manage_asset', arguments: { action: 'add_function_output', functionPath: FUNCTION_PATH, inputName: 'OutputColor', inputType: 'Vector3', x: 250, y: 0 }, expected: 'success|already exists' },
+    { scenario: 'ACTION: use_material_function', toolName: 'manage_asset', arguments: { action: 'use_material_function', assetPath: MATERIAL_PATH, functionPath: FUNCTION_PATH, x: 350, y: 250 }, expected: 'success' },
+
+    // === MATERIAL INSTANCES ===
+    { scenario: 'CREATE: create_material_instance', toolName: 'manage_asset', arguments: { action: 'create_material_instance', name: INSTANCE_NAME, path: TEST_FOLDER, parentMaterial: MATERIAL_PATH }, expected: 'success|already exists' },
+    { scenario: 'CONFIG: set_scalar_parameter_value', toolName: 'manage_asset', arguments: { action: 'set_scalar_parameter_value', instancePath: INSTANCE_PATH, parameterName: 'RoughnessParam', value: 0.35 }, expected: 'success' },
+    { scenario: 'CONFIG: set_vector_parameter_value', toolName: 'manage_asset', arguments: { action: 'set_vector_parameter_value', instancePath: INSTANCE_PATH, parameterName: 'TintParam', value: { r: 0.8, g: 0.2, b: 0.1, a: 1 } }, expected: 'success' },
+    { scenario: 'CONFIG: set_texture_parameter_value', toolName: 'manage_asset', arguments: { action: 'set_texture_parameter_value', instancePath: INSTANCE_PATH, parameterName: 'AlbedoTex', texturePath: TEXTURE_PATH }, expected: 'success' },
+
+    // === SPECIALIZED MATERIALS ===
+    { scenario: 'CREATE: create_landscape_material', toolName: 'manage_asset', arguments: { action: 'create_landscape_material', name: LANDSCAPE_MATERIAL_NAME, path: TEST_FOLDER }, expected: 'success|already exists' },
+    { scenario: 'CREATE: create_decal_material', toolName: 'manage_asset', arguments: { action: 'create_decal_material', name: DECAL_MATERIAL_NAME, path: TEST_FOLDER }, expected: 'success|already exists' },
+    { scenario: 'CREATE: create_post_process_material', toolName: 'manage_asset', arguments: { action: 'create_post_process_material', name: POST_PROCESS_MATERIAL_NAME, path: TEST_FOLDER }, expected: 'success|already exists' },
+    { scenario: 'ADD: add_landscape_layer', toolName: 'manage_asset', arguments: { action: 'add_landscape_layer', assetPath: LANDSCAPE_MATERIAL_PATH, layerName: 'Grass', blendType: 'LB_WeightBlend' }, expected: 'success|already exists' },
+    { scenario: 'CONFIG: configure_layer_blend', toolName: 'manage_asset', arguments: { action: 'configure_layer_blend', assetPath: LANDSCAPE_MATERIAL_PATH, layers: [{ name: 'Grass', blendType: 'LB_WeightBlend' }, { name: 'Rock', blendType: 'LB_HeightBlend' }] }, expected: 'success' },
+    { scenario: 'ACTION: compile_material', toolName: 'manage_asset', arguments: { action: 'compile_material', assetPath: MATERIAL_PATH }, expected: 'success' },
+    { scenario: 'INFO: get_material_info', toolName: 'manage_asset', arguments: { action: 'get_material_info', assetPath: MATERIAL_PATH }, expected: 'success' },
+
+    // === CLEANUP ===
+    { scenario: 'Cleanup: delete material instance', toolName: 'manage_asset', arguments: { action: 'delete', path: INSTANCE_PATH, force: true }, expected: 'success|not found' },
+    { scenario: 'Cleanup: delete authored material', toolName: 'manage_asset', arguments: { action: 'delete', path: MATERIAL_PATH, force: true }, expected: 'success|not found' },
+    { scenario: 'Cleanup: delete material function', toolName: 'manage_asset', arguments: { action: 'delete', path: FUNCTION_PATH, force: true }, expected: 'success|not found' },
+    { scenario: 'Cleanup: delete landscape layer', toolName: 'manage_asset', arguments: { action: 'delete', path: LANDSCAPE_LAYER_PATH, force: true }, expected: 'success|not found' },
+    { scenario: 'Cleanup: delete landscape material', toolName: 'manage_asset', arguments: { action: 'delete', path: LANDSCAPE_MATERIAL_PATH, force: true }, expected: 'success|not found' },
+    { scenario: 'Cleanup: delete decal material', toolName: 'manage_asset', arguments: { action: 'delete', path: DECAL_MATERIAL_PATH, force: true }, expected: 'success|not found' },
+    { scenario: 'Cleanup: delete post process material', toolName: 'manage_asset', arguments: { action: 'delete', path: POST_PROCESS_MATERIAL_PATH, force: true }, expected: 'success|not found' },
+    { scenario: 'Cleanup: delete texture asset', toolName: 'manage_asset', arguments: { action: 'delete', path: TEXTURE_PATH, force: true }, expected: 'success|not found' },
+    { scenario: 'Cleanup: delete test folder', toolName: 'manage_asset', arguments: { action: 'delete', path: TEST_FOLDER, force: true }, expected: 'success|not found' },
+  );
+}
+
+// === TEXTURE ACTIONS ===
+{
+  /**
+   * manage_asset texture action integration tests
+   * Covers all 21 actions with proper setup/teardown sequencing.
+   */
+
+  const TEST_FOLDER = '/Game/MCPTest/AuthoringAssets';
+  const ts = Date.now();
+  const NOISE_TEXTURE = `${TEST_FOLDER}/Testnoise_texture`;
+  const GRADIENT_TEXTURE = `${TEST_FOLDER}/Testgradient_texture`;
+  const PATTERN_TEXTURE = `${TEST_FOLDER}/Testpattern_texture`;
+  const ENGINE_CUBE = '/Engine/EngineMeshes/Cube';
+
+  testCases.push(
+    // === SETUP ===
+    { scenario: 'Setup: create test folder', toolName: 'manage_asset', arguments: { action: 'create_folder', path: TEST_FOLDER }, expected: 'success|already exists' },
+
+    // === CREATE ===
+    { scenario: 'CREATE: create_noise_texture', toolName: 'manage_asset', arguments: { action: 'create_noise_texture', name: 'Testnoise_texture', path: TEST_FOLDER, width: 64, height: 64 }, expected: 'success|already exists' },
+    { scenario: 'CREATE: create_gradient_texture', toolName: 'manage_asset', arguments: { action: 'create_gradient_texture', name: 'Testgradient_texture', path: TEST_FOLDER, width: 64, height: 64 }, expected: 'success|already exists' },
+    { scenario: 'CREATE: create_pattern_texture', toolName: 'manage_asset', arguments: { action: 'create_pattern_texture', name: 'Testpattern_texture', path: TEST_FOLDER, width: 64, height: 64 }, expected: 'success|already exists' },
+    { scenario: 'CREATE: create_normal_from_height', toolName: 'manage_asset', arguments: { action: 'create_normal_from_height', sourceTexture: NOISE_TEXTURE, name: 'Testnormal_from_height', path: TEST_FOLDER, strength: 1.0 }, expected: 'success|already exists' },
+    { scenario: 'CREATE: create_ao_from_mesh', toolName: 'manage_asset', arguments: { action: 'create_ao_from_mesh', meshPath: ENGINE_CUBE, name: 'Testao_from_mesh', path: TEST_FOLDER, width: 64, height: 64, samples: 8 }, expected: 'success|already exists' },
+    // === ACTION ===
+    { scenario: 'ACTION: resize_texture', toolName: 'manage_asset', arguments: { action: 'resize_texture', sourcePath: NOISE_TEXTURE, name: `Testresize_texture_${ts}`, path: TEST_FOLDER, newWidth: 32, newHeight: 32 }, expected: 'success' },
+    // === CONFIG ===
+    { scenario: 'CONFIG: adjust_levels', toolName: 'manage_asset', arguments: { action: 'adjust_levels', assetPath: NOISE_TEXTURE, inBlack: 0.1, inWhite: 0.9, gamma: 1.0 }, expected: 'success' },
+    { scenario: 'CONFIG: adjust_curves', toolName: 'manage_asset', arguments: { action: 'adjust_curves', assetPath: NOISE_TEXTURE, curvePoints: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }, expected: 'success' },
+    // === ACTION ===
+    { scenario: 'ACTION: blur', toolName: 'manage_asset', arguments: { action: 'blur', assetPath: NOISE_TEXTURE, radius: 1.0 }, expected: 'success' },
+    { scenario: 'ACTION: sharpen', toolName: 'manage_asset', arguments: { action: 'sharpen', assetPath: NOISE_TEXTURE, amount: 0.5 }, expected: 'success' },
+    { scenario: 'ACTION: invert', toolName: 'manage_asset', arguments: { action: 'invert', assetPath: NOISE_TEXTURE }, expected: 'success' },
+    { scenario: 'ACTION: desaturate', toolName: 'manage_asset', arguments: { action: 'desaturate', assetPath: NOISE_TEXTURE, amount: 0.5 }, expected: 'success' },
+    { scenario: 'ACTION: channel_pack', toolName: 'manage_asset', arguments: { action: 'channel_pack', name: `Testchannel_pack_${ts}`, path: TEST_FOLDER, redTexture: NOISE_TEXTURE, greenTexture: GRADIENT_TEXTURE, blueTexture: PATTERN_TEXTURE, width: 64, height: 64 }, expected: 'success' },
+    { scenario: 'ACTION: channel_extract', toolName: 'manage_asset', arguments: { action: 'channel_extract', texturePath: NOISE_TEXTURE, channel: 'Red', name: `Testchannel_extract_${ts}` }, expected: 'success' },
+    { scenario: 'ACTION: combine_textures', toolName: 'manage_asset', arguments: { action: 'combine_textures', name: `Testcombine_textures_${ts}`, path: TEST_FOLDER, baseTexture: NOISE_TEXTURE, blendTexture: GRADIENT_TEXTURE, blendMode: 'Multiply', opacity: 0.5 }, expected: 'success' },
+    // === CONFIG ===
+    { scenario: 'CONFIG: set_compression_settings', toolName: 'manage_asset', arguments: { action: 'set_compression_settings', assetPath: NOISE_TEXTURE, compressionSettings: 'TC_Default' }, expected: 'success' },
+    { scenario: 'CONFIG: set_texture_group', toolName: 'manage_asset', arguments: { action: 'set_texture_group', assetPath: NOISE_TEXTURE, textureGroup: 'TEXTUREGROUP_World' }, expected: 'success' },
+    { scenario: 'CONFIG: set_lod_bias', toolName: 'manage_asset', arguments: { action: 'set_lod_bias', assetPath: NOISE_TEXTURE, lodBias: 1 }, expected: 'success' },
+    { scenario: 'CONFIG: configure_virtual_texture', toolName: 'manage_asset', arguments: { action: 'configure_virtual_texture', assetPath: NOISE_TEXTURE, virtualTextureStreaming: false }, expected: 'success' },
+    { scenario: 'CONFIG: set_streaming_priority', toolName: 'manage_asset', arguments: { action: 'set_streaming_priority', assetPath: NOISE_TEXTURE, neverStream: true, streamingPriority: 1 }, expected: 'success' },
+    // === INFO ===
+    { scenario: 'INFO: get_texture_info', toolName: 'manage_asset', arguments: { action: 'get_texture_info', assetPath: NOISE_TEXTURE }, expected: 'success' },
+
+    // === CLEANUP ===
+    { scenario: 'Cleanup: delete test folder', toolName: 'manage_asset', arguments: { action: 'delete', path: TEST_FOLDER, force: true }, expected: 'success|not found' },
+  );
+}
+
 runToolTests('manage-asset', testCases);

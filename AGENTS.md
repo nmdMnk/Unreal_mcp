@@ -5,7 +5,7 @@
 **Branch:** main
 
 ## OVERVIEW
-MCP server for Unreal Engine 5 (5.0-5.7). Dual-process: TypeScript MCP server + C++ Bridge Plugin. 36 consolidated tools with action-based dispatch. Version 0.5.18.
+MCP server for Unreal Engine 5 (5.0-5.7). Dual-process: TypeScript MCP server + C++ Bridge Plugin. 22 exposed TypeScript MCP tools with action-based dispatch to native bridge handlers. Version 0.5.18.
 ## STRUCTURE
 ```
 ./
@@ -21,7 +21,7 @@ MCP server for Unreal Engine 5 (5.0-5.7). Dual-process: TypeScript MCP server + 
 │       └── Config/         # Plugin Settings
 ├── tests/                  # Integration + Unit Tests
 │   ├── test-runner.mjs     # Custom MCP test runner (1100+ lines)
-│   └── mcp-tools/          # Domain-specific test files (core/world/authoring/gameplay/utility)
+│   └── mcp-tools/          # Domain-specific test files (core/world/gameplay/utility)
 └── scripts/                # Maintenance & CI Helpers
 ```
 
@@ -62,7 +62,7 @@ MCP server for Unreal Engine 5 (5.0-5.7). Dual-process: TypeScript MCP server + 
 - **Raw WS Calls**: Use `executeAutomationRequest()` instead of WebSocket directly.
 
 ## UNIQUE STYLES
-- **Consolidated Tools**: 36 tools with action-based dispatch (single schema file).
+- **Consolidated Tools**: 22 exposed TypeScript MCP tools with action-based dispatch (single schema file).
 - **Dual Test Runners**: Vitest (unit) + Custom MCP runner (integration).
 - **Mock Mode**: Set `MOCK_UNREAL_CONNECTION=true` for offline CI.
 - **Non-Standard Layout**: `src/tools/handlers/` nested 2 levels deep.

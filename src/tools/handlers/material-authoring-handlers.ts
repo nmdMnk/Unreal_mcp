@@ -1322,7 +1322,13 @@ if (additionalOutputs != null) {
         if (res.success === false) {
           return ResponseFactory.error(res.error ?? 'Failed to add material node', res.errorCode);
         }
-        return ResponseFactory.success(res, res.message ?? `Material node '${nodeType}' added`);
+        const response = ResponseFactory.success(res, res.message ?? `Material node '${nodeType}' added`);
+        const result = res.result;
+        if (result && typeof result === 'object' && !Array.isArray(result)) {
+          const nodeId = (result as Record<string, unknown>).nodeId;
+          if (typeof nodeId === 'string') response.nodeId = nodeId;
+        }
+        return response;
       }
 
       // Alias connect_material_pins -> connect_nodes is handled via fallthrough at the connect_nodes case above

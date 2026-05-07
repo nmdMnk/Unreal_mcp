@@ -1,9 +1,9 @@
 # src/tools
 
-MCP tool implementations: 36 consolidated tools with action-based dispatch to native C++ handlers.
+MCP tool implementations: 22 exposed TypeScript MCP tools with action-based dispatch to native C++ handlers.
 
 ## OVERVIEW
-Consolidated tool architecture using action-based dispatch to native C++ handlers. Single 212KB schema file defines all tools.
+Consolidated tool architecture using action-based dispatch to native C++ handlers. Single schema file defines the exposed TypeScript MCP tools and their parent action enums.
 
 ## STRUCTURE
 ```

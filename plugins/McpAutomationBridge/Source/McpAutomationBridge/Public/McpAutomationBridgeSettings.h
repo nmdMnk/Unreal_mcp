@@ -146,11 +146,10 @@ public:
                 ClampMin = "1024", ClampMax = "65535"))
     int32 NativeMCPPort = 3000;
 
-    /** Load all tools on startup. When disabled, only core tools are loaded initially.
-     * Use manage_tools to enable additional categories at runtime. */
+    /** Load all 22 canonical tools on startup. */
     UPROPERTY(config, EditAnywhere, Category = "Native MCP",
         meta = (DisplayName = "Load All Tools on Start", EditCondition = "bEnableNativeMCP"))
-    bool bLoadAllToolsOnStart = false;
+    bool bLoadAllToolsOnStart = true;
 
     /** Additional instructions sent to AI clients in the MCP initialize response.
      * Use this to describe your project, conventions, or constraints.

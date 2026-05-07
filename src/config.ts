@@ -56,8 +56,8 @@ export const EnvSchema = z.object({
   MCP_CONNECTION_TIMEOUT_MS: z.preprocess((v) => stringToNumber(v, 5000), z.number()).default(5000),
   MCP_REQUEST_TIMEOUT_MS: z.preprocess((v) => stringToNumber(v, 30000), z.number()).default(30000),
 
-  // Tool Categories (comma-separated: core,world,authoring,gameplay,utility,all)
-  MCP_DEFAULT_CATEGORIES: z.string().default('core'),
+  // Tool Categories (comma-separated: core,world,gameplay,utility,all)
+  MCP_DEFAULT_CATEGORIES: z.string().default('all'),
 
   // Additional UE content path prefixes (comma-separated)
   // Plugins with CanContainContent in their .uplugin register mount points beyond /Game/.

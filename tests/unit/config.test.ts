@@ -20,7 +20,7 @@ describe('EnvSchema env var defaults (Zod v4 compatibility)', () => {
         expect(result.NODE_ENV).toBe('development');
         expect(result.LOG_LEVEL).toBe('debug');
         expect(result.MCP_AUTOMATION_HOST).toBe('127.0.0.1');
-        expect(result.MCP_DEFAULT_CATEGORIES).toBe('core');
+        expect(result.MCP_DEFAULT_CATEGORIES).toBe('all');
         expect(result.MCP_ADDITIONAL_PATH_PREFIXES).toBe('');
     });
 

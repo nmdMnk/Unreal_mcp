@@ -1937,13 +1937,8 @@ bool UMcpAutomationBridgeSubsystem::HandleDeleteAssets(
       // AnimBlueprints, IKRigs, IKRetargeters, etc.
       if (McpSafeOperations::McpSafeDeleteFolder(Path, true))
       {
-        // Verify the directory was actually deleted
-        if (!UEditorAssetLibrary::DoesDirectoryExist(Path)) {
-          DeletedCount++;
-        } else {
-          // Delete returned true but directory still exists
-          FailedToDeletePaths.Add(Path);
-        }
+        // McpSafeDeleteFolder performs registry and filesystem verification itself.
+        DeletedCount++;
       } else {
         FailedToDeletePaths.Add(Path);
       }

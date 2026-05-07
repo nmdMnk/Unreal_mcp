@@ -1,4 +1,4 @@
-// McpTool_ManageBlueprint.cpp — manage_blueprint tool definition (35 actions)
+// McpTool_ManageBlueprint.cpp — canonical manage_blueprint tool definition
 
 #include "McpVersionCompatibility.h"
 #include "MCP/McpToolDefinition.h"
@@ -16,7 +16,7 @@ public:
 			"and manipulate graph nodes.");
 	}
 
-	FString GetCategory() const override { return TEXT("authoring"); }
+	FString GetCategory() const override { return TEXT("core"); }
 
 	TSharedPtr<FJsonObject> BuildInputSchema() const override
 	{

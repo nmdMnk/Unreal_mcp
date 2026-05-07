@@ -10,7 +10,7 @@ import { consolidatedToolDefinitions, type ToolDefinition } from './consolidated
 
 const log = new Logger('DynamicToolManager');
 
-export type ToolCategory = 'core' | 'world' | 'authoring' | 'gameplay' | 'utility' | 'all';
+export type ToolCategory = 'core' | 'world' | 'gameplay' | 'utility' | 'all';
 
 interface ToolState {
   name: string;
@@ -102,7 +102,16 @@ class DynamicToolManager {
    */
   listCategories(): CategoryState[] {
     this.ensureInitialized();
-    return Array.from(this.categoryStates.values());
+    const states = Array.from(this.toolStates.values());
+    return Array.from(this.categoryStates.values()).map(catState => {
+      const categoryTools = states.filter(tool => tool.category === catState.name);
+      const enabledCount = categoryTools.filter(tool => this.isToolEnabled(tool.name)).length;
+      return {
+        ...catState,
+        toolCount: categoryTools.length,
+        enabledCount
+      };
+    });
   }
 
   /**
@@ -322,17 +331,17 @@ class DynamicToolManager {
     categories: CategoryState[];
   } {
     this.ensureInitialized();
-    
+    const visibleTools = this.listTools();
     let enabledCount = 0;
-    for (const state of this.toolStates.values()) {
-      if (state.enabled) enabledCount++;
+    for (const state of visibleTools) {
+      if (this.isToolEnabled(state.name)) enabledCount++;
     }
 
     return {
-      totalTools: this.toolStates.size,
+      totalTools: visibleTools.length,
       enabledTools: enabledCount,
-      disabledTools: this.toolStates.size - enabledCount,
-      categories: Array.from(this.categoryStates.values())
+      disabledTools: visibleTools.length - enabledCount,
+      categories: this.listCategories()
     };
   }
 

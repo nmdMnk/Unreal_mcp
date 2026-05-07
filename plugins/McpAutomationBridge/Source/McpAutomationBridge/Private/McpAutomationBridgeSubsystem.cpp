@@ -946,12 +946,6 @@ void UMcpAutomationBridgeSubsystem::InitializeHandlers() {
                          TSharedPtr<FMcpBridgeWebSocket> S) {
                     return HandleSystemControlAction(R, A, P, S);
                   });
-  RegisterHandler(TEXT("manage_blueprint_graph"),
-                  [this](const FString &R, const FString &A,
-                         const TSharedPtr<FJsonObject> &P,
-                         TSharedPtr<FMcpBridgeWebSocket> S) {
-                    return HandleBlueprintGraphAction(R, A, P, S);
-                  });
   RegisterHandler(TEXT("list_blueprints"),
                   [this](const FString &R, const FString &A,
                          const TSharedPtr<FJsonObject> &P,
@@ -1061,11 +1055,25 @@ void UMcpAutomationBridgeSubsystem::InitializeHandlers() {
                     return HandleManageMaterialAuthoringAction(R, A, P, S);
                   });
 
-  // === Missing registrations for Phase 35+ tools ===
+  // === Consolidated and legacy action namespace registrations ===
   RegisterHandler(TEXT("manage_blueprint"),
                   [this](const FString &R, const FString &A,
                          const TSharedPtr<FJsonObject> &P,
                          TSharedPtr<FMcpBridgeWebSocket> S) {
+                    FString SubAction;
+                    if (P.IsValid()) {
+                      P->TryGetStringField(TEXT("subAction"), SubAction);
+                    }
+                    static const TSet<FString> GraphSubActions = {
+                        TEXT("create_node"),       TEXT("delete_node"),
+                        TEXT("connect_pins"),      TEXT("break_pin_links"),
+                        TEXT("set_node_property"), TEXT("create_reroute_node"),
+                        TEXT("get_node_details"),  TEXT("get_graph_details"),
+                        TEXT("get_pin_details"),   TEXT("list_node_types"),
+                        TEXT("set_pin_default_value")};
+                    if (GraphSubActions.Contains(SubAction)) {
+                      return HandleBlueprintGraphAction(R, A, P, S);
+                    }
                     return HandleBlueprintAction(R, A, P, S);
                   });
 

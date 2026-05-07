@@ -13,13 +13,13 @@ handlers/
 ├── blueprint-handlers.ts    # manage_blueprint actions
 ├── level-handlers.ts        # manage_level actions
 ├── editor-handlers.ts       # control_editor actions
-├── lighting-handlers.ts     # manage_lighting actions
+├── lighting-handlers.ts     # build_environment lighting actions
 ├── animation-handlers.ts    # animation_physics actions
 ├── effect-handlers.ts       # manage_effect actions
 ├── sequence-handlers.ts     # manage_sequence actions
 ├── geometry-handlers.ts     # manage_geometry actions
-├── spline-handlers.ts       # manage_splines actions
-├── navigation-handlers.ts   # manage_navigation actions
+├── spline-handlers.ts       # build_environment spline actions
+├── navigation-handlers.ts   # manage_ai navigation actions
 ├── audio-handlers.ts        # manage_audio actions
 ├── gas-handlers.ts          # manage_gas actions
 ├── combat-handlers.ts       # manage_combat actions
@@ -28,20 +28,20 @@ handlers/
 ├── inventory-handlers.ts    # manage_inventory actions
 ├── interaction-handlers.ts  # manage_interaction actions
 ├── network-handlers.ts      # manage_networking actions
-├── session-handlers.ts      # manage_sessions actions
-├── gameplay-handlers.ts     # manage_game_framework actions
-├── behavior-tree-handlers.ts # manage_behavior_tree actions
-├── input-handlers.ts        # manage_input actions
-├── skeleton-handlers.ts     # manage_skeleton actions
-├── material-handlers.ts     # manage_material_authoring actions
-├── texture-handlers.ts      # manage_texture actions
-├── widget-handlers.ts       # manage_widget_authoring actions
-├── volume-handlers.ts       # manage_volumes actions
+├── session-handlers.ts      # manage_networking session actions
+├── gameplay-handlers.ts     # manage_networking game framework actions
+├── behavior-tree-handlers.ts # manage_ai behavior tree actions
+├── input-handlers.ts        # manage_networking input actions
+├── skeleton-handlers.ts     # animation_physics skeleton actions
+├── material-handlers.ts     # manage_asset material authoring actions
+├── texture-handlers.ts      # manage_asset texture actions
+├── widget-handlers.ts       # manage_blueprint widget authoring actions
+├── volume-handlers.ts       # manage_level_structure volume actions
 ├── level-structure-handlers.ts # manage_level_structure actions
 ├── environment-handlers.ts  # build_environment actions
 ├── inspect-handlers.ts      # inspect actions
 ├── system-handlers.ts       # system_control actions
-├── performance-handlers.ts  # manage_performance actions
+├── performance-handlers.ts  # system_control performance actions
 ├── common-handlers.ts       # executeAutomationRequest(), requireAction()
 └── ... (42 total files)
 ```

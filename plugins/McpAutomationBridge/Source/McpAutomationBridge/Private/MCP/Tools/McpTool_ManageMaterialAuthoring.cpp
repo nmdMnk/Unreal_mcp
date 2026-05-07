@@ -16,7 +16,7 @@ public:
 			"instances, and landscape blend layers.");
 	}
 
-	FString GetCategory() const override { return TEXT("authoring"); }
+	FString GetCategory() const override { return TEXT("core"); }
 
 	TSharedPtr<FJsonObject> BuildInputSchema() const override
 	{

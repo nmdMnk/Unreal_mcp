@@ -16,7 +16,7 @@ public:
 			"set skin weights, and create morph targets.");
 	}
 
-	FString GetCategory() const override { return TEXT("authoring"); }
+	FString GetCategory() const override { return TEXT("gameplay"); }
 
 	TSharedPtr<FJsonObject> BuildInputSchema() const override
 	{

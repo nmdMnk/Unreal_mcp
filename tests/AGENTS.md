@@ -9,13 +9,12 @@ Dual test runners: Vitest (unit) + Custom MCP runner (integration with Unreal En
 ```
 tests/
 ├── test-runner.mjs     # Core MCP test runner (1100+ lines)
-├── integration.mjs     # Main integration entry (84 test cases)
+├── integration.mjs     # Main canonical integration entry
 ├── mcp-tools/          # Domain-specific integration tests
-│   ├── core/           # manage_asset, control_actor, control_editor, inspect
-│   ├── world/          # build_environment, manage_geometry, manage_navigation
-│   ├── authoring/      # manage_blueprint, manage_material, manage_texture
-│   ├── gameplay/       # manage_ai, manage_behavior_tree, manage_combat
-│   └── utility/        # manage_sessions, manage_performance, system_control
+│   ├── core/           # manage_asset, manage_blueprint, control_actor, control_editor, manage_level, inspect, system_control, manage_tools
+│   ├── world/          # build_environment, manage_level_structure, manage_geometry
+│   ├── gameplay/       # animation_physics, manage_effect, manage_ai, manage_gas, manage_character, manage_combat, manage_inventory, manage_interaction
+│   └── utility/        # manage_audio, manage_sequence, manage_networking
 ├── unit/               # Vitest unit tests (security, validation, utils)
 └── reports/            # JSON test results output
 ```
@@ -35,7 +34,7 @@ tests/
 {
   id: 'action_basic_0',              // Unique test ID
   scenario: 'human description',      // Test description
-  toolName: 'manage_navigation',      // MCP tool name
+  toolName: 'manage_ai',      // MCP tool name
   arguments: { action: '...', ... },  // Tool arguments
   expected: 'success|error|timeout'   // Pipe-separated expectations
 }

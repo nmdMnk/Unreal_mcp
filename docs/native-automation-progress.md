@@ -46,7 +46,7 @@ This document tracks ongoing work to replace stubbed or registry-based fallbacks
 
 | Action | Current State | Needed Work |
 | --- | --- | --- |
-| `manage_input` | Implemented (Input Actions, Mapping Contexts, Bindings). | ✅ Done |
+| `manage_networking` | Implemented (Input Actions, Mapping Contexts, Bindings). | ✅ Done |
 
 ## System, Render & Pipeline
 
@@ -126,7 +126,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 
 ## Advanced Authoring Tools (Phases 7-20)
 
-### Phase 7: Skeleton & Rigging (`manage_skeleton`)
+### Phase 7: Skeleton & Rigging (`animation_physics`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -137,7 +137,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `bind_cloth_to_skeletal_mesh` | ✅ Done | Uses `UClothingAssetBase::BindToSkeletalMesh()` |
 | `create_morph_target`, `set_morph_target_deltas` | ✅ Done | Morph target authoring |
 
-### Phase 8: Material Authoring (`manage_material_authoring`)
+### Phase 8: Material Authoring (`manage_asset`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -149,7 +149,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `add_landscape_layer` | ✅ Done | Uses `ULandscapeLayerInfoObject` |
 | `configure_layer_blend` | ✅ Guidance | Layer blending via material expressions |
 
-### Phase 9: Texture (`manage_texture`)
+### Phase 9: Texture (`manage_asset`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -161,7 +161,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `adjust_curves`, `channel_extract` | ✅ Done | LUT-based curve adjustment, channel extraction |
 | Texture processing (blur, resize, levels) | ✅ Done | Implemented via FImageUtils and platform texture ops |
 
-### Phase 10: Animation Authoring (`manage_animation_authoring`)
+### Phase 10: Animation Authoring (`animation_physics`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -173,7 +173,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `create_ik_rig` | ✅ Done | Uses `UIKRigDefinitionFactory` |
 | `create_ik_retargeter` | ✅ Done | Uses `UIKRetargetFactory` |
 
-### Phase 11: Audio Authoring (`manage_audio_authoring`)
+### Phase 11: Audio Authoring (`manage_audio`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -183,7 +183,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `create_attenuation_settings`, `configure_spatialization` | ✅ Done | 3D audio settings |
 | `create_dialogue_voice`, `create_dialogue_wave` | ✅ Done | Dialogue system |
 
-### Phase 12: Niagara Authoring (`manage_niagara_authoring`)
+### Phase 12: Niagara Authoring (`manage_effect`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -252,7 +252,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `setup_destructible_mesh`, `configure_destruction_effects` | ✅ Done | Destructibles |
 | `create_trigger_actor`, `configure_trigger_events` | ✅ Done | Triggers |
 
-### Phase 19: Widget Authoring (`manage_widget_authoring`)
+### Phase 19: Widget Authoring (`manage_blueprint`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -282,7 +282,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `configure_client_prediction`, `configure_server_correction` | ✅ Done | Network prediction |
 | `configure_replicated_movement` | ✅ Done | Movement replication |
 
-### Phase 20.5: Audio Authoring (`manage_audio_authoring`)
+### Phase 20.5: Audio Authoring (`manage_audio`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -292,7 +292,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `create_dialogue_voice`, `create_dialogue_wave` | ✅ Done | Dialogue system |
 | `add_sound_node`, `connect_sound_nodes` | ✅ Done | Sound cue graphs |
 
-### Phase 21: Game Framework (`manage_game_framework`)
+### Phase 21: Game Framework (`manage_networking`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -308,7 +308,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `set_respawn_rules`, `configure_spectating` | ✅ Done | Player management |
 | `get_game_framework_info` | ✅ Done | Query game mode info |
 
-### Phase 22: Sessions & Local Multiplayer (`manage_sessions`)
+### Phase 22: Sessions & Local Multiplayer (`manage_networking`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -350,7 +350,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `create_packed_level_actor` | ✅ Done | APackedLevelActor creation |
 | `get_level_structure_info` | ✅ Done | Query level structure info |
 
-### Phase 24: Volumes & Zones (`manage_volumes`)
+### Phase 24: Volumes & Zones (`manage_level_structure`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -364,7 +364,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | `create_camera_blocking_volume` | ✅ Done | Camera volumes |
 | `set_volume_extent`, `set_volume_properties`, `get_volumes_info` | ✅ Done | Configuration & utility |
 
-### Phase 25: Navigation System (`manage_navigation`)
+### Phase 25: Navigation System (`manage_ai`)
 
 | Action | Status | Notes |
 |--------|--------|-------|
@@ -385,7 +385,7 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 | **Utility** | | |
 | `get_navigation_info` | ✅ Done | Returns NavMesh stats, agent properties, link/volume counts |
 
-### Phase 26: Spline System (`manage_splines`)
+### Phase 26: Spline System (`build_environment`)
 
 | Action | Status | Notes |
 |--------|--------|-------|

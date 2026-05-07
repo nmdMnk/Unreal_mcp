@@ -353,7 +353,7 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
         }
       }
 
-      const res = await executeAutomationRequest(tools, 'manage_blueprint_graph', {
+      const res = await executeAutomationRequest(tools, 'manage_blueprint', {
         subAction: 'create_node',
         assetPath: argsTyped.name || argsTyped.blueprintPath || (argsRecord.path as string) || '',
         nodeType: resolvedNodeType,

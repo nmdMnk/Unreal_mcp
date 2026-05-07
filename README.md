@@ -157,14 +157,14 @@ Enable via **Edit → Plugins**, then restart the editor.
 | **Level Sequence Editor** | `manage_sequence` operations |
 | **Control Rig** | `animation_physics` operations |
 | **GeometryScripting** | `manage_geometry` operations |
-| **Behavior Tree Editor** | `manage_behavior_tree` operations |
+| **Behavior Tree Editor** | `manage_ai` Behavior Tree operations |
 | **Niagara Editor** | Niagara authoring |
 | **Environment Query Editor** | AI/EQS operations |
 | **Gameplay Abilities** | `manage_gas` operations |
 | **MetaSound** | `manage_audio` MetaSound authoring |
 | **StateTree** | `manage_ai` State Tree operations |
 | **Smart Objects** | AI smart object operations |
-| **Enhanced Input** | `manage_input` operations |
+| **Enhanced Input** | `manage_networking` input mapping operations |
 | **Chaos Cloth** | Cloth simulation |
 | **Interchange** | Asset import/export |
 | **Data Validation** | Data validation |
@@ -235,7 +235,7 @@ Or manually in `~/.claude/settings.json` or project `.mcp.json`:
 Features:
 - SSE streaming for real-time progress during long operations
 - Multiple concurrent sessions (Cursor + Claude Code + others simultaneously)
-- Dynamic tool management — only core tools (8) loaded by default, enable more via `manage_tools`
+- Dynamic tool management — core tools load by default, enable more via `manage_tools`
 - Python execution via `execute_python` action (inline code or .py files)
 - Capability token authentication — enable in project settings for network security
 
@@ -327,7 +327,7 @@ MCP_AUTOMATION_HOST=0.0.0.0
 
 ## Available Tools
 
-**36 MCP tools** with action-based dispatch for comprehensive Unreal Engine automation.
+**22 exposed MCP tools** in broad all-tools mode. Related actions live directly on their parent tools so clients load less context without losing capabilities.
 
 <details>
 <summary><b>Core Tools</b></summary>
@@ -335,12 +335,12 @@ MCP_AUTOMATION_HOST=0.0.0.0
 | Tool | Description |
 |------|-------------|
 | `manage_asset` | Assets, Materials, Render Targets, Behavior Trees |
+| `manage_blueprint` | Blueprints, SCS components, graph editing, UMG widgets, layout, bindings, animations |
 | `control_actor` | Spawn, delete, transform, physics, tags |
 | `control_editor` | PIE, Camera, viewport, screenshots |
 | `manage_level` | Load/Save, World Partition, streaming |
 | `system_control` | UBT, Tests, Logs, Project Settings, CVars, Python Execution |
 | `inspect` | Object Introspection |
-| `manage_pipeline` | Build automation, UBT compilation, status checks |
 | `manage_tools` | Dynamic tool management (enable/disable at runtime) |
 
 </details>
@@ -350,47 +350,9 @@ MCP_AUTOMATION_HOST=0.0.0.0
 
 | Tool | Description |
 |------|-------------|
-| `manage_lighting` | Spawn lights, GI, shadows, build lighting, list_light_types |
-| `manage_level_structure` | Level creation, sublevels, World Partition, data layers, HLOD |
-| `manage_volumes` | Trigger volumes, blocking, physics, audio, navigation volumes |
-| `manage_navigation` | NavMesh settings, nav modifiers, nav links, smart links, pathfinding |
-| `build_environment` | Landscape, Foliage, Procedural |
-| `manage_splines` | Spline creation, spline mesh deformation |
-
-</details>
-
-<details>
-<summary><b>Animation & Physics</b></summary>
-
-| Tool | Description |
-|------|-------------|
-| `animation_physics` | Animation BPs, Vehicles, Ragdolls, Control Rig, IK, Blend Spaces |
-| `manage_skeleton` | Skeleton, sockets, physics assets, cloth binding |
-| `manage_geometry` | Procedural mesh creation (Geometry Script) |
-
-</details>
-
-<details>
-<summary><b>Visuals & Effects</b></summary>
-
-| Tool | Description |
-|------|-------------|
-| `manage_effect` | Niagara, Particles, Debug Shapes, GPU simulations |
-| `manage_material_authoring` | Material creation, expressions, landscape layers |
-| `manage_texture` | Texture creation, modification, compression settings |
-| `manage_blueprint` | Create, SCS, Graph Editing, Node manipulation |
-| `manage_sequence` | Sequencer / Cinematics, list_track_types |
-| `manage_performance` | Profiling, optimization, scalability |
-
-</details>
-
-<details>
-<summary><b>Audio & Input</b></summary>
-
-| Tool | Description |
-|------|-------------|
-| `manage_audio` | Audio Assets, Components, Sound Cues, MetaSounds, Attenuation |
-| `manage_input` | Enhanced Input Actions & Contexts |
+| `build_environment` | Landscapes, foliage, procedural terrain, lighting, spline roads/rivers/fences |
+| `manage_level_structure` | Levels, sublevels, World Partition, streaming, data layers, HLOD, volumes |
+| `manage_geometry` | Procedural mesh creation and editing with Geometry Script |
 
 </details>
 
@@ -399,25 +361,25 @@ MCP_AUTOMATION_HOST=0.0.0.0
 
 | Tool | Description |
 |------|-------------|
-| `manage_behavior_tree` | Behavior Tree Graph Editing |
-| `manage_ai` | AI controllers, EQS, perception, State Trees, Smart Objects |
+| `animation_physics` | Animation BPs, skeletons, sockets, physics assets, cloth, vehicles, ragdolls, Control Rig, IK |
+| `manage_effect` | Niagara, particles, debug shapes, GPU simulations |
 | `manage_gas` | Gameplay Ability System: abilities, effects, attributes |
 | `manage_character` | Character creation, movement, advanced locomotion |
 | `manage_combat` | Weapons, projectiles, damage, melee combat |
+| `manage_ai` | AI controllers, Behavior Trees, EQS, perception, State Trees, Smart Objects, NavMesh/pathfinding |
 | `manage_inventory` | Items, equipment, loot tables, crafting |
 | `manage_interaction` | Interactables, destructibles, triggers |
-| `manage_widget_authoring` | UMG widget creation, layout, styling, animations |
 
 </details>
 
 <details>
-<summary><b>Networking & Sessions</b></summary>
+<summary><b>Utility</b></summary>
 
 | Tool | Description |
 |------|-------------|
-| `manage_networking` | Replication, RPCs, network prediction |
-| `manage_game_framework` | Game modes, game states, player controllers, match flow |
-| `manage_sessions` | Sessions, split-screen, LAN, voice chat |
+| `manage_audio` | Audio Assets, Components, Sound Cues, MetaSounds, Attenuation |
+| `manage_sequence` | Sequencer, cinematics, bindings, tracks, playback, keyframes |
+| `manage_networking` | Replication, RPCs, network prediction, sessions, split-screen, LAN/voice, game framework, input mappings |
 
 </details>
 ### Supported Asset Types

@@ -1290,12 +1290,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
     const TSharedPtr<FJsonObject> &Payload,
     TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
 #if WITH_EDITOR
-  // Explicitly ignore manage_blueprint_graph actions so they fall through to
-  // HandleBlueprintGraphAction
-  if (Action.Equals(TEXT("manage_blueprint_graph"), ESearchCase::IgnoreCase)) {
-    return false;
-  }
-
+  // Canonical graph actions are handled by HandleBlueprintGraphAction before
+  // this general Blueprint handler is invoked.
   UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
          TEXT(">>> HandleBlueprintAction ENTRY: RequestId=%s RawAction='%s'"),
          *RequestId, *Action);

@@ -16,8 +16,8 @@ const testCases = [
   { scenario: 'INFO: list_tools', toolName: 'manage_tools', arguments: {"action": "list_tools"}, expected: 'success' },
   { scenario: 'INFO: list_categories', toolName: 'manage_tools', arguments: {"action": "list_categories"}, expected: 'success' },
   // === TOGGLE ===
-  { scenario: 'TOGGLE: enable_tools', toolName: 'manage_tools', arguments: { action: 'enable_tools', tools: ['manage_pipeline'] }, expected: 'success' },
-  { scenario: 'TOGGLE: disable_tools', toolName: 'manage_tools', arguments: { action: 'disable_tools', tools: ['manage_pipeline'] }, expected: 'success' },
+  { scenario: 'TOGGLE: enable_tools', toolName: 'manage_tools', arguments: { action: 'enable_tools', tools: ['system_control'] }, expected: 'success' },
+  { scenario: 'TOGGLE: disable_tools', toolName: 'manage_tools', arguments: { action: 'disable_tools', tools: ['system_control'] }, expected: 'success' },
   { scenario: 'TOGGLE: enable_category', toolName: 'manage_tools', arguments: { action: 'enable_category', category: 'gameplay' }, expected: 'success' },
   { scenario: 'TOGGLE: disable_category', toolName: 'manage_tools', arguments: { action: 'disable_category', category: 'gameplay' }, expected: 'success' },
   // === INFO ===

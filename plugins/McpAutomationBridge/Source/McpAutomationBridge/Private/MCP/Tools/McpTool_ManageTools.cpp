@@ -36,7 +36,7 @@ public:
 				"enable/disable_tools: toggle specific tools. enable/disable_category: toggle category. "
 				"get_status: current state. reset: restore defaults."))
 			.Array(TEXT("tools"), TEXT("Tool names to enable/disable"))
-			.String(TEXT("category"), TEXT("Category name to enable/disable (core, world, authoring, gameplay, utility, all)"))
+			.String(TEXT("category"), TEXT("Category name to enable/disable (core, world, gameplay, utility, all)"))
 			.Required({TEXT("action")})
 			.Build();
 	}
