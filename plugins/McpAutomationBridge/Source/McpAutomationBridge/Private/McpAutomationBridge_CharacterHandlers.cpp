@@ -98,40 +98,38 @@
 //
 // setup_mantling:
 //   Payload:  { "blueprintPath": string, "mantleHeight"?: number,
-//               "mantleReachDistance"?: number, "mantleAnimationPath"?: string }
+//               "mantleReachDistance"?: number }
 //   Response: { "blueprintPath": string, "mantleHeight": number,
 //               "mantleReachDistance": number, "stateVariable": string, "targetVariable": string }
 //
 // setup_vaulting:
 //   Payload:  { "blueprintPath": string, "vaultHeight"?: number,
-//               "vaultDepth"?: number, "vaultAnimationPath"?: string }
+//               "vaultDepth"?: number }
 //   Response: { "blueprintPath": string, "vaultHeight": number, "vaultDepth": number,
 //               "stateVariable": string }
 //
 // setup_climbing:
 //   Payload:  { "blueprintPath": string, "climbSpeed"?: number,
-//               "climbableTag"?: string, "climbAnimationPath"?: string }
+//               "climbableTag"?: string }
 //   Response: { "blueprintPath": string, "climbSpeed": number, "climbableTag": string,
 //               "stateVariable": string }
 //
 // setup_sliding:
 //   Payload:  { "blueprintPath": string, "slideSpeed"?: number, "slideDuration"?: number,
-//               "slideCooldown"?: number, "slideAnimationPath"?: string }
+//               "slideCooldown"?: number }
 //   Response: { "blueprintPath": string, "slideSpeed": number, "slideDuration": number,
 //               "slideCooldown": number, "stateVariable": string }
 //
 // setup_wall_running:
 //   Payload:  { "blueprintPath": string, "wallRunSpeed"?: number,
-//               "wallRunDuration"?: number, "wallRunGravityScale"?: number,
-//               "wallRunAnimationPath"?: string }
+//               "wallRunDuration"?: number, "wallRunGravityScale"?: number }
 //   Response: { "blueprintPath": string, "wallRunSpeed": number,
 //               "wallRunDuration": number, "wallRunGravityScale": number,
 //               "stateVariable": string }
 //
 // setup_grappling:
 //   Payload:  { "blueprintPath": string, "grappleRange"?: number,
-//               "grappleSpeed"?: number, "grappleTargetTag"?: string,
-//               "grappleCablePath"?: string }
+//               "grappleSpeed"?: number, "grappleTargetTag"?: string }
 //   Response: { "blueprintPath": string, "grappleRange": number, "grappleSpeed": number,
 //               "grappleTargetTag": string, "stateVariable": string }
 //
@@ -143,9 +141,7 @@
 //               "socketRight": string, "traceDistance": number }
 //
 // map_surface_to_sound:
-//   Payload:  { "blueprintPath": string, "surfaceType": string,
-//               "footstepSoundPath"?: string, "footstepParticlePath"?: string,
-//               "footstepDecalPath"?: string }
+//   Payload:  { "blueprintPath": string, "surfaceType": string }
 //   Response: { "blueprintPath": string, "surfaceType": string, "mapVariable": string }
 //
 // configure_footstep_fx:
@@ -610,6 +606,19 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
             return true;
         }
 
+        FString SkeletalMeshPath = GetStringFieldChar(Payload, TEXT("skeletalMeshPath"));
+        USkeletalMesh* RequestedMesh = nullptr;
+        if (!SkeletalMeshPath.IsEmpty())
+        {
+            RequestedMesh = LoadObject<USkeletalMesh>(nullptr, *SkeletalMeshPath);
+            if (!RequestedMesh)
+            {
+                SendAutomationError(RequestingSocket, RequestId,
+                    FString::Printf(TEXT("Skeletal mesh not found: %s"), *SkeletalMeshPath), TEXT("ASSET_NOT_FOUND"));
+                return true;
+            }
+        }
+
         FString Error;
         UBlueprint* Blueprint = CreateCharacterBlueprint(Path, Name, Error);
         if (!Blueprint)
@@ -618,9 +627,8 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
             return true;
         }
 
-        // Set skeletal mesh if provided
-        FString SkeletalMeshPath = GetStringFieldChar(Payload, TEXT("skeletalMeshPath"));
-        if (!SkeletalMeshPath.IsEmpty())
+        bool bSkeletalMeshAssigned = false;
+        if (RequestedMesh)
         {
             for (USCS_Node* Node : Blueprint->SimpleConstructionScript->GetAllNodes())
             {
@@ -630,11 +638,8 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
                     USkeletalMeshComponent* MeshComp = Cast<USkeletalMeshComponent>(Node->ComponentTemplate);
                     if (MeshComp)
                     {
-                        USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *SkeletalMeshPath);
-                        if (Mesh)
-                        {
-                            MeshComp->SetSkeletalMesh(Mesh);
-                        }
+                        MeshComp->SetSkeletalMesh(RequestedMesh);
+                        bSkeletalMeshAssigned = true;
                     }
                     break;
                 }
@@ -647,6 +652,11 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         Result->SetStringField(TEXT("blueprintPath"), Path / Name);
         Result->SetStringField(TEXT("name"), Name);
         Result->SetStringField(TEXT("parentClass"), TEXT("Character"));
+        if (!SkeletalMeshPath.IsEmpty())
+        {
+            Result->SetStringField(TEXT("skeletalMesh"), SkeletalMeshPath);
+            Result->SetBoolField(TEXT("skeletalMeshAssigned"), bSkeletalMeshAssigned);
+        }
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Character blueprint created"), Result);
         return true;
@@ -730,6 +740,33 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
 
         FString SkeletalMeshPath = GetStringFieldChar(Payload, TEXT("skeletalMeshPath"));
         FString AnimBPPath = GetStringFieldChar(Payload, TEXT("animBlueprintPath"));
+        USkeletalMesh* RequestedMesh = nullptr;
+        UAnimBlueprint* RequestedAnimBP = nullptr;
+
+        if (!SkeletalMeshPath.IsEmpty())
+        {
+            RequestedMesh = LoadObject<USkeletalMesh>(nullptr, *SkeletalMeshPath);
+            if (!RequestedMesh)
+            {
+                SendAutomationError(RequestingSocket, RequestId,
+                    FString::Printf(TEXT("Skeletal mesh not found: %s"), *SkeletalMeshPath), TEXT("ASSET_NOT_FOUND"));
+                return true;
+            }
+        }
+
+        if (!AnimBPPath.IsEmpty())
+        {
+            RequestedAnimBP = LoadObject<UAnimBlueprint>(nullptr, *AnimBPPath);
+            if (!RequestedAnimBP || !RequestedAnimBP->GeneratedClass)
+            {
+                SendAutomationError(RequestingSocket, RequestId,
+                    FString::Printf(TEXT("Animation Blueprint not found: %s"), *AnimBPPath), TEXT("ASSET_NOT_FOUND"));
+                return true;
+            }
+        }
+
+        bool bSkeletalMeshAssigned = false;
+        bool bAnimBlueprintAssigned = false;
 
         ACharacter* CharCDO = Blueprint->GeneratedClass 
             ? Cast<ACharacter>(Blueprint->GeneratedClass->GetDefaultObject())
@@ -737,22 +774,16 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         
         if (CharCDO && CharCDO->GetMesh())
         {
-            if (!SkeletalMeshPath.IsEmpty())
+            if (RequestedMesh)
             {
-                USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *SkeletalMeshPath);
-                if (Mesh)
-                {
-                    CharCDO->GetMesh()->SetSkeletalMesh(Mesh);
-                }
+                CharCDO->GetMesh()->SetSkeletalMesh(RequestedMesh);
+                bSkeletalMeshAssigned = true;
             }
 
-            if (!AnimBPPath.IsEmpty())
+            if (RequestedAnimBP)
             {
-                UAnimBlueprint* AnimBP = LoadObject<UAnimBlueprint>(nullptr, *AnimBPPath);
-                if (AnimBP && AnimBP->GeneratedClass)
-                {
-                    CharCDO->GetMesh()->SetAnimInstanceClass(AnimBP->GeneratedClass);
-                }
+                CharCDO->GetMesh()->SetAnimInstanceClass(RequestedAnimBP->GeneratedClass);
+                bAnimBlueprintAssigned = true;
             }
 
             // Handle offset
@@ -776,8 +807,16 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
 
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("blueprintPath"), BlueprintPath);
-        if (!SkeletalMeshPath.IsEmpty()) Result->SetStringField(TEXT("skeletalMesh"), SkeletalMeshPath);
-        if (!AnimBPPath.IsEmpty()) Result->SetStringField(TEXT("animBlueprint"), AnimBPPath);
+        if (!SkeletalMeshPath.IsEmpty())
+        {
+            Result->SetStringField(TEXT("skeletalMesh"), SkeletalMeshPath);
+            Result->SetBoolField(TEXT("skeletalMeshAssigned"), bSkeletalMeshAssigned);
+        }
+        if (!AnimBPPath.IsEmpty())
+        {
+            Result->SetStringField(TEXT("animBlueprint"), AnimBPPath);
+            Result->SetBoolField(TEXT("animBlueprintAssigned"), bAnimBlueprintAssigned);
+        }
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Mesh configured"), Result);
         return true;
@@ -915,6 +954,9 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         ACharacter* CharCDO = Blueprint->GeneratedClass 
             ? Cast<ACharacter>(Blueprint->GeneratedClass->GetDefaultObject())
             : nullptr;
+        bool bHasAppliedWalkSpeed = false;
+        bool bRunSpeedApplied = false;
+        double AppliedWalkSpeed = 0.0;
         
         if (CharCDO && CharCDO->GetCharacterMovement())
         {
@@ -936,6 +978,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
 		else if (Payload->HasField(TEXT("runSpeed")))
 		{
 			Movement->MaxWalkSpeed = static_cast<float>(GetNumberFieldChar(Payload, TEXT("runSpeed"), 600.0));
+			bRunSpeedApplied = true;
 		}
 		if (Payload->HasField(TEXT("crouchSpeed")))
 			Movement->MaxWalkSpeedCrouched = static_cast<float>(GetNumberFieldChar(Payload, TEXT("crouchSpeed"), 300.0));
@@ -949,12 +992,23 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
 			Movement->BrakingDecelerationWalking = static_cast<float>(GetNumberFieldChar(Payload, TEXT("deceleration"), 2048.0));
 		if (Payload->HasField(TEXT("groundFriction")))
 			Movement->GroundFriction = static_cast<float>(GetNumberFieldChar(Payload, TEXT("groundFriction"), 8.0));
+		AppliedWalkSpeed = Movement->MaxWalkSpeed;
+		bHasAppliedWalkSpeed = true;
 	}
 
         FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
 
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("blueprintPath"), BlueprintPath);
+        if (Payload->HasField(TEXT("runSpeed")))
+        {
+            Result->SetNumberField(TEXT("runSpeed"), GetNumberFieldChar(Payload, TEXT("runSpeed"), 600.0));
+            Result->SetBoolField(TEXT("runSpeedApplied"), bRunSpeedApplied);
+        }
+        if (bHasAppliedWalkSpeed)
+        {
+            Result->SetNumberField(TEXT("walkSpeed"), AppliedWalkSpeed);
+        }
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Movement speeds configured"), Result);
         return true;
@@ -1216,7 +1270,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
     // MantleTargetLocation (FVector).
     //
     // Payload:  { "blueprintPath": string, "mantleHeight"?: 200,
-    //             "mantleReachDistance"?: 100, "mantleAnimationPath"?: string }
+    //             "mantleReachDistance"?: 100 }
     // Response: { "blueprintPath": string, "mantleHeight": number,
     //             "mantleReachDistance": number, "stateVariable": string,
     //             "targetVariable": string }
@@ -1239,8 +1293,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
 
         float MantleHeight = static_cast<float>(GetNumberFieldChar(Payload, TEXT("mantleHeight"), 200.0));
         float MantleReach = static_cast<float>(GetNumberFieldChar(Payload, TEXT("mantleReachDistance"), 100.0));
-        FString MantleAnim = GetStringFieldChar(Payload, TEXT("mantleAnimationPath"));
-
         // Add mantling state and configuration variables
         FEdGraphPinType BoolPinType;
         BoolPinType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
@@ -1270,7 +1322,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         Result->SetStringField(TEXT("blueprintPath"), BlueprintPath);
         Result->SetNumberField(TEXT("mantleHeight"), MantleHeight);
         Result->SetNumberField(TEXT("mantleReachDistance"), MantleReach);
-        if (!MantleAnim.IsEmpty()) Result->SetStringField(TEXT("mantleAnimation"), MantleAnim);
         Result->SetStringField(TEXT("stateVariable"), TEXT("bIsMantling"));
         Result->SetStringField(TEXT("targetVariable"), TEXT("MantleTargetLocation"));
         McpHandlerUtils::AddVerification(Result, Blueprint);
@@ -1286,7 +1337,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
     // VaultStartLocation, VaultEndLocation (FVector).
     //
     // Payload:  { "blueprintPath": string, "vaultHeight"?: 100,
-    //             "vaultDepth"?: 100, "vaultAnimationPath"?: string }
+    //             "vaultDepth"?: 100 }
     // Response: { "blueprintPath": string, "vaultHeight": number, "vaultDepth": number,
     //             "stateVariable": string }
     // -------------------------------------------------------------------------
@@ -1308,8 +1359,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
 
         float VaultHeight = static_cast<float>(GetNumberFieldChar(Payload, TEXT("vaultHeight"), 100.0));
         float VaultDepth = static_cast<float>(GetNumberFieldChar(Payload, TEXT("vaultDepth"), 100.0));
-        FString VaultAnim = GetStringFieldChar(Payload, TEXT("vaultAnimationPath"));
-
         // Add vaulting state and configuration variables
         FEdGraphPinType BoolPinType;
         BoolPinType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
@@ -1340,7 +1389,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         Result->SetStringField(TEXT("blueprintPath"), BlueprintPath);
         Result->SetNumberField(TEXT("vaultHeight"), VaultHeight);
         Result->SetNumberField(TEXT("vaultDepth"), VaultDepth);
-        if (!VaultAnim.IsEmpty()) Result->SetStringField(TEXT("vaultAnimation"), VaultAnim);
         Result->SetStringField(TEXT("stateVariable"), TEXT("bIsVaulting"));
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Vaulting system configured with state variables"), Result);
@@ -1355,7 +1403,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
     // Also sets MaxCustomMovementSpeed on the CMC.
     //
     // Payload:  { "blueprintPath": string, "climbSpeed"?: 300,
-    //             "climbableTag"?: "Climbable", "climbAnimationPath"?: string }
+    //             "climbableTag"?: "Climbable" }
     // Response: { "blueprintPath": string, "climbSpeed": number,
     //             "climbableTag": string, "stateVariable": string }
     // -------------------------------------------------------------------------
@@ -1377,8 +1425,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
 
         float ClimbSpeed = static_cast<float>(GetNumberFieldChar(Payload, TEXT("climbSpeed"), 300.0));
         FString ClimbableTag = GetStringFieldChar(Payload, TEXT("climbableTag"), TEXT("Climbable"));
-        FString ClimbAnim = GetStringFieldChar(Payload, TEXT("climbAnimationPath"));
-
         // Add climbing state and configuration variables
         FEdGraphPinType BoolPinType;
         BoolPinType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
@@ -1422,7 +1468,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         Result->SetStringField(TEXT("blueprintPath"), BlueprintPath);
         Result->SetNumberField(TEXT("climbSpeed"), ClimbSpeed);
         Result->SetStringField(TEXT("climbableTag"), ClimbableTag);
-        if (!ClimbAnim.IsEmpty()) Result->SetStringField(TEXT("climbAnimation"), ClimbAnim);
         Result->SetStringField(TEXT("stateVariable"), TEXT("bIsClimbing"));
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Climbing system configured with state variables"), Result);
@@ -1437,7 +1482,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
     // SlideTimeRemaining, SlideCooldownRemaining.
     //
     // Payload:  { "blueprintPath": string, "slideSpeed"?: 800, "slideDuration"?: 1.0,
-    //             "slideCooldown"?: 0.5, "slideAnimationPath"?: string }
+    //             "slideCooldown"?: 0.5 }
     // Response: { "blueprintPath": string, "slideSpeed": number, "slideDuration": number,
     //             "slideCooldown": number, "stateVariable": string }
     // -------------------------------------------------------------------------
@@ -1460,8 +1505,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         float SlideSpeed = static_cast<float>(GetNumberFieldChar(Payload, TEXT("slideSpeed"), 800.0));
         float SlideDuration = static_cast<float>(GetNumberFieldChar(Payload, TEXT("slideDuration"), 1.0));
         float SlideCooldown = static_cast<float>(GetNumberFieldChar(Payload, TEXT("slideCooldown"), 0.5));
-        FString SlideAnim = GetStringFieldChar(Payload, TEXT("slideAnimationPath"));
-
         // Add sliding state and configuration variables
         FEdGraphPinType BoolPinType;
         BoolPinType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
@@ -1490,7 +1533,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         Result->SetNumberField(TEXT("slideSpeed"), SlideSpeed);
         Result->SetNumberField(TEXT("slideDuration"), SlideDuration);
         Result->SetNumberField(TEXT("slideCooldown"), SlideCooldown);
-        if (!SlideAnim.IsEmpty()) Result->SetStringField(TEXT("slideAnimation"), SlideAnim);
         Result->SetStringField(TEXT("stateVariable"), TEXT("bIsSliding"));
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Sliding system configured with state and timing variables"), Result);
@@ -1506,8 +1548,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
     // WallRunNormal (FVector). Also sets MaxCustomMovementSpeed on the CMC.
     //
     // Payload:  { "blueprintPath": string, "wallRunSpeed"?: 600,
-    //             "wallRunDuration"?: 2.0, "wallRunGravityScale"?: 0.25,
-    //             "wallRunAnimationPath"?: string }
+    //             "wallRunDuration"?: 2.0, "wallRunGravityScale"?: 0.25 }
     // Response: { "blueprintPath": string, "wallRunSpeed": number,
     //             "wallRunDuration": number, "wallRunGravityScale": number,
     //             "stateVariable": string }
@@ -1531,8 +1572,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         float WallRunSpeed = static_cast<float>(GetNumberFieldChar(Payload, TEXT("wallRunSpeed"), 600.0));
         float WallRunDuration = static_cast<float>(GetNumberFieldChar(Payload, TEXT("wallRunDuration"), 2.0));
         float WallRunGravity = static_cast<float>(GetNumberFieldChar(Payload, TEXT("wallRunGravityScale"), 0.25));
-        FString WallRunAnim = GetStringFieldChar(Payload, TEXT("wallRunAnimationPath"));
-
         // Add wall running state and configuration variables
         FEdGraphPinType BoolPinType;
         BoolPinType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
@@ -1572,7 +1611,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         Result->SetNumberField(TEXT("wallRunSpeed"), WallRunSpeed);
         Result->SetNumberField(TEXT("wallRunDuration"), WallRunDuration);
         Result->SetNumberField(TEXT("wallRunGravityScale"), WallRunGravity);
-        if (!WallRunAnim.IsEmpty()) Result->SetStringField(TEXT("wallRunAnimation"), WallRunAnim);
         Result->SetStringField(TEXT("stateVariable"), TEXT("bIsWallRunning"));
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Wall running system configured with state variables"), Result);
@@ -1587,8 +1625,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
     // GrappleTargetTag (FName), GrappleTargetLocation (FVector).
     //
     // Payload:  { "blueprintPath": string, "grappleRange"?: 2000,
-    //             "grappleSpeed"?: 1500, "grappleTargetTag"?: "Grapple",
-    //             "grappleCablePath"?: string }
+    //             "grappleSpeed"?: 1500, "grappleTargetTag"?: "Grapple" }
     // Response: { "blueprintPath": string, "grappleRange": number,
     //             "grappleSpeed": number, "grappleTargetTag": string,
     //             "stateVariable": string }
@@ -1612,8 +1649,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         float GrappleRange = static_cast<float>(GetNumberFieldChar(Payload, TEXT("grappleRange"), 2000.0));
         float GrappleSpeed = static_cast<float>(GetNumberFieldChar(Payload, TEXT("grappleSpeed"), 1500.0));
         FString GrappleTarget = GetStringFieldChar(Payload, TEXT("grappleTargetTag"), TEXT("Grapple"));
-        FString GrappleCable = GetStringFieldChar(Payload, TEXT("grappleCablePath"));
-
         // Add grappling state and configuration variables
         FEdGraphPinType BoolPinType;
         BoolPinType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
@@ -1643,7 +1678,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         Result->SetNumberField(TEXT("grappleRange"), GrappleRange);
         Result->SetNumberField(TEXT("grappleSpeed"), GrappleSpeed);
         Result->SetStringField(TEXT("grappleTargetTag"), GrappleTarget);
-        if (!GrappleCable.IsEmpty()) Result->SetStringField(TEXT("grappleCable"), GrappleCable);
         Result->SetStringField(TEXT("stateVariable"), TEXT("bIsGrappling"));
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Grappling system configured with state variables"), Result);
@@ -1721,9 +1755,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
     // Creates a TMap<FName, FSoftObjectPath> Blueprint variable for surface-to-sound
     // lookup. This is used to map physical surface types to footstep sounds/particles.
     //
-    // Payload:  { "blueprintPath": string, "surfaceType": string,
-    //             "footstepSoundPath"?: string, "footstepParticlePath"?: string,
-    //             "footstepDecalPath"?: string }
+    // Payload:  { "blueprintPath": string, "surfaceType": string }
     // Response: { "blueprintPath": string, "surfaceType": string, "mapVariable": string }
     // -------------------------------------------------------------------------
     if (SubAction == TEXT("map_surface_to_sound"))
@@ -1743,10 +1775,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         }
 
         FString SurfaceType = GetStringFieldChar(Payload, TEXT("surfaceType"));
-        FString SoundPath = GetStringFieldChar(Payload, TEXT("footstepSoundPath"));
-        FString ParticlePath = GetStringFieldChar(Payload, TEXT("footstepParticlePath"));
-        FString DecalPath = GetStringFieldChar(Payload, TEXT("footstepDecalPath"));
-
         // Add a Map variable for surface-to-sound lookup if not exists
         // This uses a TMap<FName, FSoftObjectPath> pattern
         FEdGraphPinType MapPinType;
@@ -1760,9 +1788,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCharacterAction(
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("blueprintPath"), BlueprintPath);
         Result->SetStringField(TEXT("surfaceType"), SurfaceType);
-        if (!SoundPath.IsEmpty()) Result->SetStringField(TEXT("sound"), SoundPath);
-        if (!ParticlePath.IsEmpty()) Result->SetStringField(TEXT("particle"), ParticlePath);
-        if (!DecalPath.IsEmpty()) Result->SetStringField(TEXT("decal"), DecalPath);
         Result->SetStringField(TEXT("mapVariable"), TEXT("FootstepSoundMap"));
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Surface mapping configured with map variable"), Result);
         return true;

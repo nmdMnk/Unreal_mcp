@@ -1907,30 +1907,39 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
 #endif
     }
   } else if (LowerSub == TEXT("setup_physics_simulation")) {
-    FString MeshPath;
-    Payload->TryGetStringField(TEXT("meshPath"), MeshPath);
-
     FString SkeletonPath;
     Payload->TryGetStringField(TEXT("skeletonPath"), SkeletonPath);
+
+    FString SkeletalMeshPath;
+    Payload->TryGetStringField(TEXT("skeletalMeshPath"), SkeletalMeshPath);
 
     // Support actorName parameter to find skeletal mesh from a spawned actor
     FString ActorName;
     Payload->TryGetStringField(TEXT("actorName"), ActorName);
 
-    const bool bMeshProvided = !MeshPath.IsEmpty();
     const bool bSkeletonProvided = !SkeletonPath.IsEmpty();
+    const bool bSkeletalMeshProvided = !SkeletalMeshPath.IsEmpty();
     const bool bActorProvided = !ActorName.IsEmpty();
 
-    bool bMeshLoadFailed = false;
     bool bSkeletonLoadFailed = false;
     bool bSkeletonMissingPreview = false;
-
-    USkeletalMesh *TargetMesh = nullptr;
-    bool bMeshTypeMismatch = false;
+    bool bSkeletalMeshLoadFailed = false;
+    bool bSkeletalMeshTypeMismatch = false;
     FString FoundClassName;
 
+    USkeletalMesh *TargetMesh = nullptr;
+
+    if (!bSkeletonProvided && !bSkeletalMeshProvided && !bActorProvided) {
+      Message = TEXT("setup_physics_simulation requires skeletonPath, skeletalMeshPath, or actorName");
+      ErrorCode = TEXT("INVALID_ARGUMENT");
+      Resp->SetStringField(TEXT("error"), Message);
+      SendAutomationResponse(RequestingSocket, RequestId, false, Message, Resp,
+                             ErrorCode);
+      return true;
+    }
+
     // If actorName provided, try to find the actor and get its skeletal mesh
-	if (!bMeshProvided && !bSkeletonProvided && bActorProvided) {
+    if (!bSkeletonProvided && !bSkeletalMeshProvided && bActorProvided) {
 		AActor *FoundActor = FindActorByName(ActorName);
 	if (FoundActor) {
 			// Try to get skeletal mesh component
@@ -1972,25 +1981,24 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
       }
     }
 
-    if (bMeshProvided) {
-      if (UEditorAssetLibrary::DoesAssetExist(MeshPath)) {
-        UObject *Asset = UEditorAssetLibrary::LoadAsset(MeshPath);
+    if (!TargetMesh && bSkeletalMeshProvided) {
+      if (UEditorAssetLibrary::DoesAssetExist(SkeletalMeshPath)) {
+        UObject *Asset = UEditorAssetLibrary::LoadAsset(SkeletalMeshPath);
         TargetMesh = Cast<USkeletalMesh>(Asset);
         if (!TargetMesh && Asset) {
-          bMeshTypeMismatch = true;
+          bSkeletalMeshTypeMismatch = true;
           FoundClassName = Asset->GetClass()->GetName();
           UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
-                 TEXT("setup_physics_simulation: Asset %s is not a "
-                      "SkeletalMesh (Class: %s)"),
-                 *MeshPath, *FoundClassName);
+                 TEXT("setup_physics_simulation: Asset %s is not a SkeletalMesh (Class: %s)"),
+                 *SkeletalMeshPath, *FoundClassName);
         } else if (!Asset) {
-          bMeshLoadFailed = true;
+          bSkeletalMeshLoadFailed = true;
           UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
-                 TEXT("setup_physics_simulation: failed to load mesh asset %s"),
-                 *MeshPath);
+                 TEXT("setup_physics_simulation: failed to load skeletal mesh asset %s"),
+                 *SkeletalMeshPath);
         }
       } else {
-        bMeshLoadFailed = true;
+        bSkeletalMeshLoadFailed = true;
       }
     }
 
@@ -2023,18 +2031,18 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
     }
 
     if (!TargetMesh) {
-      if (bMeshTypeMismatch) {
+      if (bSkeletalMeshTypeMismatch) {
         Message = FString::Printf(
             TEXT("asset found but is not a SkeletalMesh: %s (is %s)"),
-            *MeshPath, *FoundClassName);
+            *SkeletalMeshPath, *FoundClassName);
         ErrorCode = TEXT("TYPE_MISMATCH");
-        Resp->SetStringField(TEXT("meshPath"), MeshPath);
+        Resp->SetStringField(TEXT("skeletalMeshPath"), SkeletalMeshPath);
         Resp->SetStringField(TEXT("actualClass"), FoundClassName);
-      } else if (bMeshLoadFailed) {
+      } else if (bSkeletalMeshLoadFailed) {
         Message = FString::Printf(TEXT("asset not found: skeletal mesh %s"),
-                                  *MeshPath);
+                                  *SkeletalMeshPath);
         ErrorCode = TEXT("ASSET_NOT_FOUND");
-        Resp->SetStringField(TEXT("meshPath"), MeshPath);
+        Resp->SetStringField(TEXT("skeletalMeshPath"), SkeletalMeshPath);
       } else if (bSkeletonLoadFailed) {
         Message = FString::Printf(TEXT("asset not found: skeleton %s"),
                                   *SkeletonPath);
@@ -2101,6 +2109,7 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
           Resp->SetBoolField(TEXT("existingAsset"), true);
           Resp->SetStringField(TEXT("savePath"), SavePath);
           Resp->SetStringField(TEXT("meshPath"), TargetMesh->GetPathName());
+          Resp->SetStringField(TEXT("skeletalMeshPath"), TargetMesh->GetPathName());
           if (TargetSkeleton) {
             Resp->SetStringField(TEXT("skeletonPath"),
                                  TargetSkeleton->GetPathName());
@@ -2110,37 +2119,36 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
             McpHandlerUtils::AddVerification(Resp, ExistingPhysicsAsset);
           }
         } else {
-          UPhysicsAssetFactory *PhysicsFactory =
-              NewObject<UPhysicsAssetFactory>();
-          if (!PhysicsFactory) {
-            Message = TEXT("Failed to allocate physics asset factory");
-            ErrorCode = TEXT("FACTORY_FAILED");
+          UPackage *Package = CreatePackage(*PhysicsAssetObjectPath);
+          if (!Package) {
+            Message = TEXT("Failed to create physics asset package");
+            ErrorCode = TEXT("PACKAGE_ERROR");
             Resp->SetStringField(TEXT("error"), Message);
           } else {
-            PhysicsFactory->TargetSkeletalMesh = TargetMesh;
-
-            FAssetToolsModule &AssetToolsModule =
-                FModuleManager::LoadModuleChecked<FAssetToolsModule>(
-                    "AssetTools");
-            UObject *NewAsset = AssetToolsModule.Get().CreateAsset(
-                PhysicsAssetName, SavePath, UPhysicsAsset::StaticClass(),
-                PhysicsFactory);
-            UPhysicsAsset *PhysicsAsset = Cast<UPhysicsAsset>(NewAsset);
+            UPhysicsAsset *PhysicsAsset = NewObject<UPhysicsAsset>(
+                Package, FName(*PhysicsAssetName),
+                RF_Public | RF_Standalone | RF_Transactional);
 
             if (!PhysicsAsset) {
               Message = TEXT("Failed to create physics asset");
               ErrorCode = TEXT("ASSET_CREATION_FAILED");
               Resp->SetStringField(TEXT("error"), Message);
             } else {
+              PhysicsAsset->SetPreviewMesh(TargetMesh);
+              PhysicsAsset->UpdateBodySetupIndexMap();
+              PhysicsAsset->UpdateBoundsBodiesArray();
+              FAssetRegistryModule::AssetCreated(PhysicsAsset);
+              Package->MarkPackageDirty();
+
               bool bAssignToMesh = false;
               Payload->TryGetBoolField(TEXT("assignToMesh"), bAssignToMesh);
-
 
               if (bAssignToMesh) {
                 TargetMesh->Modify();
                 TargetMesh->SetPhysicsAsset(PhysicsAsset);
                 McpSafeAssetSave(TargetMesh);
               }
+              McpSafeAssetSave(PhysicsAsset);
 
               Resp->SetStringField(TEXT("physicsAssetPath"),
                                    PhysicsAsset->GetPathName());
@@ -2148,10 +2156,16 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
               Resp->SetBoolField(TEXT("existingAsset"), false);
               Resp->SetStringField(TEXT("savePath"), SavePath);
               Resp->SetStringField(TEXT("meshPath"), TargetMesh->GetPathName());
+              Resp->SetStringField(TEXT("skeletalMeshPath"),
+                                   TargetMesh->GetPathName());
               if (TargetSkeleton) {
                 Resp->SetStringField(TEXT("skeletonPath"),
                                      TargetSkeleton->GetPathName());
               }
+              Resp->SetNumberField(TEXT("bodyCount"),
+                                   PhysicsAsset->SkeletalBodySetups.Num());
+              Resp->SetNumberField(TEXT("constraintCount"),
+                                   PhysicsAsset->ConstraintSetup.Num());
               McpHandlerUtils::AddVerification(Resp, PhysicsAsset);
 
               bSuccess = true;
@@ -4257,22 +4271,12 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
       ErrorCode = TEXT("INVALID_ARGUMENT");
       Resp->SetStringField(TEXT("error"), Message);
     } else {
-      TArray<FString> Commands;
-      Commands.Add(FString::Printf(TEXT("AddControlRigControl %s %s %s"),
-          *AssetPath, *ControlName, *ControlType));
-
-      FString CommandError;
-      if (!ExecuteEditorCommands(Commands, CommandError)) {
-        Message = CommandError.IsEmpty() ? TEXT("Failed to add control") : CommandError;
-        ErrorCode = TEXT("COMMAND_FAILED");
-        Resp->SetStringField(TEXT("error"), Message);
-      } else {
-        bSuccess = true;
-        Message = FString::Printf(TEXT("Control '%s' added to rig"), *ControlName);
-        Resp->SetStringField(TEXT("assetPath"), AssetPath);
-        Resp->SetStringField(TEXT("controlName"), ControlName);
-        Resp->SetStringField(TEXT("controlType"), ControlType);
-      }
+      Message = TEXT("Control Rig graph mutation is not supported by this build. create_control_rig creates the asset; add controls in the Control Rig editor.");
+      ErrorCode = TEXT("NOT_SUPPORTED");
+      Resp->SetStringField(TEXT("assetPath"), AssetPath);
+      Resp->SetStringField(TEXT("controlName"), ControlName);
+      Resp->SetStringField(TEXT("controlType"), ControlType);
+      Resp->SetStringField(TEXT("error"), Message);
     }
   } else if (LowerSub == TEXT("add_rig_unit")) {
     // Add a rig unit to a Control Rig
@@ -4290,22 +4294,12 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
       ErrorCode = TEXT("INVALID_ARGUMENT");
       Resp->SetStringField(TEXT("error"), Message);
     } else {
-      TArray<FString> Commands;
-      Commands.Add(FString::Printf(TEXT("AddControlRigUnit %s %s %s"),
-          *AssetPath, *UnitType, *UnitName));
-
-      FString CommandError;
-      if (!ExecuteEditorCommands(Commands, CommandError)) {
-        Message = CommandError.IsEmpty() ? TEXT("Failed to add rig unit") : CommandError;
-        ErrorCode = TEXT("COMMAND_FAILED");
-        Resp->SetStringField(TEXT("error"), Message);
-      } else {
-        bSuccess = true;
-        Message = FString::Printf(TEXT("Rig unit '%s' of type '%s' added"), *UnitName, *UnitType);
-        Resp->SetStringField(TEXT("assetPath"), AssetPath);
-        Resp->SetStringField(TEXT("unitType"), UnitType);
-        Resp->SetStringField(TEXT("unitName"), UnitName);
-      }
+      Message = TEXT("Control Rig VM graph unit insertion is not supported by this build. Use the Control Rig editor for rig unit graph edits.");
+      ErrorCode = TEXT("NOT_SUPPORTED");
+      Resp->SetStringField(TEXT("assetPath"), AssetPath);
+      Resp->SetStringField(TEXT("unitType"), UnitType);
+      Resp->SetStringField(TEXT("unitName"), UnitName);
+      Resp->SetStringField(TEXT("error"), Message);
     }
   } else if (LowerSub == TEXT("connect_rig_elements")) {
     // Connect elements in a Control Rig
@@ -4329,24 +4323,14 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
       ErrorCode = TEXT("INVALID_ARGUMENT");
       Resp->SetStringField(TEXT("error"), Message);
     } else {
-      TArray<FString> Commands;
-      Commands.Add(FString::Printf(TEXT("ConnectControlRigElements %s %s %s %s %s"),
-          *AssetPath, *SourceElement, *SourcePin, *TargetElement, *TargetPin));
-
-      FString CommandError;
-      if (!ExecuteEditorCommands(Commands, CommandError)) {
-        Message = CommandError.IsEmpty() ? TEXT("Failed to connect rig elements") : CommandError;
-        ErrorCode = TEXT("COMMAND_FAILED");
-        Resp->SetStringField(TEXT("error"), Message);
-      } else {
-        bSuccess = true;
-        Message = FString::Printf(TEXT("Connected '%s' to '%s'"), *SourceElement, *TargetElement);
-        Resp->SetStringField(TEXT("assetPath"), AssetPath);
-        Resp->SetStringField(TEXT("sourceElement"), SourceElement);
-        Resp->SetStringField(TEXT("targetElement"), TargetElement);
-        if (!SourcePin.IsEmpty()) Resp->SetStringField(TEXT("sourcePin"), SourcePin);
-        if (!TargetPin.IsEmpty()) Resp->SetStringField(TEXT("targetPin"), TargetPin);
-      }
+      Message = TEXT("Control Rig graph pin connections are not supported by this build. Use the Control Rig editor for graph wiring.");
+      ErrorCode = TEXT("NOT_SUPPORTED");
+      Resp->SetStringField(TEXT("assetPath"), AssetPath);
+      Resp->SetStringField(TEXT("sourceElement"), SourceElement);
+      Resp->SetStringField(TEXT("targetElement"), TargetElement);
+      if (!SourcePin.IsEmpty()) Resp->SetStringField(TEXT("sourcePin"), SourcePin);
+      if (!TargetPin.IsEmpty()) Resp->SetStringField(TEXT("targetPin"), TargetPin);
+      Resp->SetStringField(TEXT("error"), Message);
     }
   } else if (LowerSub == TEXT("create_pose_library")) {
     // Create a pose library asset
@@ -4359,17 +4343,29 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
       FString SavePath;
       Payload->TryGetStringField(TEXT("savePath"), SavePath);
       if (SavePath.IsEmpty()) {
+        Payload->TryGetStringField(TEXT("path"), SavePath);
+      }
+      if (SavePath.IsEmpty()) {
+        Payload->TryGetStringField(TEXT("directory"), SavePath);
+      }
+      if (SavePath.IsEmpty()) {
         SavePath = TEXT("/Game/Animations/PoseLibraries");
+      }
+      SavePath = SanitizeProjectRelativePath(SavePath.TrimStartAndEnd());
+      if (SavePath.IsEmpty()) {
+        Message = TEXT("Invalid savePath for create_pose_library");
+        ErrorCode = TEXT("INVALID_ARGUMENT");
+        Resp->SetStringField(TEXT("error"), Message);
       }
 
       FString SkeletonPath;
       Payload->TryGetStringField(TEXT("skeletonPath"), SkeletonPath);
 
-      if (SkeletonPath.IsEmpty()) {
+      if (!SavePath.IsEmpty() && SkeletonPath.IsEmpty()) {
         Message = TEXT("skeletonPath required for create_pose_library");
         ErrorCode = TEXT("INVALID_ARGUMENT");
         Resp->SetStringField(TEXT("error"), Message);
-      } else {
+      } else if (!SavePath.IsEmpty()) {
         USkeleton *TargetSkeleton = LoadObject<USkeleton>(nullptr, *SkeletonPath);
         if (!TargetSkeleton) {
           Message = FString::Printf(TEXT("Skeleton not found: %s"), *SkeletonPath);
@@ -4398,7 +4394,9 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
             bSuccess = true;
             Message = TEXT("Pose library created successfully");
             Resp->SetStringField(TEXT("assetPath"), NewAsset->GetPathName());
+            Resp->SetStringField(TEXT("savePath"), SavePath);
             Resp->SetStringField(TEXT("skeletonPath"), SkeletonPath);
+            McpHandlerUtils::AddVerification(Resp, NewAsset);
           } else {
             Message = TEXT("Failed to create pose library asset");
             ErrorCode = TEXT("ASSET_CREATION_FAILED");
@@ -4483,32 +4481,25 @@ bool UMcpAutomationBridgeSubsystem::HandleAnimationPhysicsAction(
 
     FString RootBone;
     Payload->TryGetStringField(TEXT("rootBone"), RootBone);
+    if (RootBone.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("startBone"), RootBone);
+    }
 
     FString EndBone;
     Payload->TryGetStringField(TEXT("endBone"), EndBone);
 
     if (AssetPath.IsEmpty() || ChainName.IsEmpty() || RootBone.IsEmpty() || EndBone.IsEmpty()) {
-      Message = TEXT("assetPath, chainName, rootBone, and endBone required for add_ik_chain");
+      Message = TEXT("assetPath, chainName, startBone/rootBone, and endBone required for add_ik_chain");
       ErrorCode = TEXT("INVALID_ARGUMENT");
       Resp->SetStringField(TEXT("error"), Message);
     } else {
-      TArray<FString> Commands;
-      Commands.Add(FString::Printf(TEXT("AddIKChain %s %s %s %s"),
-          *AssetPath, *ChainName, *RootBone, *EndBone));
-
-      FString CommandError;
-      if (!ExecuteEditorCommands(Commands, CommandError)) {
-        Message = CommandError.IsEmpty() ? TEXT("Failed to add IK chain") : CommandError;
-        ErrorCode = TEXT("COMMAND_FAILED");
-        Resp->SetStringField(TEXT("error"), Message);
-      } else {
-        bSuccess = true;
-        Message = FString::Printf(TEXT("IK chain '%s' added from '%s' to '%s'"), *ChainName, *RootBone, *EndBone);
-        Resp->SetStringField(TEXT("assetPath"), AssetPath);
-        Resp->SetStringField(TEXT("chainName"), ChainName);
-        Resp->SetStringField(TEXT("rootBone"), RootBone);
-        Resp->SetStringField(TEXT("endBone"), EndBone);
-      }
+      Message = TEXT("IK Rig chain editing is not supported by this build. Create IK Rig assets through create_ik_rig, then author chains in the IK Rig editor.");
+      ErrorCode = TEXT("NOT_SUPPORTED");
+      Resp->SetStringField(TEXT("assetPath"), AssetPath);
+      Resp->SetStringField(TEXT("chainName"), ChainName);
+      Resp->SetStringField(TEXT("rootBone"), RootBone);
+      Resp->SetStringField(TEXT("endBone"), EndBone);
+      Resp->SetStringField(TEXT("error"), Message);
     }
   } else {
     Message = FString::Printf(

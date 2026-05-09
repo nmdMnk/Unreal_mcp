@@ -565,6 +565,36 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGameFrameworkAction(
             }
         }
 
+        FString GameStateClass = GetStringField(Payload, TEXT("gameStateClass"));
+        if (!GameStateClass.IsEmpty())
+        {
+            UClass* GSClass = LoadClassFromPath(GameStateClass);
+            if (GSClass)
+            {
+                SetClassProperty(BP, TEXT("GameStateClass"), GSClass, Error);
+            }
+        }
+
+        FString PlayerStateClass = GetStringField(Payload, TEXT("playerStateClass"));
+        if (!PlayerStateClass.IsEmpty())
+        {
+            UClass* PSClass = LoadClassFromPath(PlayerStateClass);
+            if (PSClass)
+            {
+                SetClassProperty(BP, TEXT("PlayerStateClass"), PSClass, Error);
+            }
+        }
+
+        FString HUDClass = GetStringField(Payload, TEXT("hudClass"));
+        if (!HUDClass.IsEmpty())
+        {
+            UClass* HUDClassObj = LoadClassFromPath(HUDClass);
+            if (HUDClassObj)
+            {
+                SetClassProperty(BP, TEXT("HUDClass"), HUDClassObj, Error);
+            }
+        }
+
         if (bSave)
         {
             McpSafeAssetSave(BP);

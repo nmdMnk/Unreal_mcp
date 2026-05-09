@@ -2111,20 +2111,37 @@ bool UMcpAutomationBridgeSubsystem::HandleAudioAction(
        return true;
      }
 
-      // Configure attenuation settings
-      Atten->Attenuation.AttenuationShapeExtents.X = (float)InnerRadius;
-      Atten->Attenuation.FalloffDistance = (float)FalloffDistance;
+       // Configure attenuation settings
+       Atten->Attenuation.AttenuationShapeExtents.X = (float)InnerRadius;
+       Atten->Attenuation.FalloffDistance = (float)FalloffDistance;
 
-     // Set falloff mode
-     if (FalloffMode.Equals(TEXT("Logarithmic"), ESearchCase::IgnoreCase)) {
-       Atten->Attenuation.DistanceAlgorithm = EAttenuationDistanceModel::Logarithmic;
-     } else if (FalloffMode.Equals(TEXT("Inverse"), ESearchCase::IgnoreCase)) {
-       Atten->Attenuation.DistanceAlgorithm = EAttenuationDistanceModel::Inverse;
-     } else if (FalloffMode.Equals(TEXT("NaturalSound"), ESearchCase::IgnoreCase)) {
-       Atten->Attenuation.DistanceAlgorithm = EAttenuationDistanceModel::NaturalSound;
-     } else {
-       Atten->Attenuation.DistanceAlgorithm = EAttenuationDistanceModel::Linear;
-     }
+      FString AppliedShape = TEXT("Sphere");
+      if (AttenuationShape.Equals(TEXT("Capsule"), ESearchCase::IgnoreCase)) {
+        Atten->Attenuation.AttenuationShape = EAttenuationShape::Capsule;
+        AppliedShape = TEXT("Capsule");
+      } else if (AttenuationShape.Equals(TEXT("Box"), ESearchCase::IgnoreCase)) {
+        Atten->Attenuation.AttenuationShape = EAttenuationShape::Box;
+        AppliedShape = TEXT("Box");
+      } else if (AttenuationShape.Equals(TEXT("Cone"), ESearchCase::IgnoreCase)) {
+        Atten->Attenuation.AttenuationShape = EAttenuationShape::Cone;
+        AppliedShape = TEXT("Cone");
+      } else {
+        Atten->Attenuation.AttenuationShape = EAttenuationShape::Sphere;
+      }
+
+      FString AppliedFalloffMode = TEXT("Linear");
+      if (FalloffMode.Equals(TEXT("Logarithmic"), ESearchCase::IgnoreCase)) {
+        Atten->Attenuation.DistanceAlgorithm = EAttenuationDistanceModel::Logarithmic;
+        AppliedFalloffMode = TEXT("Logarithmic");
+      } else if (FalloffMode.Equals(TEXT("Inverse"), ESearchCase::IgnoreCase)) {
+        Atten->Attenuation.DistanceAlgorithm = EAttenuationDistanceModel::Inverse;
+        AppliedFalloffMode = TEXT("Inverse");
+      } else if (FalloffMode.Equals(TEXT("NaturalSound"), ESearchCase::IgnoreCase)) {
+        Atten->Attenuation.DistanceAlgorithm = EAttenuationDistanceModel::NaturalSound;
+        AppliedFalloffMode = TEXT("NaturalSound");
+      } else {
+        Atten->Attenuation.DistanceAlgorithm = EAttenuationDistanceModel::Linear;
+      }
 
       FAssetRegistryModule::AssetCreated(Atten);
       Package->MarkPackageDirty();
@@ -2137,10 +2154,14 @@ bool UMcpAutomationBridgeSubsystem::HandleAudioAction(
      }
 
      TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-     Resp->SetBoolField(TEXT("success"), true);
-     Resp->SetStringField(TEXT("path"), Atten->GetPathName());
-     Resp->SetStringField(TEXT("name"), Name);
-     McpHandlerUtils::AddVerification(Resp, Atten);
+      Resp->SetBoolField(TEXT("success"), true);
+      Resp->SetStringField(TEXT("path"), Atten->GetPathName());
+      Resp->SetStringField(TEXT("name"), Name);
+      Resp->SetNumberField(TEXT("innerRadius"), InnerRadius);
+      Resp->SetNumberField(TEXT("falloffDistance"), FalloffDistance);
+      Resp->SetStringField(TEXT("attenuationShape"), AppliedShape);
+      Resp->SetStringField(TEXT("falloffMode"), AppliedFalloffMode);
+      McpHandlerUtils::AddVerification(Resp, Atten);
      SendAutomationResponse(RequestingSocket, RequestId, true,
                             TEXT("Sound attenuation configured"), Resp);
      return true;

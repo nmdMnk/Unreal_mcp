@@ -63,6 +63,7 @@
 #include "IMeshMergeUtilities.h"
 #include "Misc/PackageName.h"
 #include "StaticMeshCompiler.h"
+#include "Containers/Ticker.h"
 
 // =============================================================================
 // Editor-Only Headers
@@ -104,8 +105,21 @@ bool UMcpAutomationBridgeSubsystem::HandlePerformanceAction(
     const FString &RequestId, const FString &Action,
     const TSharedPtr<FJsonObject> &Payload,
     TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
-  const FString Lower = Action.ToLower();
-  if (!Lower.StartsWith(TEXT("generate_memory_report")) &&
+  const FString RequestAction = Action.ToLower();
+  FString Lower = RequestAction;
+  if (RequestAction == TEXT("manage_performance") && Payload.IsValid()) {
+    FString SubAction;
+    Payload->TryGetStringField(TEXT("subAction"), SubAction);
+    if (SubAction.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("action"), SubAction);
+    }
+    Lower = SubAction.ToLower();
+    Lower.ReplaceInline(TEXT("-"), TEXT("_"));
+    Lower.ReplaceInline(TEXT(" "), TEXT("_"));
+  }
+
+  if (RequestAction != TEXT("manage_performance") &&
+      !Lower.StartsWith(TEXT("generate_memory_report")) &&
       !Lower.StartsWith(TEXT("configure_texture_streaming")) &&
       !Lower.StartsWith(TEXT("merge_actors")) &&
       !Lower.StartsWith(TEXT("start_profiling")) &&
@@ -133,6 +147,13 @@ bool UMcpAutomationBridgeSubsystem::HandlePerformanceAction(
     SendAutomationError(RequestingSocket, RequestId,
                         TEXT("Performance payload missing"),
                         TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  if (Lower.IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("manage_performance requires action or subAction"),
+                        TEXT("INVALID_ACTION"));
     return true;
   }
 
@@ -651,6 +672,7 @@ bool UMcpAutomationBridgeSubsystem::HandlePerformanceAction(
   else if (Lower == TEXT("run_benchmark")) {
     double Duration = 60.0;
     Payload->TryGetNumberField(TEXT("duration"), Duration);
+    const double BenchmarkDuration = FMath::Max(0.0, Duration);
 
     FString BenchmarkType = TEXT("all");
     Payload->TryGetStringField(TEXT("type"), BenchmarkType);
@@ -662,19 +684,74 @@ bool UMcpAutomationBridgeSubsystem::HandlePerformanceAction(
         return true;
     }
 
-    GEngine->Exec(GEditor->GetEditorWorldContext().World(),
-                  TEXT("stat startfile"));
+    UWorld* World = GEditor->GetEditorWorldContext().World();
+    if (!GEngine || !World)
+    {
+        SendAutomationError(RequestingSocket, RequestId, TEXT("Editor world not available"), TEXT("NO_WORLD"));
+        return true;
+    }
 
-    TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-    Resp->SetNumberField(TEXT("duration"), Duration);
-    Resp->SetStringField(TEXT("type"), BenchmarkType);
-    Resp->SetStringField(TEXT("status"), TEXT("started"));
+    const ERequestOrigin ResponseOrigin = CurrentRequestOrigin;
+    GEngine->Exec(World, TEXT("stat startfile"));
 
-    SendAutomationResponse(
-        RequestingSocket, RequestId, true,
-        FString::Printf(TEXT("Benchmark started (type: %s, duration: %.0fs)"),
-                        *BenchmarkType, Duration),
-        Resp);
+    if (BenchmarkType.Equals(TEXT("gpu"), ESearchCase::IgnoreCase) ||
+        BenchmarkType.Equals(TEXT("all"), ESearchCase::IgnoreCase))
+    {
+      GEngine->Exec(World, TEXT("profilegpu"));
+    }
+
+    SendProgressUpdate(
+        RequestId,
+        0.0f,
+        FString::Printf(TEXT("Benchmark running for %.0fs"), BenchmarkDuration),
+        true,
+        ResponseOrigin);
+
+    TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakThis(this);
+    FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateLambda(
+            [WeakThis, RequestingSocket, RequestId, BenchmarkType, BenchmarkDuration, ResponseOrigin](float) {
+              UMcpAutomationBridgeSubsystem* Subsystem = WeakThis.Get();
+              if (!Subsystem)
+              {
+                return false;
+              }
+
+              if (!GEditor || !GEngine)
+              {
+                Subsystem->SendAutomationResponse(
+                    RequestingSocket, RequestId, false,
+                    TEXT("Editor not available while completing benchmark"),
+                    nullptr, TEXT("NO_EDITOR"), ResponseOrigin);
+                return false;
+              }
+
+              UWorld* StopWorld = GEditor->GetEditorWorldContext().World();
+              if (!StopWorld)
+              {
+                Subsystem->SendAutomationResponse(
+                    RequestingSocket, RequestId, false,
+                    TEXT("Editor world not available while completing benchmark"),
+                    nullptr, TEXT("NO_WORLD"), ResponseOrigin);
+                return false;
+              }
+
+              GEngine->Exec(StopWorld, TEXT("stat stopfile"));
+              GEngine->Exec(StopWorld, TEXT("stat none"));
+
+              TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+              Resp->SetNumberField(TEXT("duration"), BenchmarkDuration);
+              Resp->SetStringField(TEXT("type"), BenchmarkType);
+              Resp->SetStringField(TEXT("status"), TEXT("completed"));
+
+              Subsystem->SendAutomationResponse(
+                  RequestingSocket, RequestId, true,
+                  FString::Printf(TEXT("Benchmark completed (type: %s, duration: %.0fs)"),
+                                  *BenchmarkType, BenchmarkDuration),
+                  Resp, FString(), ResponseOrigin);
+              return false;
+            }),
+        static_cast<float>(BenchmarkDuration));
     return true;
   }
   // ===========================================================================

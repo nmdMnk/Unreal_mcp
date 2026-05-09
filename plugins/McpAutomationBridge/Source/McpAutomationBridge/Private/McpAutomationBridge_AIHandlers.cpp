@@ -110,6 +110,8 @@
 // Environment Query
 #include "EnvironmentQuery/EnvQuery.h"
 #include "EnvironmentQuery/EnvQueryManager.h"
+#include "EnvironmentQuery/EnvQueryOption.h"
+#include "EnvironmentQuery/EnvQueryTest.h"
 #include "EnvironmentQuery/Generators/EnvQueryGenerator_ActorsOfClass.h"
 #include "EnvironmentQuery/Generators/EnvQueryGenerator_OnCircle.h"
 #include "EnvironmentQuery/Generators/EnvQueryGenerator_SimpleGrid.h"
@@ -131,6 +133,7 @@
 #include "Perception/AISense_Sight.h"
 #include "Perception/AISense_Hearing.h"
 #include "Perception/AISense_Damage.h"
+#include "GenericTeamAgentInterface.h"
 
 // Engine Components
 #include "Engine/SimpleConstructionScript.h"
@@ -302,7 +305,86 @@ static bool SanitizeAIAssetPath(const FString& InputPath, FString& OutSanitizedP
     return true;
 }
 
+static bool IsManageAIBehaviorTreeGraphSubAction(const FString& SubAction)
+{
+    return SubAction == TEXT("create") ||
+           SubAction == TEXT("add_node") ||
+           SubAction == TEXT("connect_nodes") ||
+           SubAction == TEXT("remove_node") ||
+           SubAction == TEXT("break_connections") ||
+           SubAction == TEXT("set_node_properties");
+}
+
+static bool IsManageAINavigationSubAction(const FString& SubAction)
+{
+    return SubAction == TEXT("configure_nav_mesh_settings") ||
+           SubAction == TEXT("set_nav_agent_properties") ||
+           SubAction == TEXT("rebuild_navigation") ||
+           SubAction == TEXT("create_nav_modifier_component") ||
+           SubAction == TEXT("set_nav_area_class") ||
+           SubAction == TEXT("configure_nav_area_cost") ||
+           SubAction == TEXT("create_nav_link_proxy") ||
+           SubAction == TEXT("configure_nav_link") ||
+           SubAction == TEXT("set_nav_link_type") ||
+           SubAction == TEXT("create_smart_link") ||
+           SubAction == TEXT("configure_smart_link_behavior") ||
+           SubAction == TEXT("get_navigation_info");
+}
+
 #if WITH_EDITOR
+
+static void SetBPVarDefaultValueAI(UBlueprint* Blueprint, FName VarName, const FString& DefaultValue)
+{
+    if (!Blueprint)
+    {
+        return;
+    }
+
+    for (FBPVariableDescription& VarDesc : Blueprint->NewVariables)
+    {
+        if (VarDesc.VarName == VarName)
+        {
+            VarDesc.DefaultValue = DefaultValue;
+            break;
+        }
+    }
+
+    McpSafeCompileBlueprint(Blueprint);
+    if (Blueprint->GeneratedClass)
+    {
+        if (UObject* CDO = Blueprint->GeneratedClass->GetDefaultObject())
+        {
+            if (FProperty* Property = FindFProperty<FProperty>(Blueprint->GeneratedClass, VarName))
+            {
+                void* ValuePtr = Property->ContainerPtrToValuePtr<void>(CDO);
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
+                Property->ImportText_Direct(*DefaultValue, ValuePtr, CDO, 0);
+#else
+                Property->ImportText(*DefaultValue, ValuePtr, PPF_None, CDO);
+#endif
+            }
+        }
+    }
+
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    Blueprint->MarkPackageDirty();
+}
+
+static EEnvTestScoreEquation::Type ParseEQSScoringEquationAI(const FString& Value)
+{
+    if (Value.Equals(TEXT("Square"), ESearchCase::IgnoreCase)) return EEnvTestScoreEquation::Square;
+    if (Value.Equals(TEXT("InverseLinear"), ESearchCase::IgnoreCase)) return EEnvTestScoreEquation::InverseLinear;
+    if (Value.Equals(TEXT("Constant"), ESearchCase::IgnoreCase)) return EEnvTestScoreEquation::Constant;
+    return EEnvTestScoreEquation::Linear;
+}
+
+static EEnvTestFilterType::Type ParseEQSFilterTypeAI(const FString& Value)
+{
+    if (Value.Equals(TEXT("Minimum"), ESearchCase::IgnoreCase)) return EEnvTestFilterType::Minimum;
+    if (Value.Equals(TEXT("Maximum"), ESearchCase::IgnoreCase)) return EEnvTestFilterType::Maximum;
+    return EEnvTestFilterType::Range;
+}
+
 // Helper to create AI Controller blueprint
 static UBlueprint* CreateAIControllerBlueprint(const FString& Path, const FString& Name, FString& OutError)
 {
@@ -538,6 +620,16 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
     }
 
     TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+
+    if (IsManageAIBehaviorTreeGraphSubAction(SubAction))
+    {
+        return HandleBehaviorTreeAction(RequestId, TEXT("manage_behavior_tree"), Payload, RequestingSocket);
+    }
+
+    if (IsManageAINavigationSubAction(SubAction))
+    {
+        return HandleManageNavigationAction(RequestId, TEXT("manage_navigation"), Payload, RequestingSocket);
+    }
 
     // =========================================================================
     // 16.1 AI Controller (3 actions)
@@ -1461,8 +1553,68 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
 
         if (NewGenerator)
         {
-            // Add generator to query options
+            const TSharedPtr<FJsonObject>* GeneratorSettings = nullptr;
+            if (Payload->TryGetObjectField(TEXT("generatorSettings"), GeneratorSettings) && GeneratorSettings && GeneratorSettings->IsValid())
+            {
+                double NumberValue = 0.0;
+                if (UEnvQueryGenerator_ActorsOfClass* ActorsGenerator = Cast<UEnvQueryGenerator_ActorsOfClass>(NewGenerator))
+                {
+                    if ((*GeneratorSettings)->TryGetNumberField(TEXT("searchRadius"), NumberValue))
+                    {
+                        ActorsGenerator->SearchRadius.DefaultValue = static_cast<float>(NumberValue);
+                        ActorsGenerator->GenerateOnlyActorsInRadius.DefaultValue = true;
+                    }
+                    FString ActorClassPath;
+                    if ((*GeneratorSettings)->TryGetStringField(TEXT("actorClass"), ActorClassPath) && !ActorClassPath.IsEmpty())
+                    {
+                        if (UClass* ActorClass = ResolveClassByName(ActorClassPath))
+                        {
+                            if (ActorClass->IsChildOf(AActor::StaticClass()))
+                            {
+                                ActorsGenerator->SearchedActorClass = ActorClass;
+                            }
+                        }
+                    }
+                }
+                else if (UEnvQueryGenerator_SimpleGrid* GridGenerator = Cast<UEnvQueryGenerator_SimpleGrid>(NewGenerator))
+                {
+                    if ((*GeneratorSettings)->TryGetNumberField(TEXT("gridSize"), NumberValue))
+                    {
+                        GridGenerator->GridSize.DefaultValue = static_cast<float>(NumberValue);
+                    }
+                    if ((*GeneratorSettings)->TryGetNumberField(TEXT("spacesBetween"), NumberValue))
+                    {
+                        GridGenerator->SpaceBetween.DefaultValue = static_cast<float>(NumberValue);
+                    }
+                }
+                else if (UEnvQueryGenerator_OnCircle* CircleGenerator = Cast<UEnvQueryGenerator_OnCircle>(NewGenerator))
+                {
+                    if ((*GeneratorSettings)->TryGetNumberField(TEXT("searchRadius"), NumberValue) ||
+                        (*GeneratorSettings)->TryGetNumberField(TEXT("outerRadius"), NumberValue))
+                    {
+                        CircleGenerator->CircleRadius.DefaultValue = static_cast<float>(NumberValue);
+                    }
+                    if ((*GeneratorSettings)->TryGetNumberField(TEXT("spacesBetween"), NumberValue))
+                    {
+                        CircleGenerator->SpaceBetween.DefaultValue = static_cast<float>(NumberValue);
+                    }
+                }
+            }
+
+            UEnvQueryOption* NewOption = NewObject<UEnvQueryOption>(Query);
+            if (!NewOption)
+            {
+                SendAutomationError(RequestingSocket, RequestId,
+                                    TEXT("Failed to create EQS option for generator"),
+                                    TEXT("CREATION_FAILED"));
+                return true;
+            }
+
+            NewOption->Generator = NewGenerator;
+            const int32 OptionIndex = Query->GetOptionsMutable().Add(NewOption);
             Query->MarkPackageDirty();
+            McpSafeAssetSave(Query);
+            Result->SetNumberField(TEXT("optionIndex"), OptionIndex);
             Result->SetStringField(TEXT("generatorType"), GeneratorType);
             Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Added %s generator"), *GeneratorType));
             McpHandlerUtils::AddVerification(Result, Query);
@@ -1548,7 +1700,25 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
 
         if (NewTest)
         {
+            TArray<TObjectPtr<UEnvQueryOption>>& Options = Query->GetOptionsMutable();
+            if (Options.Num() == 0 || !Options[0])
+            {
+                UEnvQueryOption* NewOption = NewObject<UEnvQueryOption>(Query);
+                if (!NewOption)
+                {
+                    SendAutomationError(RequestingSocket, RequestId,
+                                        TEXT("Failed to create EQS option for test"),
+                                        TEXT("CREATION_FAILED"));
+                    return true;
+                }
+                Options.Add(NewOption);
+            }
+
+            NewTest->TestOrder = Options[0]->Tests.Num();
+            Options[0]->Tests.Add(NewTest);
             Query->MarkPackageDirty();
+            McpSafeAssetSave(Query);
+            Result->SetNumberField(TEXT("testIndex"), NewTest->TestOrder);
             Result->SetStringField(TEXT("testType"), TestType);
             Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Added %s test"), *TestType));
             McpHandlerUtils::AddVerification(Result, Query);
@@ -1570,6 +1740,14 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
         FString QueryPath = GetStringFieldAI(Payload, TEXT("queryPath"));
         int32 TestIndex = static_cast<int32>(GetNumberFieldAI(Payload, TEXT("testIndex"), 0));
 
+        if (TestIndex < 0)
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                                TEXT("testIndex must be zero or greater"),
+                                TEXT("INVALID_PARAMS"));
+            return true;
+        }
+
         UEnvQuery* Query = LoadObject<UEnvQuery>(nullptr, *QueryPath);
         if (!Query)
         {
@@ -1579,8 +1757,116 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
             return true;
         }
 
+        UEnvQueryTest* TargetTest = nullptr;
+        int32 ResolvedOptionIndex = INDEX_NONE;
+        int32 ResolvedTestIndex = INDEX_NONE;
+        int32 FlatIndex = 0;
+        TArray<TObjectPtr<UEnvQueryOption>>& Options = Query->GetOptionsMutable();
+        for (int32 OptionIndex = 0; OptionIndex < Options.Num(); ++OptionIndex)
+        {
+            UEnvQueryOption* Option = Options[OptionIndex];
+            if (!Option)
+            {
+                continue;
+            }
+
+            for (int32 OptionTestIndex = 0; OptionTestIndex < Option->Tests.Num(); ++OptionTestIndex)
+            {
+                UEnvQueryTest* Test = Option->Tests[OptionTestIndex];
+                if (!Test)
+                {
+                    continue;
+                }
+
+                if (FlatIndex == TestIndex)
+                {
+                    TargetTest = Test;
+                    ResolvedOptionIndex = OptionIndex;
+                    ResolvedTestIndex = OptionTestIndex;
+                    break;
+                }
+                ++FlatIndex;
+            }
+
+            if (TargetTest)
+            {
+                break;
+            }
+        }
+
+        if (!TargetTest)
+        {
+            SendAutomationError(RequestingSocket, RequestId,
+                                FString::Printf(TEXT("EQS test index %d was not found on query: %s"), TestIndex, *QueryPath),
+                                TEXT("NOT_FOUND"));
+            return true;
+        }
+
+        const TSharedPtr<FJsonObject>* TestSettings = nullptr;
+        Payload->TryGetObjectField(TEXT("testSettings"), TestSettings);
+        const TSharedPtr<FJsonObject>& Settings = (TestSettings && TestSettings->IsValid()) ? *TestSettings : Payload;
+
+        bool bConfiguredAnySetting = false;
+        FString ScoringEquation;
+        if (Settings->TryGetStringField(TEXT("scoringEquation"), ScoringEquation) && !ScoringEquation.IsEmpty())
+        {
+            TargetTest->ScoringEquation = ParseEQSScoringEquationAI(ScoringEquation);
+            TargetTest->TestPurpose = EEnvTestPurpose::FilterAndScore;
+            bConfiguredAnySetting = true;
+        }
+
+        FString FilterType;
+        if (Settings->TryGetStringField(TEXT("filterType"), FilterType) && !FilterType.IsEmpty())
+        {
+            TargetTest->FilterType = ParseEQSFilterTypeAI(FilterType);
+            TargetTest->TestPurpose = EEnvTestPurpose::FilterAndScore;
+            bConfiguredAnySetting = true;
+        }
+
+        double NumericValue = 0.0;
+        if (Settings->TryGetNumberField(TEXT("clampMin"), NumericValue))
+        {
+            TargetTest->ScoreClampMin.DefaultValue = static_cast<float>(NumericValue);
+            TargetTest->ClampMinType = EEnvQueryTestClamping::SpecifiedValue;
+            TargetTest->TestPurpose = EEnvTestPurpose::FilterAndScore;
+            bConfiguredAnySetting = true;
+        }
+        if (Settings->TryGetNumberField(TEXT("clampMax"), NumericValue))
+        {
+            TargetTest->ScoreClampMax.DefaultValue = static_cast<float>(NumericValue);
+            TargetTest->ClampMaxType = EEnvQueryTestClamping::SpecifiedValue;
+            TargetTest->TestPurpose = EEnvTestPurpose::FilterAndScore;
+            bConfiguredAnySetting = true;
+        }
+        if (Settings->TryGetNumberField(TEXT("floatMin"), NumericValue))
+        {
+            TargetTest->FloatValueMin.DefaultValue = static_cast<float>(NumericValue);
+            TargetTest->FilterType = EEnvTestFilterType::Range;
+            TargetTest->TestPurpose = EEnvTestPurpose::FilterAndScore;
+            bConfiguredAnySetting = true;
+        }
+        if (Settings->TryGetNumberField(TEXT("floatMax"), NumericValue))
+        {
+            TargetTest->FloatValueMax.DefaultValue = static_cast<float>(NumericValue);
+            TargetTest->FilterType = EEnvTestFilterType::Range;
+            TargetTest->TestPurpose = EEnvTestPurpose::FilterAndScore;
+            bConfiguredAnySetting = true;
+        }
+
+        if (!bConfiguredAnySetting)
+        {
+            TargetTest->TestPurpose = EEnvTestPurpose::FilterAndScore;
+            TargetTest->ScoringEquation = EEnvTestScoreEquation::Linear;
+            bConfiguredAnySetting = true;
+        }
+
         Query->MarkPackageDirty();
+        McpSafeAssetSave(Query);
+        Result->SetNumberField(TEXT("optionIndex"), ResolvedOptionIndex);
+        Result->SetNumberField(TEXT("optionTestIndex"), ResolvedTestIndex);
         Result->SetNumberField(TEXT("testIndex"), TestIndex);
+        Result->SetStringField(TEXT("testClass"), TargetTest->GetClass()->GetName());
+        Result->SetBoolField(TEXT("configured"), bConfiguredAnySetting);
         Result->SetStringField(TEXT("message"), TEXT("Test scoring configured"));
 
         McpHandlerUtils::AddVerification(Result, Query);
@@ -1668,19 +1954,70 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
         }
 
         // Get sight config parameters
+        double SightRadius = GetNumberFieldAI(Payload, TEXT("sightRadius"), 3000.0);
+        double LoseSightRadius = GetNumberFieldAI(Payload, TEXT("loseSightRadius"), SightRadius + 500.0);
+        double PeripheralAngle = GetNumberFieldAI(Payload, TEXT("peripheralVisionAngle"), 90.0);
         const TSharedPtr<FJsonObject>* SightConfigObj = nullptr;
         if (Payload->TryGetObjectField(TEXT("sightConfig"), SightConfigObj) && SightConfigObj->IsValid())
         {
-            double SightRadius = GetNumberFieldAI(*SightConfigObj, TEXT("sightRadius"), 3000.0);
-            double LoseSightRadius = GetNumberFieldAI(*SightConfigObj, TEXT("loseSightRadius"), 3500.0);
-            double PeripheralAngle = GetNumberFieldAI(*SightConfigObj, TEXT("peripheralVisionAngle"), 90.0);
-
-            Result->SetNumberField(TEXT("sightRadius"), SightRadius);
-            Result->SetNumberField(TEXT("loseSightRadius"), LoseSightRadius);
-            Result->SetNumberField(TEXT("peripheralVisionAngle"), PeripheralAngle);
+            SightRadius = GetNumberFieldAI(*SightConfigObj, TEXT("sightRadius"), SightRadius);
+            LoseSightRadius = GetNumberFieldAI(*SightConfigObj, TEXT("loseSightRadius"), LoseSightRadius);
+            PeripheralAngle = GetNumberFieldAI(*SightConfigObj, TEXT("peripheralVisionAngle"), PeripheralAngle);
         }
 
-        Blueprint->MarkPackageDirty();
+        if (!Blueprint->SimpleConstructionScript)
+        {
+            SendAutomationError(RequestingSocket, RequestId, TEXT("Blueprint has no SimpleConstructionScript"), TEXT("INVALID_STATE"));
+            return true;
+        }
+
+        UAIPerceptionComponent* PerceptionComp = nullptr;
+        for (USCS_Node* Node : Blueprint->SimpleConstructionScript->GetAllNodes())
+        {
+            if (Node && Node->ComponentTemplate)
+            {
+                if (UAIPerceptionComponent* Comp = Cast<UAIPerceptionComponent>(Node->ComponentTemplate))
+                {
+                    PerceptionComp = Comp;
+                    break;
+                }
+            }
+        }
+
+        if (!PerceptionComp)
+        {
+            USCS_Node* PerceptionNode = Blueprint->SimpleConstructionScript->CreateNode(
+                UAIPerceptionComponent::StaticClass(), TEXT("AIPerceptionComponent"));
+            if (!PerceptionNode)
+            {
+                SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to create perception component node"), TEXT("CREATION_FAILED"));
+                return true;
+            }
+            Blueprint->SimpleConstructionScript->AddNode(PerceptionNode);
+            PerceptionComp = Cast<UAIPerceptionComponent>(PerceptionNode->ComponentTemplate);
+        }
+
+        if (!PerceptionComp)
+        {
+            SendAutomationError(RequestingSocket, RequestId, TEXT("Perception component is null"), TEXT("NULL_COMPONENT"));
+            return true;
+        }
+
+        UAISenseConfig_Sight* SightConfig = NewObject<UAISenseConfig_Sight>(PerceptionComp);
+        SightConfig->SightRadius = SightRadius;
+        SightConfig->LoseSightRadius = LoseSightRadius;
+        SightConfig->PeripheralVisionAngleDegrees = PeripheralAngle;
+        SightConfig->DetectionByAffiliation.bDetectEnemies = true;
+        SightConfig->DetectionByAffiliation.bDetectNeutrals = true;
+        SightConfig->DetectionByAffiliation.bDetectFriendlies = false;
+        SightConfig->SetMaxAge(5.0f);
+        PerceptionComp->ConfigureSense(*SightConfig);
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        McpSafeAssetSave(Blueprint);
+        Result->SetNumberField(TEXT("sightRadius"), SightRadius);
+        Result->SetNumberField(TEXT("loseSightRadius"), LoseSightRadius);
+        Result->SetNumberField(TEXT("peripheralVisionAngle"), PeripheralAngle);
         Result->SetStringField(TEXT("message"), TEXT("Sight sense configured"));
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Sight config set"), Result);
@@ -1709,14 +2046,62 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
             return true;
         }
 
+        double HearingRange = GetNumberFieldAI(Payload, TEXT("hearingRange"), 3000.0);
         const TSharedPtr<FJsonObject>* HearingConfigObj = nullptr;
         if (Payload->TryGetObjectField(TEXT("hearingConfig"), HearingConfigObj) && HearingConfigObj->IsValid())
         {
-            double HearingRange = GetNumberFieldAI(*HearingConfigObj, TEXT("hearingRange"), 3000.0);
-            Result->SetNumberField(TEXT("hearingRange"), HearingRange);
+            HearingRange = GetNumberFieldAI(*HearingConfigObj, TEXT("hearingRange"), HearingRange);
         }
 
-        Blueprint->MarkPackageDirty();
+        if (!Blueprint->SimpleConstructionScript)
+        {
+            SendAutomationError(RequestingSocket, RequestId, TEXT("Blueprint has no SimpleConstructionScript"), TEXT("INVALID_STATE"));
+            return true;
+        }
+
+        UAIPerceptionComponent* PerceptionComp = nullptr;
+        for (USCS_Node* Node : Blueprint->SimpleConstructionScript->GetAllNodes())
+        {
+            if (Node && Node->ComponentTemplate)
+            {
+                if (UAIPerceptionComponent* Comp = Cast<UAIPerceptionComponent>(Node->ComponentTemplate))
+                {
+                    PerceptionComp = Comp;
+                    break;
+                }
+            }
+        }
+
+        if (!PerceptionComp)
+        {
+            USCS_Node* PerceptionNode = Blueprint->SimpleConstructionScript->CreateNode(
+                UAIPerceptionComponent::StaticClass(), TEXT("AIPerceptionComponent"));
+            if (!PerceptionNode)
+            {
+                SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to create perception component node"), TEXT("CREATION_FAILED"));
+                return true;
+            }
+            Blueprint->SimpleConstructionScript->AddNode(PerceptionNode);
+            PerceptionComp = Cast<UAIPerceptionComponent>(PerceptionNode->ComponentTemplate);
+        }
+
+        if (!PerceptionComp)
+        {
+            SendAutomationError(RequestingSocket, RequestId, TEXT("Perception component is null"), TEXT("NULL_COMPONENT"));
+            return true;
+        }
+
+        UAISenseConfig_Hearing* HearingConfig = NewObject<UAISenseConfig_Hearing>(PerceptionComp);
+        HearingConfig->HearingRange = HearingRange;
+        HearingConfig->DetectionByAffiliation.bDetectEnemies = true;
+        HearingConfig->DetectionByAffiliation.bDetectNeutrals = true;
+        HearingConfig->DetectionByAffiliation.bDetectFriendlies = false;
+        HearingConfig->SetMaxAge(5.0f);
+        PerceptionComp->ConfigureSense(*HearingConfig);
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        McpSafeAssetSave(Blueprint);
+        Result->SetNumberField(TEXT("hearingRange"), HearingRange);
         Result->SetStringField(TEXT("message"), TEXT("Hearing sense configured"));
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Hearing config set"), Result);
@@ -1745,7 +2130,58 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
             return true;
         }
 
-        Blueprint->MarkPackageDirty();
+        double MaxAge = 10.0;
+        const TSharedPtr<FJsonObject>* DamageConfigObj = nullptr;
+        if (Payload->TryGetObjectField(TEXT("damageConfig"), DamageConfigObj) && DamageConfigObj->IsValid())
+        {
+            MaxAge = GetNumberFieldAI(*DamageConfigObj, TEXT("maxAge"), MaxAge);
+        }
+
+        if (!Blueprint->SimpleConstructionScript)
+        {
+            SendAutomationError(RequestingSocket, RequestId, TEXT("Blueprint has no SimpleConstructionScript"), TEXT("INVALID_STATE"));
+            return true;
+        }
+
+        UAIPerceptionComponent* PerceptionComp = nullptr;
+        for (USCS_Node* Node : Blueprint->SimpleConstructionScript->GetAllNodes())
+        {
+            if (Node && Node->ComponentTemplate)
+            {
+                if (UAIPerceptionComponent* Comp = Cast<UAIPerceptionComponent>(Node->ComponentTemplate))
+                {
+                    PerceptionComp = Comp;
+                    break;
+                }
+            }
+        }
+
+        if (!PerceptionComp)
+        {
+            USCS_Node* PerceptionNode = Blueprint->SimpleConstructionScript->CreateNode(
+                UAIPerceptionComponent::StaticClass(), TEXT("AIPerceptionComponent"));
+            if (!PerceptionNode)
+            {
+                SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to create perception component node"), TEXT("CREATION_FAILED"));
+                return true;
+            }
+            Blueprint->SimpleConstructionScript->AddNode(PerceptionNode);
+            PerceptionComp = Cast<UAIPerceptionComponent>(PerceptionNode->ComponentTemplate);
+        }
+
+        if (!PerceptionComp)
+        {
+            SendAutomationError(RequestingSocket, RequestId, TEXT("Perception component is null"), TEXT("NULL_COMPONENT"));
+            return true;
+        }
+
+        UAISenseConfig_Damage* DamageConfig = NewObject<UAISenseConfig_Damage>(PerceptionComp);
+        DamageConfig->SetMaxAge(MaxAge);
+        PerceptionComp->ConfigureSense(*DamageConfig);
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        McpSafeAssetSave(Blueprint);
+        Result->SetNumberField(TEXT("maxAge"), MaxAge);
         Result->SetStringField(TEXT("message"), TEXT("Damage sense configured"));
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Damage config set"), Result);
@@ -1775,8 +2211,49 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
             return true;
         }
 
+        bool bAppliedToGenericTeamAgent = false;
+        if (Blueprint->GeneratedClass)
+        {
+            if (UObject* CDO = Blueprint->GeneratedClass->GetDefaultObject())
+            {
+                if (IGenericTeamAgentInterface* TeamAgent = Cast<IGenericTeamAgentInterface>(CDO))
+                {
+                    TeamAgent->SetGenericTeamId(FGenericTeamId(static_cast<uint8>(FMath::Clamp(TeamId, 0, 255))));
+                    bAppliedToGenericTeamAgent = true;
+                }
+            }
+        }
+
+        const FName TeamVarName(TEXT("GenericTeamId"));
+        bool bStoredBlueprintVariable = false;
+        const bool bHasTeamVariable = Blueprint->GeneratedClass &&
+            FindFProperty<FProperty>(Blueprint->GeneratedClass, TeamVarName) != nullptr;
+        if (!bHasTeamVariable)
+        {
+            FEdGraphPinType PinType;
+            PinType.PinCategory = UEdGraphSchema_K2::PC_Int;
+            bStoredBlueprintVariable = FBlueprintEditorUtils::AddMemberVariable(Blueprint, TeamVarName, PinType);
+            if (bStoredBlueprintVariable)
+            {
+                FBlueprintEditorUtils::SetBlueprintVariableCategory(Blueprint, TeamVarName, nullptr, FText::FromString(TEXT("AI Perception")));
+            }
+        }
+        else
+        {
+            bStoredBlueprintVariable = true;
+        }
+
+        if (bStoredBlueprintVariable)
+        {
+            SetBPVarDefaultValueAI(Blueprint, TeamVarName, FString::FromInt(TeamId));
+        }
+
+        FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
         Blueprint->MarkPackageDirty();
+        McpSafeAssetSave(Blueprint);
         Result->SetNumberField(TEXT("teamId"), TeamId);
+        Result->SetBoolField(TEXT("appliedToGenericTeamAgent"), bAppliedToGenericTeamAgent);
+        Result->SetBoolField(TEXT("storedBlueprintVariable"), bStoredBlueprintVariable);
         Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Team ID set to %d"), TeamId));
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Team set"), Result);
@@ -3467,6 +3944,23 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
             SensesConfigured.Add(TEXT("Damage"));
         }
 
+        FString DominantSense = GetStringFieldAI(Payload, TEXT("dominantSense"));
+        if (!DominantSense.IsEmpty())
+        {
+            if (DominantSense.Equals(TEXT("Sight"), ESearchCase::IgnoreCase))
+            {
+                PerceptionComp->SetDominantSense(UAISense_Sight::StaticClass());
+            }
+            else if (DominantSense.Equals(TEXT("Hearing"), ESearchCase::IgnoreCase))
+            {
+                PerceptionComp->SetDominantSense(UAISense_Hearing::StaticClass());
+            }
+            else if (DominantSense.Equals(TEXT("Damage"), ESearchCase::IgnoreCase))
+            {
+                PerceptionComp->SetDominantSense(UAISense_Damage::StaticClass());
+            }
+        }
+
         FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(ControllerBP);
         McpSafeAssetSave(ControllerBP);
 
@@ -3480,6 +3974,11 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
             SensesArray.Add(MakeShared<FJsonValueString>(Sense));
         }
         PerceptionResult->SetArrayField(TEXT("sensesConfigured"), SensesArray);
+
+        if (!DominantSense.IsEmpty())
+        {
+            PerceptionResult->SetStringField(TEXT("dominantSense"), DominantSense);
+        }
 
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("AI perception configured via setup_perception"), PerceptionResult);
         return true;

@@ -134,7 +134,7 @@ bool UMcpAutomationBridgeSubsystem::HandleEffectAction(
   const bool bIsNiagaraModule = Lower.StartsWith(TEXT("add_")) ||
                                  Lower.StartsWith(TEXT("set_parameter")) ||
                                  Lower.StartsWith(TEXT("bind_parameter")) ||
-                                 Lower.StartsWith(TEXT("enable_gpu")) ||
+                                 Lower.StartsWith(TEXT("enable_gpu_simulation")) ||
                                  Lower.StartsWith(TEXT("configure_event"));
   // Note: Only accept spawn_niagara explicitly, NOT spawn_sky_light (which goes to HandleLightingAction)
   const bool bIsSpawnNiagara = Lower.Equals(TEXT("spawn_niagara"));
