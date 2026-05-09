@@ -159,7 +159,7 @@ void UMcpAutomationBridgeSubsystem::Initialize(
           this, [this](const FString &RequestId, const FString &Action,
                        const TSharedPtr<FJsonObject> &Payload,
                        TSharedPtr<FMcpBridgeWebSocket> Socket) {
-            ProcessAutomationRequest(RequestId, Action, Payload, Socket);
+            QueueAutomationRequest(RequestId, Action, Payload, Socket);
           }));
 
   // Initialize the handler registry
@@ -193,11 +193,13 @@ void UMcpAutomationBridgeSubsystem::Initialize(
     }
   }
 
-  // Register Ticker
+  // Register Ticker. Automation requests are drained here, after the engine
+  // world tick has completed, so map transitions do not run from arbitrary
+  // GameThread task-graph points inside active tick groups.
   TickHandle = FTSTicker::GetCoreTicker().AddTicker(
       FTickerDelegate::CreateUObject(this,
                                      &UMcpAutomationBridgeSubsystem::Tick),
-      0.1f // Tick every 0.1s is sufficient for automation queue processing
+      0.0f
   );
 
   UE_LOG(LogMcpAutomationBridgeSubsystem, Log,
@@ -376,10 +378,8 @@ bool UMcpAutomationBridgeSubsystem::SendRawMessage(const FString &Message) {
  * @return true to remain registered and continue receiving ticks.
  */
 bool UMcpAutomationBridgeSubsystem::Tick(float DeltaTime) {
-  // Check if we have pending requests that were deferred due to unsafe engine
-  // states
-  if (bPendingRequestsScheduled && !GIsSavingPackage &&
-      !IsGarbageCollecting() && !IsAsyncLoading()) {
+  // Drain pending requests only outside unsafe engine states.
+  if (!GIsSavingPackage && !IsGarbageCollecting() && !IsAsyncLoading()) {
     ProcessPendingAutomationRequests();
   }
   // Cleanup stale HTTP pending requests (5 minute timeout)
@@ -388,6 +388,28 @@ bool UMcpAutomationBridgeSubsystem::Tick(float DeltaTime) {
     NativeTransport->CleanupStaleRequests();
   }
   return true;
+}
+
+void UMcpAutomationBridgeSubsystem::QueueAutomationRequest(
+    const FString &RequestId, const FString &Action,
+    const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket,
+    ERequestOrigin Origin) {
+  FPendingAutomationRequest Pending;
+  Pending.RequestId = RequestId;
+  Pending.Action = Action;
+  Pending.Payload = Payload;
+  Pending.RequestingSocket = RequestingSocket;
+  Pending.Origin = Origin;
+
+  {
+    FScopeLock Lock(&PendingAutomationRequestsMutex);
+    PendingAutomationRequests.Add(MoveTemp(Pending));
+  }
+
+  UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
+         TEXT("Queued automation request for core ticker: RequestId=%s action=%s"),
+         *RequestId, *Action);
 }
 
 // The in-file implementation of ProcessAutomationRequest was intentionally
@@ -1252,6 +1274,25 @@ void UMcpAutomationBridgeSubsystem::InitializeHandlers() {
                          TSharedPtr<FMcpBridgeWebSocket> S) {
                     return HandlePerformanceAction(R, A, P, S);
                   });
+  RegisterHandler(TEXT("enable_gpu_timing"),
+                  [this](const FString &R, const FString &A,
+                         const TSharedPtr<FJsonObject> &P,
+                         TSharedPtr<FMcpBridgeWebSocket> S) {
+                    return HandlePerformanceAction(R, A, P, S);
+                  });
+
+  RegisterHandler(TEXT("manage_debug"),
+                  [this](const FString &R, const FString &A,
+                         const TSharedPtr<FJsonObject> &P,
+                         TSharedPtr<FMcpBridgeWebSocket> S) {
+                    return HandleDebugAction(R, A, P, S);
+                  });
+  RegisterHandler(TEXT("spawn_category"),
+                  [this](const FString &R, const FString &A,
+                         const TSharedPtr<FJsonObject> &P,
+                         TSharedPtr<FMcpBridgeWebSocket> S) {
+                    return HandleDebugAction(R, A, P, S);
+                  });
 
   // Phase 21: Game Framework
   RegisterHandler(TEXT("manage_game_framework"),
@@ -1389,12 +1430,10 @@ void UMcpAutomationBridgeSubsystem::ProcessPendingAutomationRequests() {
   {
     FScopeLock Lock(&PendingAutomationRequestsMutex);
     if (PendingAutomationRequests.Num() == 0) {
-      bPendingRequestsScheduled = false;
       return;
     }
     LocalQueue = MoveTemp(PendingAutomationRequests);
     PendingAutomationRequests.Empty();
-    bPendingRequestsScheduled = false;
   }
 
   for (const FPendingAutomationRequest &Req : LocalQueue) {

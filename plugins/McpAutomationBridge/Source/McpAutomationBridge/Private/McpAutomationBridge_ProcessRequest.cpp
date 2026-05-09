@@ -30,25 +30,13 @@ void UMcpAutomationBridgeSubsystem::ProcessAutomationRequest(
          IsInGameThread() ? TEXT("GameThread") : TEXT("SocketThread"));
   UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
          TEXT("ProcessAutomationRequest invoked (thread=%s) RequestId=%s "
-              "action=%s activeSockets=%d pendingQueue=%d"),
+              "action=%s activeSockets=%d"),
          IsInGameThread() ? TEXT("GameThread") : TEXT("SocketThread"),
          *RequestId, *Action,
          ConnectionManager.IsValid() ? ConnectionManager->GetActiveSocketCount()
-                                     : 0,
-         PendingAutomationRequests.Num());
+                                     : 0);
   if (!IsInGameThread()) {
-    UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
-           TEXT("Scheduling ProcessAutomationRequest on GameThread: "
-                "RequestId=%s action=%s"),
-           *RequestId, *Action);
-    AsyncTask(ENamedThreads::GameThread,
-              [WeakThis = TWeakObjectPtr<UMcpAutomationBridgeSubsystem>(this),
-               RequestId, Action, Payload, RequestingSocket, Origin]() {
-                if (UMcpAutomationBridgeSubsystem *Pinned = WeakThis.Get()) {
-                  Pinned->ProcessAutomationRequest(RequestId, Action, Payload,
-                                                   RequestingSocket, Origin);
-                }
-              });
+    QueueAutomationRequest(RequestId, Action, Payload, RequestingSocket, Origin);
     return;
   }
 
@@ -61,17 +49,7 @@ void UMcpAutomationBridgeSubsystem::ProcessAutomationRequest(
                 "Serialization/GC/Loading: RequestId=%s Action=%s"),
            *RequestId, *Action);
 
-    FPendingAutomationRequest P;
-    P.RequestId = RequestId;
-    P.Action = Action;
-    P.Payload = Payload;
-    P.RequestingSocket = RequestingSocket;
-    P.Origin = Origin;
-    {
-      FScopeLock Lock(&PendingAutomationRequestsMutex);
-      PendingAutomationRequests.Add(MoveTemp(P));
-      bPendingRequestsScheduled = true;
-    }
+    QueueAutomationRequest(RequestId, Action, Payload, RequestingSocket, Origin);
     return;
   }
 
@@ -89,17 +67,7 @@ void UMcpAutomationBridgeSubsystem::ProcessAutomationRequest(
 
   // Reentrancy guard / enqueue
   if (bProcessingAutomationRequest) {
-    FPendingAutomationRequest P;
-    P.RequestId = RequestId;
-    P.Action = Action;
-    P.Payload = Payload;
-    P.RequestingSocket = RequestingSocket;
-    P.Origin = Origin;
-    {
-      FScopeLock Lock(&PendingAutomationRequestsMutex);
-      PendingAutomationRequests.Add(MoveTemp(P));
-      bPendingRequestsScheduled = true;
-    }
+    QueueAutomationRequest(RequestId, Action, Payload, RequestingSocket, Origin);
     UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
            TEXT("Enqueued automation request %s for action %s (processing in "
                 "progress)."),
@@ -166,11 +134,6 @@ void UMcpAutomationBridgeSubsystem::ProcessAutomationRequest(
                TEXT("ProcessAutomationRequest: No handler consumed "
                     "RequestId=%s action='%s' (%.3f ms)"),
                *RequestId, *Action, DurationMs);
-      }
-
-      if (bPendingRequestsScheduled) {
-        bPendingRequestsScheduled = false;
-        ProcessPendingAutomationRequests();
       }
     };
 

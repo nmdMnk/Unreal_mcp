@@ -586,61 +586,48 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
         if (ExistingPackage)
         {
             UWorld* ExistingWorld = FindObject<UWorld>(ExistingPackage, *FPaths::GetBaseFilename(NormalizedMapPath));
-            if (ExistingWorld && ExistingWorld != CurrentWorld)
+            if (ExistingWorld != CurrentWorld)
             {
                 UE_LOG(LogMcpSafeOperations, Warning,
-                    TEXT("McpSafeLoadMap: Target world '%s' already exists in memory; cleaning up before load"),
+                    TEXT("McpSafeLoadMap: Target package '%s' already exists in memory; unloading before load"),
                     *NormalizedMapPath);
 
-                if (ExistingWorld->bIsWorldInitialized)
+#if MCP_HAS_PACKAGE_TOOLS
+                TArray<UPackage*> PackagesToUnload;
+                PackagesToUnload.Add(ExistingPackage);
+                TWeakObjectPtr<UPackage> WeakExistingPackage = ExistingPackage;
+
+                FText UnloadError;
+                const bool bUnloadSucceeded = UPackageTools::UnloadPackages(PackagesToUnload, UnloadError, true);
+                if (!UnloadError.IsEmpty())
                 {
-                    ExistingWorld->CleanupWorld();
+                    UE_LOG(LogMcpSafeOperations, Warning,
+                        TEXT("McpSafeLoadMap: UnloadPackages reported for '%s': %s"),
+                        *NormalizedMapPath,
+                        *UnloadError.ToString());
                 }
 
-                ExistingWorld->bIsTearingDown = true;
-                if (ExistingWorld->PersistentLevel)
-                {
-                    for (AActor* Actor : ExistingWorld->PersistentLevel->Actors)
-                    {
-                        if (!Actor)
-                        {
-                            continue;
-                        }
-
-                        if (Actor->PrimaryActorTick.IsTickFunctionRegistered())
-                        {
-                            Actor->PrimaryActorTick.UnRegisterTickFunction();
-                        }
-                        Actor->PrimaryActorTick.GetPrerequisites().Empty();
-
-                        for (UActorComponent* Component : Actor->GetComponents())
-                        {
-                            if (Component && Component->PrimaryComponentTick.IsTickFunctionRegistered())
-                            {
-                                Component->PrimaryComponentTick.UnRegisterTickFunction();
-                            }
-                        }
-                    }
-                }
-
-                if (ExistingWorld->IsRooted())
-                {
-                    ExistingWorld->RemoveFromRoot();
-                }
-                ExistingWorld->SetFlags(RF_Transient);
-
-                if (ExistingPackage->IsRooted())
-                {
-                    ExistingPackage->RemoveFromRoot();
-                }
-                ExistingPackage->SetFlags(RF_Transient);
-
+                FlushRenderingCommands();
                 CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
                 FlushRenderingCommands();
 
+                if (!bUnloadSucceeded || WeakExistingPackage.IsValid())
+                {
+                    UE_LOG(LogMcpSafeOperations, Error,
+                        TEXT("McpSafeLoadMap: Failed to unload pre-existing target package '%s'; aborting map load to avoid EditorServer fatal"),
+                        *NormalizedMapPath);
+                    return false;
+                }
+
                 UE_LOG(LogMcpSafeOperations, Log,
-                    TEXT("McpSafeLoadMap: Cleaned pre-existing world package '%s'"),
+                    TEXT("McpSafeLoadMap: Unloaded pre-existing world package '%s'"),
                     *NormalizedMapPath);
+#else
+                UE_LOG(LogMcpSafeOperations, Error,
+                    TEXT("McpSafeLoadMap: PackageTools unavailable and target package '%s' is already loaded; aborting map load to avoid EditorServer fatal"),
+                    *NormalizedMapPath);
+                return false;
+#endif
             }
         }
     }
@@ -653,7 +640,9 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
     {
         UE_LOG(LogMcpSafeOperations, Log, TEXT("McpSafeLoadMap: Successfully loaded map '%s'"), *MapPath);
 
-        // STEP 13: Disable ticking on new world's actors
+        // STEP 13: Unregister ticking on new world's actors. Disabling alone
+        // leaves tick functions registered with TickTaskManager, which can keep
+        // stale level entries alive during rapid automation map transitions.
         UWorld* NewWorld = GEditor->GetEditorWorldContext().World();
         if (NewWorld && NewWorld->PersistentLevel)
         {
@@ -661,12 +650,15 @@ inline bool McpSafeLoadMap(const FString& MapPath, bool bForceCleanup = true)
             {
                 if (Actor)
                 {
-                    Actor->SetActorTickEnabled(false);
+                    if (Actor->PrimaryActorTick.IsTickFunctionRegistered())
+                    {
+                        Actor->PrimaryActorTick.UnRegisterTickFunction();
+                    }
                     for (UActorComponent* Component : Actor->GetComponents())
                     {
-                        if (Component)
+                        if (Component && Component->PrimaryComponentTick.IsTickFunctionRegistered())
                         {
-                            Component->SetComponentTickEnabled(false);
+                            Component->PrimaryComponentTick.UnRegisterTickFunction();
                         }
                     }
                 }

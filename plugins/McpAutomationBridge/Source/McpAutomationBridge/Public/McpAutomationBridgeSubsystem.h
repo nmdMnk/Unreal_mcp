@@ -216,6 +216,11 @@ public:
 
   bool Tick(float DeltaTime);
 
+  void QueueAutomationRequest(const FString &RequestId, const FString &Action,
+                              const TSharedPtr<FJsonObject> &Payload,
+                              TSharedPtr<FMcpBridgeWebSocket> RequestingSocket,
+                              ERequestOrigin Origin = ERequestOrigin::WebSocket);
+
   // Connection Manager
   TSharedPtr<class FMcpConnectionManager> ConnectionManager;
 
@@ -242,7 +247,6 @@ public:
   };
   TArray<FPendingAutomationRequest> PendingAutomationRequests;
   FCriticalSection PendingAutomationRequestsMutex;
-  bool bPendingRequestsScheduled = false;
   void ProcessPendingAutomationRequests();
 
   // Origin of the currently-processing request — used by SendAutomationResponse
@@ -1152,6 +1156,12 @@ private:
   bool HandleControlEditorSetViewMode(const FString &RequestId,
                                       const TSharedPtr<FJsonObject> &Payload,
                                       TSharedPtr<FMcpBridgeWebSocket> Socket);
+  bool HandleControlEditorSetCameraFov(const FString &RequestId,
+                                       const TSharedPtr<FJsonObject> &Payload,
+                                       TSharedPtr<FMcpBridgeWebSocket> Socket);
+  bool HandleControlEditorSetGameSpeed(const FString &RequestId,
+                                       const TSharedPtr<FJsonObject> &Payload,
+                                       TSharedPtr<FMcpBridgeWebSocket> Socket);
   bool HandleControlEditorOpenAsset(const FString &RequestId,
                                     const TSharedPtr<FJsonObject> &Payload,
                                     TSharedPtr<FMcpBridgeWebSocket> Socket);
