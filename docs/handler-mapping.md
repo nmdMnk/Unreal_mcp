@@ -225,11 +225,15 @@ This document maps the TypeScript tool definitions to their corresponding C++ ha
 
 ## Audio Manager (`manage_audio`)
 
+`manage_audio` exposes 50 public actions. TypeScript routes the 27 graph/asset-authoring actions through the internal native `manage_audio_authoring` action while regular playback, runtime configuration, and base asset creation continue through `HandleAudioAction`.
+
 | Action | C++ Handler File | C++ Function | Notes |
 | :--- | :--- | :--- | :--- |
-| `create_sound_cue` | `McpAutomationBridge_AudioHandlers.cpp` | `HandleAudioAction` | |
-| `play_sound_at_location` | `McpAutomationBridge_AudioHandlers.cpp` | `HandleAudioAction` | |
-| `create_audio_component` | `McpAutomationBridge_AudioHandlers.cpp` | `HandleAudioAction` | |
+| `create_sound_cue`, `create_sound_class`, `create_sound_mix` | `McpAutomationBridge_AudioHandlers.cpp` | `HandleAudioAction` | Creates base SoundCue/SoundClass/SoundMix assets |
+| `play_sound_at_location`, `play_sound_2d`, `play_sound_attached`, `spawn_sound_at_location`, `create_ambient_sound`, `prime_sound` | `McpAutomationBridge_AudioHandlers.cpp` | `HandleAudioAction` | Playback, attachment, component spawning, and priming |
+| `create_audio_component`, `create_reverb_zone` | `McpAutomationBridge_AudioHandlers.cpp` | `HandleAudioAction` | Editor actor/component creation |
+| `push_sound_mix`, `pop_sound_mix`, `set_sound_mix_class_override`, `clear_sound_mix_class_override`, `set_base_sound_mix` | `McpAutomationBridge_AudioHandlers.cpp` | `HandleAudioAction` | Runtime SoundMix control |
+| `set_sound_attenuation`, `set_doppler_effect`, `set_audio_occlusion`, `enable_audio_analysis`, `fade_sound`, `fade_sound_in`, `fade_sound_out` | `McpAutomationBridge_AudioHandlers.cpp` | `HandleAudioAction` | Runtime/configuration actions |
 
 ## Behavior Tree Manager (`manage_ai`)
 
@@ -498,7 +502,6 @@ This document maps the TypeScript tool definitions to their corresponding C++ ha
 | Action | C++ Handler File | C++ Function | Notes |
 | :--- | :--- | :--- | :--- |
 | **Sound Cues** | | | |
-| `create_sound_cue` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Creates USoundCue with optional wave player |
 | `add_cue_node` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Adds wave_player, mixer, random, modulator, looping, etc. |
 | `connect_cue_nodes` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Connects sound cue nodes as parent-child |
 | `set_cue_attenuation` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Sets attenuation settings on sound cue |
@@ -511,10 +514,8 @@ This document maps the TypeScript tool definitions to their corresponding C++ ha
 | `add_metasound_output` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Adds output to MetaSound |
 | `set_metasound_default` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Sets default value for MetaSound input |
 | **Sound Classes & Mixes** | | | |
-| `create_sound_class` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Creates USoundClass asset |
 | `set_class_properties` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Sets volume, pitch, LPF, stereo bleed, etc. |
 | `set_class_parent` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Sets parent sound class for hierarchy |
-| `create_sound_mix` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Creates USoundMix asset |
 | `add_mix_modifier` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Adds FSoundClassAdjuster to sound mix |
 | `configure_mix_eq` | `McpAutomationBridge_AudioAuthoringHandlers.cpp` | `HandleManageAudioAuthoringAction` | Configures EQ settings on sound mix |
 | **Attenuation & Spatialization** | | | |
@@ -750,37 +751,44 @@ This document maps the TypeScript tool definitions to their corresponding C++ ha
 | Action | C++ Handler File | C++ Function | Notes |
 | :--- | :--- | :--- | :--- |
 | **Data Assets** | | | |
-| `create_item_data_asset` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Creates UPrimaryDataAsset for item data |
-| `set_item_properties` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets name, description, icon, mesh, weight, rarity |
+| `create_item_data_asset` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Creates generic item data asset |
+| `set_item_properties` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Applies fields supplied in the `properties` object |
 | `create_item_category` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Creates category data asset |
 | `assign_item_category` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Assigns item to category |
 | **Inventory Component** | | | |
 | `create_inventory_component` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Adds UActorComponent for inventory |
-| `configure_inventory_slots` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets slot count, stack sizes |
+| `configure_inventory_slots` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets inventory slot count |
 | `add_inventory_functions` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Adds Add/Remove/Has item functions |
 | `configure_inventory_events` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Configures OnItemAdded/Removed events |
 | `set_inventory_replication` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets replication mode for multiplayer |
 | **Pickups** | | | |
 | `create_pickup_actor` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Creates pickup actor blueprint |
-| `configure_pickup_interaction` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets interaction radius, prompt |
+| `configure_pickup_interaction` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets interaction type and prompt |
 | `configure_pickup_respawn` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Configures respawn timing |
-| `configure_pickup_effects` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets pickup VFX, SFX |
+| `configure_pickup_effects` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Configures pickup bobbing, rotation, and glow flags |
 | **Equipment** | | | |
 | `create_equipment_component` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Adds equipment management component |
 | `define_equipment_slots` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Defines slot types (head, body, weapon, etc.) |
-| `configure_equipment_effects` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets stat modifiers on equip |
+| `configure_equipment_effects` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Toggles stat modifier, ability grant, and passive effect support |
 | `add_equipment_functions` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Adds Equip/Unequip functions |
 | `configure_equipment_visuals` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets mesh attachment on equip |
 | **Loot System** | | | |
 | `create_loot_table` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Creates loot table data asset |
 | `add_loot_entry` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Adds item to loot table with weight |
-| `configure_loot_drop` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets drop chance, quantity range |
-| `set_loot_quality_tiers` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Configures rarity tiers and colors |
+| `configure_loot_drop` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets drop count, radius, and drop-on-death flag |
+| `set_loot_quality_tiers` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Configures quality tier names and weights |
 | **Crafting** | | | |
 | `create_crafting_recipe` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Creates recipe data asset |
-| `configure_recipe_requirements` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets input items and quantities |
+| `configure_recipe_requirements` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Sets required level and station |
 | `create_crafting_station` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Creates crafting station actor |
 | `add_crafting_component` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Adds crafting functionality component |
+| **Additional Actions** | | | |
+| `configure_item_stacking` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Configures stackable, max stack size, and unique-item flags |
+| `set_item_icon` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Stores an item icon path |
+| `add_recipe_ingredient` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Adds an ingredient item path and quantity to a recipe |
+| `remove_loot_entry` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Removes an array-backed loot entry by index when supported |
+| `configure_inventory_weight` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Adds weight and encumberance support variables |
+| `configure_station_recipes` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Configures station recipe paths, type, and crafting speed |
 | **Utility** | | | |
 | `get_inventory_info` | `McpAutomationBridge_InventoryHandlers.cpp` | `HandleManageInventoryAction` | Returns inventory/equipment info |
 

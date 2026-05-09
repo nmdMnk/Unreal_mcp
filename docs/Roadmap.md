@@ -690,11 +690,11 @@ The following phases represent the comprehensive expansion to enable **full proj
 
 **Tool**: `manage_inventory`
 
-**Status**: All 27 actions fully implemented in TypeScript and C++.
+**Status**: All 33 actions fully implemented in TypeScript and C++.
 
 ### 17.1 Data Assets
 - [x] `create_item_data_asset`
-- [x] `set_item_properties` (name, description, icon, mesh, stack_size, weight, rarity)
+- [x] `set_item_properties` (properties object)
 - [x] `create_item_category`
 - [x] `assign_item_category`
 
@@ -730,7 +730,15 @@ The following phases represent the comprehensive expansion to enable **full proj
 - [x] `create_crafting_station`
 - [x] `add_crafting_component`
 
-### 17.7 Utility
+### 17.7 Additional Actions
+- [x] `configure_item_stacking`
+- [x] `set_item_icon`
+- [x] `add_recipe_ingredient`
+- [x] `remove_loot_entry`
+- [x] `configure_inventory_weight`
+- [x] `configure_station_recipes`
+
+### 17.8 Utility
 - [x] `get_inventory_info`
 
 ---

@@ -284,13 +284,19 @@ All `blueprint_*` authoring commands now require editor support and execute nati
 
 ### Phase 20.5: Audio Authoring (`manage_audio`)
 
+`manage_audio` exposes 50 actions. Regular playback/runtime actions route through `HandleAudioAction`; the 27 graph and asset-authoring actions route through the internal native `manage_audio_authoring` bridge action.
+
 | Action | Status | Notes |
 |--------|--------|-------|
 | `create_sound_cue`, `create_metasound` | ✅ Done | Audio asset creation |
 | `create_sound_class`, `create_sound_mix` | ✅ Done | Sound classes/mixes |
 | `create_attenuation_settings` | ✅ Done | Attenuation |
 | `create_dialogue_voice`, `create_dialogue_wave` | ✅ Done | Dialogue system |
-| `add_sound_node`, `connect_sound_nodes` | ✅ Done | Sound cue graphs |
+| `add_cue_node`, `connect_cue_nodes` | ✅ Done | Sound cue graphs |
+| `add_metasound_node`, `connect_metasound_nodes`, `add_metasound_input`, `add_metasound_output`, `set_metasound_default` | ✅ Done | MetaSound graphs |
+| `set_class_properties`, `set_class_parent`, `add_mix_modifier`, `configure_mix_eq` | ✅ Done | Sound class and mix authoring |
+| `configure_distance_attenuation`, `configure_spatialization`, `configure_occlusion`, `configure_reverb_send` | ✅ Done | Attenuation authoring |
+| `create_reverb_effect`, `create_source_effect_chain`, `add_source_effect`, `create_submix_effect`, `get_audio_info` | ✅ Done | Effects and info |
 
 ### Phase 21: Game Framework (`manage_networking`)
 
