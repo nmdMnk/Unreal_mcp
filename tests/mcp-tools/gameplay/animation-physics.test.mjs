@@ -33,7 +33,7 @@ const testCases = [
   { scenario: 'CREATE: create_blend_tree', toolName: 'animation_physics', arguments: {"action": "create_blend_tree", "name": "Testblend_tree", "path": TEST_FOLDER, "blueprintPath": `${TEST_FOLDER}/Testanimation_blueprint`}, expected: 'error|ANIMGRAPH_MODULE_UNAVAILABLE|success|already exists' },
 
 // === CREATE (Procedural Anim - needs skeletonPath) ===
-{ scenario: 'CREATE: create_procedural_anim', toolName: 'animation_physics', arguments: {"action": "create_procedural_anim", "name": "Testprocedural_anim", "path": TEST_FOLDER, "skeletonPath": TEST_SKELETON_PATH, "boneTracks": [{"boneName": "Root", "frames": [{"frame": 0}]}]}, expected: 'success|already exists' },
+{ scenario: 'CREATE: create_procedural_anim', toolName: 'animation_physics', arguments: {"action": "create_procedural_anim", "name": "Testprocedural_anim", "path": TEST_FOLDER, "skeletonPath": TEST_SKELETON_PATH, "boneTracks": [{"boneName": "Root", "frames": [{"frame": 0}]}], "frameRate": 30}, expected: 'success|already exists' },
 
 // === CREATE (Aim Offset - needs skeletonPath) ===
 { scenario: 'CREATE: create_aim_offset', toolName: 'animation_physics', arguments: {"action": "create_aim_offset", "name": "Testaim_offset", "path": TEST_FOLDER, "skeletonPath": TEST_SKELETON_PATH}, expected: 'success|already exists' },
@@ -42,7 +42,7 @@ const testCases = [
 { scenario: 'ADD: add_aim_offset_sample', toolName: 'animation_physics', arguments: {"action": "add_aim_offset_sample", "assetPath": `${TEST_FOLDER}/Testaim_offset`, "animationPath": `${TEST_FOLDER}/Testprocedural_anim`, "yaw": 0, "pitch": 0}, expected: 'success|already exists' },
 
 // === CREATE (State Machine - needs blueprintPath) ===
-{ scenario: 'CREATE: create_state_machine', toolName: 'animation_physics', arguments: {"action": "create_state_machine", "name": "Teststate_machine", "path": TEST_FOLDER, "blueprintPath": `${TEST_FOLDER}/Testanimation_blueprint`}, expected: 'success|already exists' },
+{ scenario: 'CREATE: create_state_machine', toolName: 'animation_physics', arguments: {"action": "create_state_machine", "machineName": "Teststate_machine", "path": TEST_FOLDER, "blueprintPath": `${TEST_FOLDER}/Testanimation_blueprint`}, expected: 'success|already exists' },
 
 // === ADD (State Machine - needs blueprintPath) ===
 { scenario: 'ADD: add_state_machine', toolName: 'animation_physics', arguments: {"action": "add_state_machine", "blueprintPath": `${TEST_FOLDER}/Testanimation_blueprint`, "stateMachineName": "Teststate_machine"}, expected: 'success|already exists' },
@@ -64,30 +64,21 @@ const testCases = [
 
 // === ADD (Slot Node - needs blueprintPath) ===
 { scenario: 'ADD: add_slot_node', toolName: 'animation_physics', arguments: {"action": "add_slot_node", "blueprintPath": `${TEST_FOLDER}/Testanimation_blueprint`, "slotName": "Testslot_node"}, expected: 'success|already exists' },
+{ scenario: 'ADD: add_layered_blend_per_bone', toolName: 'animation_physics', arguments: {"action": "add_layered_blend_per_bone", "blueprintPath": `${TEST_FOLDER}/Testanimation_blueprint`, "layerSetup": [{"branchFilters": [{"boneName": "Root", "blendDepth": 1}]}]}, expected: 'error|ANIMGRAPH_MODULE_UNAVAILABLE|success' },
+{ scenario: 'CONFIG: set_anim_graph_node_value', toolName: 'animation_physics', arguments: {"action": "set_anim_graph_node_value", "blueprintPath": `${TEST_FOLDER}/Testanimation_blueprint`, "nodeName": "Testblend_node", "propertyName": "NodeComment", "value": "MCPUpdatedBlendNode"}, expected: 'error|ANIMGRAPH_MODULE_UNAVAILABLE|NODE_NOT_FOUND|PROPERTY_NOT_FOUND|success' },
 
 // === CREATE (Control Rig - needs skeletonPath) ===
 { scenario: 'CREATE: create_control_rig', toolName: 'animation_physics', arguments: {"action": "create_control_rig", "name": "Testcontrol_rig", "path": TEST_FOLDER, "skeletonPath": TEST_SKELETON_PATH}, expected: 'success|already exists|NOT_AVAILABLE' },
 
-// === ADD (Control - needs assetPath to control rig) ===
-{ scenario: 'ADD: add_control', toolName: 'animation_physics', arguments: {"action": "add_control", "assetPath": `${TEST_FOLDER}/Testcontrol_rig`, "controlName": "Testcontrol", "controlType": "Transform"}, expected: 'error|NOT_IMPLEMENTED|NOT_SUPPORTED' },
-
-// === ADD (Rig Unit - needs assetPath) ===
-{ scenario: 'ADD: add_rig_unit', toolName: 'animation_physics', arguments: {"action": "add_rig_unit", "assetPath": `${TEST_FOLDER}/Testcontrol_rig`, "unitType": "TwoBoneIK", "unitName": "Testrig_unit"}, expected: 'error|NOT_IMPLEMENTED|NOT_SUPPORTED' },
-
-// === CONNECT (Rig Elements - needs assetPath) ===
-{ scenario: 'CONNECT: connect_rig_elements', toolName: 'animation_physics', arguments: {"action": "connect_rig_elements", "assetPath": `${TEST_FOLDER}/Testcontrol_rig`, "sourceElement": "Testcontrol", "sourcePin": "Transform", "targetElement": "Testrig_unit", "targetPin": "Execute"}, expected: 'error|NOT_IMPLEMENTED|NOT_SUPPORTED' },
-
-// === CREATE (IK Rig - needs skeletonPath or meshPath) ===
+// === CREATE (IK Rig - needs skeletonPath) ===
 { scenario: 'CREATE: create_ik_rig', toolName: 'animation_physics', arguments: {"action": "create_ik_rig", "name": "Testik_rig", "path": TEST_FOLDER, "skeletonPath": TEST_SKELETON_PATH}, expected: 'error|IKRIG_FACTORY_UNAVAILABLE|NOT_SUPPORTED' },
-
-// === ADD (IK Chain - needs assetPath to IK rig) ===
-{ scenario: 'ADD: add_ik_chain', toolName: 'animation_physics', arguments: {"action": "add_ik_chain", "assetPath": `${TEST_FOLDER}/Testik_rig`, "chainName": "Testik_chain", "startBone": "Root", "endBone": "Root"}, expected: 'error|NOT_IMPLEMENTED|NOT_SUPPORTED' },
+{ scenario: 'CONFIG: set_retarget_chain_mapping', toolName: 'animation_physics', arguments: {"action": "set_retarget_chain_mapping", "assetPath": `${TEST_FOLDER}/Testik_retargeter`, "sourceChain": "Root", "targetChain": "Root"}, expected: 'error|NOT_SUPPORTED|success' },
 
 // === ACTION (Setup IK - needs name and skeletonPath) ===
 { scenario: 'ACTION: setup_ik', toolName: 'animation_physics', arguments: {"action": "setup_ik", "name": "TestIK", "skeletonPath": TEST_SKELETON_PATH}, expected: 'success|already exists' },
 
 // === CREATE (Pose Library - needs skeletonPath) ===
-{ scenario: 'CREATE: create_pose_library', toolName: 'animation_physics', arguments: {"action": "create_pose_library", "name": "Testpose_library", "path": TEST_FOLDER, "skeletonPath": TEST_SKELETON_PATH}, expected: 'error|NOT_IMPLEMENTED|NOT_SUPPORTED' },
+{ scenario: 'CREATE: create_pose_library', toolName: 'animation_physics', arguments: {"action": "create_pose_library", "name": "Testpose_library", "path": TEST_FOLDER, "skeletonPath": TEST_SKELETON_PATH}, expected: 'success|already exists' },
 
 // === CREATE (Animation Asset - needs skeletonPath) ===
 { scenario: 'CREATE: create_animation_asset', toolName: 'animation_physics', arguments: {"action": "create_animation_asset", "name": "Testanimation_asset", "path": TEST_FOLDER, "skeletonPath": TEST_SKELETON_PATH}, expected: 'success|already exists' },
@@ -133,12 +124,17 @@ const testCases = [
 
 // === ADD (Notify - needs assetPath and notifyName; no notifyClass = simple notify) ===
 { scenario: 'ADD: add_notify', toolName: 'animation_physics', arguments: {"action": "add_notify", "assetPath": `${TEST_FOLDER}/Testanimation_sequence`, "notifyName": "Testnotify", "frame": 0}, expected: 'success|already exists' },
+{ scenario: 'ADD: add_notify_state', toolName: 'animation_physics', arguments: {"action": "add_notify_state", "assetPath": `${TEST_FOLDER}/Testanimation_sequence`, "notifyName": "Testnotify_state", "startFrame": 1, "endFrame": 10, "trackIndex": 0, "save": true}, expected: 'success' },
+{ scenario: 'ADD: add_sync_marker', toolName: 'animation_physics', arguments: {"action": "add_sync_marker", "assetPath": `${TEST_FOLDER}/Testanimation_sequence`, "markerName": "Testsync_marker", "frame": 5, "save": true}, expected: 'success' },
+{ scenario: 'CONFIG: set_root_motion_settings', toolName: 'animation_physics', arguments: {"action": "set_root_motion_settings", "assetPath": `${TEST_FOLDER}/Testanimation_sequence`, "enableRootMotion": true, "rootMotionRootLock": "RefPose", "forceRootLock": false, "save": true}, expected: 'success' },
+{ scenario: 'CONFIG: set_additive_settings', toolName: 'animation_physics', arguments: {"action": "set_additive_settings", "assetPath": `${TEST_FOLDER}/Testanimation_sequence`, "additiveAnimType": "NoAdditive", "basePoseType": "RefPose", "basePoseFrame": 0, "save": true}, expected: 'success' },
+{ scenario: 'INFO: get_animation_info', toolName: 'animation_physics', arguments: {"action": "get_animation_info", "assetPath": `${TEST_FOLDER}/Testanimation_sequence`}, expected: 'success' },
 
 // === SETUP: Spawn a SkeletalMeshActor for playback/ragdoll tests ===
 { scenario: 'Setup: spawn SkeletalMeshActor', toolName: 'control_actor', arguments: {"action": "spawn", "actorName": "SkelTestActor", "actorClass": "SkeletalMeshActor"}, expected: 'success|already exists' },
 
 // === PLAYBACK (Montage - needs actorName with SkeletalMeshComponent) ===
-{ scenario: 'PLAYBACK: play_montage', toolName: 'animation_physics', arguments: {"action": "play_montage", "actorName": "SkelTestActor", "montagePath": `${TEST_FOLDER}/Testmontage`}, expected: 'success|COMPONENT_NOT_FOUND' },
+{ scenario: 'PLAYBACK: play_montage', toolName: 'animation_physics', arguments: {"action": "play_montage", "actorName": "SkelTestActor", "montagePath": `${TEST_FOLDER}/Testmontage`, "playRate": 1.25}, expected: 'success|COMPONENT_NOT_FOUND' },
 { scenario: 'PLAYBACK: play_anim_montage', toolName: 'animation_physics', arguments: {"action": "play_anim_montage", "actorName": "SkelTestActor", "montagePath": `${TEST_FOLDER}/Testmontage`}, expected: 'success|COMPONENT_NOT_FOUND' },
 
 // === ACTION (Ragdoll - needs actorName with SkeletalMeshComponent) ===
@@ -146,7 +142,7 @@ const testCases = [
 { scenario: 'ACTION: activate_ragdoll', toolName: 'animation_physics', arguments: {"action": "activate_ragdoll", "actorName": "SkelTestActor"}, expected: 'success|COMPONENT_NOT_FOUND' },
 
 // === CONFIG (Vehicle - needs actorName) ===
-{ scenario: 'CONFIG: configure_vehicle', toolName: 'animation_physics', arguments: {"action": "configure_vehicle", "actorName": "SkelTestActor"}, expected: 'success|NOT_AVAILABLE|COMPONENT_CREATION_FAILED|ACTOR_NOT_FOUND' },
+{ scenario: 'CONFIG: configure_vehicle', toolName: 'animation_physics', arguments: {"action": "configure_vehicle", "actorName": "SkelTestActor", "vehicleType": "WheeledVehicle4W", "dragCoefficient": 0.32}, expected: 'success|NOT_AVAILABLE|COMPONENT_CREATION_FAILED|ACTOR_NOT_FOUND' },
 
   // === ACTION (Physics Simulation - needs skeletonPath; may fail if no preview mesh) ===
   { scenario: 'ACTION: setup_physics_simulation', toolName: 'animation_physics', arguments: {"action": "setup_physics_simulation", "skeletonPath": TEST_SKELETON_PATH}, expected: 'error|ASSET_NOT_FOUND|SKELETON_MISSING_PREVIEW' },
@@ -177,12 +173,16 @@ const testCases = [
   `${TEST_FOLDER}/Testprocedural_anim`,
   `${TEST_FOLDER}/Testaim_offset`,
   `${TEST_FOLDER}/Testcontrol_rig`,
+  `${TEST_FOLDER}/Testik_rig`,
+  `${TEST_FOLDER}/Testik_retargeter`,
+  `${TEST_FOLDER}/Testpose_library`,
   `${TEST_FOLDER}/Testanimation_asset`,
   `${TEST_FOLDER}/Testanimation_sequence`,
   `${TEST_FOLDER}/Testmontage`,
   TEST_SKELETON_PATH,
   '/Game/MCPTest/AuthoringAssets_CtrlRig',
-  '/Game/Animations/TestIK'
+  '/Game/Animations/TestIK',
+  '/Game/Animations/PoseLibraries/Testpose_library'
 ]}, expected: 'success|not found' },
 
 // === CLEANUP ===
@@ -203,6 +203,7 @@ const testCases = [
 
   const SKELETON_PATH = `${TEST_FOLDER}/SK_Test_${ts}`;
   const PHYSICS_ASSET_PATH = `${TEST_FOLDER}/PHYS_Test_${ts}`;
+  const PHYSICS_SIM_NAME = `PHYS_Sim_${ts}`;
   const ROOT_BONE = 'Root';
   const MESH_BONE_A = 'Bone01';
   const MESH_BONE_B = 'Bone02';
@@ -239,6 +240,7 @@ const testCases = [
 
     // === PHYSICS ASSET ===
     { scenario: 'CREATE: create physics asset', toolName: 'animation_physics', arguments: { action: 'create_physics_asset', skeletalMeshPath: SKELETAL_MESH_PATH, outputPath: PHYSICS_ASSET_PATH, save: true }, expected: 'success|already exists' },
+    { scenario: 'ACTION: setup physics simulation from skeletal mesh', toolName: 'animation_physics', arguments: { action: 'setup_physics_simulation', skeletalMeshPath: SKELETAL_MESH_PATH, savePath: TEST_FOLDER, physicsAssetName: PHYSICS_SIM_NAME, assignToMesh: false }, expected: 'success|already exists', assertions: [{ path: 'structuredContent.result.existingAsset', equals: false, label: 'new physics simulation asset created from skeletalMeshPath' }] },
     { scenario: 'INFO: list physics bodies', toolName: 'animation_physics', arguments: { action: 'list_physics_bodies', physicsAssetPath: PHYSICS_ASSET_PATH }, expected: 'success' },
     { scenario: 'ADD: add physics body A', toolName: 'animation_physics', arguments: { action: 'add_physics_body', physicsAssetPath: PHYSICS_ASSET_PATH, boneName: MESH_BONE_A, bodyType: 'Sphere', radius: 12, center: [0, 0, 0], save: true }, expected: 'success|already exists' },
     { scenario: 'ADD: add physics body B', toolName: 'animation_physics', arguments: { action: 'add_physics_body', physicsAssetPath: PHYSICS_ASSET_PATH, boneName: MESH_BONE_B, bodyType: 'Sphere', radius: 10, center: [0, 0, 0], save: true }, expected: 'success|already exists' },

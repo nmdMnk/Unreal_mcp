@@ -82,18 +82,18 @@ const testCases = [
     expected: 'success',
     captureResult: { key: 'queryPath', fromField: 'result.assetPath' }
   },
-  { scenario: 'ADD: add_eqs_generator', toolName: 'manage_ai', arguments: { action: 'add_eqs_generator', queryPath: '${captured:queryPath}', generatorType: 'ActorsOfClass' }, expected: 'success' },
+  { scenario: 'ADD: add_eqs_generator', toolName: 'manage_ai', arguments: { action: 'add_eqs_generator', queryPath: '${captured:queryPath}', generatorType: 'ActorsOfClass', generatorSettings: { searchRadius: 600, actorClass: '/Script/Engine.Actor' } }, expected: 'success' },
   { scenario: 'ADD: add_eqs_context', toolName: 'manage_ai', arguments: { action: 'add_eqs_context', queryPath: '${captured:queryPath}', contextType: 'Querier' }, expected: 'success' },
   { scenario: 'ADD: add_eqs_test', toolName: 'manage_ai', arguments: { action: 'add_eqs_test', queryPath: '${captured:queryPath}', testType: 'Distance' }, expected: 'success' },
-  { scenario: 'CONFIG: configure_test_scoring', toolName: 'manage_ai', arguments: { action: 'configure_test_scoring', queryPath: '${captured:queryPath}', testIndex: 0 }, expected: 'success' },
+  { scenario: 'CONFIG: configure_test_scoring', toolName: 'manage_ai', arguments: { action: 'configure_test_scoring', queryPath: '${captured:queryPath}', testIndex: 0, testSettings: { scoringEquation: 'Square', clampMin: 0, clampMax: 1, filterType: 'Range', floatMin: 0, floatMax: 5000 } }, expected: 'success' },
 
   // === PERCEPTION ===
   { scenario: 'ADD: add_ai_perception_component', toolName: 'manage_ai', arguments: { action: 'add_ai_perception_component', blueprintPath: '${captured:blueprintPath}' }, expected: 'success' },
-  { scenario: 'CONFIG: configure_sight_config', toolName: 'manage_ai', arguments: { action: 'configure_sight_config', blueprintPath: '${captured:blueprintPath}', sightRadius: 3000, loseSightRadius: 3500, peripheralVisionAngle: 90 }, expected: 'success' },
-  { scenario: 'CONFIG: configure_hearing_config', toolName: 'manage_ai', arguments: { action: 'configure_hearing_config', blueprintPath: '${captured:blueprintPath}', hearingRange: 2000 }, expected: 'success' },
-  { scenario: 'CONFIG: configure_damage_sense_config', toolName: 'manage_ai', arguments: { action: 'configure_damage_sense_config', blueprintPath: '${captured:blueprintPath}' }, expected: 'success' },
+  { scenario: 'CONFIG: configure_sight_config', toolName: 'manage_ai', arguments: { action: 'configure_sight_config', blueprintPath: '${captured:blueprintPath}', sightConfig: { sightRadius: 3000, loseSightRadius: 3500, peripheralVisionAngle: 90 } }, expected: 'success' },
+  { scenario: 'CONFIG: configure_hearing_config', toolName: 'manage_ai', arguments: { action: 'configure_hearing_config', blueprintPath: '${captured:blueprintPath}', hearingConfig: { hearingRange: 2000 } }, expected: 'success' },
+  { scenario: 'CONFIG: configure_damage_sense_config', toolName: 'manage_ai', arguments: { action: 'configure_damage_sense_config', blueprintPath: '${captured:blueprintPath}', damageConfig: { maxAge: 10 } }, expected: 'success' },
   { scenario: 'CONFIG: set_perception_team', toolName: 'manage_ai', arguments: { action: 'set_perception_team', blueprintPath: '${captured:blueprintPath}', teamId: 1 }, expected: 'success' },
-  { scenario: 'ACTION: setup_perception', toolName: 'manage_ai', arguments: { action: 'setup_perception', blueprintPath: '${captured:blueprintPath}', enableSight: true, enableHearing: true, enableDamage: true }, expected: 'success' },
+  { scenario: 'ACTION: setup_perception', toolName: 'manage_ai', arguments: { action: 'setup_perception', blueprintPath: '${captured:blueprintPath}', enableSight: true, sightRadius: 2800, loseSightRadius: 3300, peripheralVisionAngle: 85, enableHearing: true, hearingRange: 1900, enableDamage: true, dominantSense: 'Sight' }, expected: 'success' },
 
   // === STATE TREE ===
   {
@@ -219,7 +219,8 @@ const testCases = [
         action: 'set_node_properties',
         assetPath: '${captured:behaviorTreePath}',
         nodeId: '${captured:waitNodeId}',
-        comment: 'MCP behavior tree live test node'
+        comment: 'MCP behavior tree live test node',
+        properties: { WaitTime: 1.0 }
       },
       expected: 'success'
     },
@@ -266,12 +267,12 @@ const testCases = [
     { scenario: 'Setup: spawn test actor', toolName: 'control_actor', arguments: { action: 'spawn', classPath: '/Engine/BasicShapes/Cube', actorName: `TestActor_${ts}`, location: { x: 0, y: 0, z: 100 } }, expected: 'success' },
 
     // === CONFIG ===
-    { scenario: 'CONFIG: configure_nav_mesh_settings', toolName: 'manage_ai', arguments: {"action": "configure_nav_mesh_settings"}, expected: 'success' },
+    { scenario: 'CONFIG: configure_nav_mesh_settings', toolName: 'manage_ai', arguments: {"action": "configure_nav_mesh_settings", "cellSize": 19, "cellHeight": 10, "tileSizeUU": 1000, "minRegionArea": 0, "mergeRegionSize": 400, "maxSimplificationError": 1.3}, expected: 'success' },
     { scenario: 'CONFIG: set_nav_agent_properties', toolName: 'manage_ai', arguments: {"action": "set_nav_agent_properties", "agentRadius": 35, "agentHeight": 144, "agentStepHeight": 35, "agentMaxSlope": 44}, expected: 'success' },
     // === ACTION ===
     { scenario: 'ACTION: rebuild_navigation', toolName: 'manage_ai', arguments: {"action": "rebuild_navigation"}, expected: 'success' },
     // === CREATE ===
-    { scenario: 'CREATE: create_nav_modifier_component', toolName: 'manage_ai', arguments: {"action": "create_nav_modifier_component", "blueprintPath": TEST_BLUEPRINT, "componentName": NAV_MODIFIER, "areaClass": OBSTACLE_AREA}, expected: 'success' },
+    { scenario: 'CREATE: create_nav_modifier_component', toolName: 'manage_ai', arguments: {"action": "create_nav_modifier_component", "blueprintPath": TEST_BLUEPRINT, "componentName": NAV_MODIFIER, "areaClass": OBSTACLE_AREA, "failsafeExtent": {"x": 120, "y": 80, "z": 60}, "save": true}, expected: 'success' },
     // === CONFIG ===
     { scenario: 'CONFIG: set_nav_area_class', toolName: 'manage_ai', arguments: {"action": "set_nav_area_class", "actorName": NAV_ACTOR, "areaClass": OBSTACLE_AREA}, expected: 'success' },
     { scenario: 'CONFIG: configure_nav_area_cost', toolName: 'manage_ai', arguments: {"action": "configure_nav_area_cost", "areaClass": OBSTACLE_AREA, "areaCost": 1.0}, expected: 'success' },
@@ -283,7 +284,7 @@ const testCases = [
     // === CREATE ===
     { scenario: 'CREATE: create_smart_link', toolName: 'manage_ai', arguments: {"action": "create_smart_link", "actorName": SMART_LINK, "location": {"x": 0, "y": 200, "z": 100}, "startPoint": {"x": -100, "y": 0, "z": 0}, "endPoint": {"x": 100, "y": 0, "z": 0}, "direction": "BothWays"}, expected: 'success|already exists' },
     // === CONFIG ===
-    { scenario: 'CONFIG: configure_smart_link_behavior', toolName: 'manage_ai', arguments: {"action": "configure_smart_link_behavior", "actorName": SMART_LINK, "linkEnabled": true}, expected: 'success' },
+    { scenario: 'CONFIG: configure_smart_link_behavior', toolName: 'manage_ai', arguments: {"action": "configure_smart_link_behavior", "actorName": SMART_LINK, "linkEnabled": true, "enabledAreaClass": "/Script/NavigationSystem.NavArea_Default", "disabledAreaClass": "/Script/NavigationSystem.NavArea_Null", "broadcastRadius": 900, "broadcastInterval": 0, "bCreateBoxObstacle": true, "obstacleAreaClass": "/Script/NavigationSystem.NavArea_Null", "obstacleExtent": {"x": 75, "y": 50, "z": 40}, "obstacleOffset": {"x": 0, "y": 0, "z": 20}}, expected: 'success' },
     // === INFO ===
     { scenario: 'INFO: get_navigation_info', toolName: 'manage_ai', arguments: {"action": "get_navigation_info"}, expected: 'success' },
 

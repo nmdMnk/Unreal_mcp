@@ -49,6 +49,7 @@ const testCases = [
   { scenario: 'ADD: add_keyframe', toolName: 'manage_sequence', arguments: { action: 'add_keyframe', path: SEQUENCE_PATH, actorName: ACTOR_A, property: 'Location', frame: 12, value: { x: 100, y: 50, z: 150 } }, expected: 'success' },
   { scenario: 'INFO: get_properties', toolName: 'manage_sequence', arguments: { action: 'get_properties', path: SEQUENCE_PATH }, expected: 'success' },
   { scenario: 'CONFIG: set_properties', toolName: 'manage_sequence', arguments: { action: 'set_properties', path: SEQUENCE_PATH, frameRate: 24, playbackStart: 0, playbackEnd: 120 }, expected: 'success' },
+  { scenario: 'CONFIG: set_properties lengthInFrames', toolName: 'manage_sequence', arguments: { action: 'set_properties', path: SEQUENCE_PATH, playbackStart: 12, lengthInFrames: 36 }, expected: 'success', assertions: [{ path: 'structuredContent.result.playbackStart', equals: 12 }, { path: 'structuredContent.result.playbackEnd', equals: 48 }, { path: 'structuredContent.result.duration', equals: 36 }] },
   { scenario: 'CONFIG: set_display_rate', toolName: 'manage_sequence', arguments: { action: 'set_display_rate', path: SEQUENCE_PATH, frameRate: '24fps' }, expected: 'success' },
   { scenario: 'CONFIG: set_tick_resolution', toolName: 'manage_sequence', arguments: { action: 'set_tick_resolution', path: SEQUENCE_PATH, resolution: '24000/1' }, expected: 'success' },
   { scenario: 'CONFIG: set_work_range', toolName: 'manage_sequence', arguments: { action: 'set_work_range', path: SEQUENCE_PATH, start: 0, end: 5 }, expected: 'success' },

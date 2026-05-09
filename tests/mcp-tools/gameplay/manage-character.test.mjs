@@ -9,11 +9,20 @@ import { runToolTests } from '../../test-runner.mjs';
 const ts = Date.now();
 const TEST_FOLDER = `/Game/MCPTest/GameplayCharacter_${ts}`;
 const CHARACTER_NAME = `BP_MCP_Character_${ts}`;
+const ANIM_BLUEPRINT_NAME = `ABP_MCP_Character_${ts}`;
 const TEST_ACTOR = `TestCharacterActor_${ts}`;
+const TEST_SKELETAL_MESH_PATH = '/Engine/EngineMeshes/SkeletalCube';
 
 const testCases = [
   // === SETUP ===
   { scenario: 'Setup: create test folder', toolName: 'manage_asset', arguments: { action: 'create_folder', path: TEST_FOLDER }, expected: 'success|already exists' },
+  {
+    scenario: 'Setup: create animation blueprint for mesh assignment',
+    toolName: 'animation_physics',
+    arguments: { action: 'create_anim_blueprint', name: ANIM_BLUEPRINT_NAME, path: TEST_FOLDER, parentClass: 'AnimInstance' },
+    expected: 'success|already exists',
+    captureResult: { key: 'animBlueprintPath', fromField: 'data.result.assetPath' }
+  },
   { scenario: 'Setup: spawn test actor', toolName: 'control_actor', arguments: { action: 'spawn', classPath: '/Engine/BasicShapes/Cube', actorName: TEST_ACTOR, location: { x: 0, y: 0, z: 100 } }, expected: 'success' },
 
   // === CREATE ===
@@ -31,11 +40,11 @@ const testCases = [
 
   // === COMPONENT CONFIG ===
   { scenario: 'CONFIG: configure_capsule_component', toolName: 'manage_character', arguments: { action: 'configure_capsule_component', blueprintPath: '${captured:blueprintPath}', capsuleRadius: 44, capsuleHalfHeight: 96 }, expected: 'success', assertions: [{ path: 'structuredContent.result.capsuleRadius', equals: 44, label: 'capsule radius applied' }] },
-  { scenario: 'CONFIG: configure_mesh_component', toolName: 'manage_character', arguments: { action: 'configure_mesh_component', blueprintPath: '${captured:blueprintPath}', meshOffset: { x: 0, y: 0, z: -96 }, meshRotation: { pitch: 0, yaw: -90, roll: 0 } }, expected: 'success' },
+  { scenario: 'CONFIG: configure_mesh_component', toolName: 'manage_character', arguments: { action: 'configure_mesh_component', blueprintPath: '${captured:blueprintPath}', skeletalMeshPath: TEST_SKELETAL_MESH_PATH, animBlueprintPath: '${captured:animBlueprintPath}', meshOffset: { x: 0, y: 0, z: -96 }, meshRotation: { pitch: 0, yaw: -90, roll: 0 } }, expected: 'success', assertions: [{ path: 'structuredContent.result.skeletalMeshAssigned', equals: true, label: 'skeletal mesh asset assigned' }, { path: 'structuredContent.result.animBlueprintAssigned', equals: true, label: 'animation blueprint assigned' }] },
   { scenario: 'CONFIG: configure_camera_component', toolName: 'manage_character', arguments: { action: 'configure_camera_component', blueprintPath: '${captured:blueprintPath}', springArmLength: 350, cameraUsePawnControlRotation: true, springArmLagEnabled: true, springArmLagSpeed: 12 }, expected: 'success', assertions: [{ path: 'structuredContent.result.springArmLength', equals: 350, label: 'spring arm length applied' }] },
 
   // === MOVEMENT COMPONENT ===
-  { scenario: 'CONFIG: configure_movement_speeds', toolName: 'manage_character', arguments: { action: 'configure_movement_speeds', blueprintPath: '${captured:blueprintPath}', walkSpeed: 420, crouchSpeed: 180, swimSpeed: 320, flySpeed: 500, acceleration: 1400, deceleration: 1600, groundFriction: 7 }, expected: 'success' },
+  { scenario: 'CONFIG: configure_movement_speeds', toolName: 'manage_character', arguments: { action: 'configure_movement_speeds', blueprintPath: '${captured:blueprintPath}', runSpeed: 420, crouchSpeed: 180, swimSpeed: 320, flySpeed: 500, acceleration: 1400, deceleration: 1600, groundFriction: 7 }, expected: 'success', assertions: [{ path: 'structuredContent.result.runSpeedApplied', equals: true, label: 'runSpeed applied when walkSpeed omitted' }, { path: 'structuredContent.result.walkSpeed', equals: 420, label: 'runSpeed maps to max walk speed' }] },
   { scenario: 'CONFIG: configure_jump', toolName: 'manage_character', arguments: { action: 'configure_jump', blueprintPath: '${captured:blueprintPath}', jumpHeight: 650, airControl: 0.45, gravityScale: 1.1, fallingLateralFriction: 0.15, maxJumpCount: 2, jumpHoldTime: 0.25 }, expected: 'success' },
   { scenario: 'CONFIG: configure_rotation', toolName: 'manage_character', arguments: { action: 'configure_rotation', blueprintPath: '${captured:blueprintPath}', orientToMovement: true, useControllerRotationYaw: false, useControllerRotationPitch: false, useControllerRotationRoll: false, rotationRate: 540 }, expected: 'success' },
   { scenario: 'ADD: add_custom_movement_mode', toolName: 'manage_character', arguments: { action: 'add_custom_movement_mode', blueprintPath: '${captured:blueprintPath}', modeName: `Dash_${ts}`, modeId: 3, customSpeed: 900 }, expected: 'success', assertions: [{ path: 'structuredContent.result.modeId', equals: 3, label: 'custom movement mode id applied' }] },

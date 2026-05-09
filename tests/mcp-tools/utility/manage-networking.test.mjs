@@ -244,6 +244,7 @@ const testCases = [
   const SERVER_NAME = `MCP_LAN_${ts}`;
   const VOICE_CHANNEL = `MCP_Voice_${ts}`;
   const PLAYER_NAME = `MCP_Player_${ts}`;
+  const TARGET_PLAYER_ID = `MCP_TargetId_${ts}`;
   const MAP_PATH = '/Game/MCPTest/MainLevel';
   const SERVER_PORT = 7788;
   const SERVER_PASSWORD = 'mcp-test-password';
@@ -458,6 +459,19 @@ const testCases = [
       ]
     },
     {
+      scenario: 'ACTION: mute_player via targetPlayerId',
+      toolName: 'manage_networking',
+      arguments: { action: 'mute_player', targetPlayerId: TARGET_PLAYER_ID, muted: false, localPlayerNum: 0, systemWide: true },
+      expected: 'success',
+      assertions: [
+        { path: 'structuredContent.result.target', equals: TARGET_PLAYER_ID, label: 'target player id returned' },
+        { path: 'structuredContent.result.muted', equals: false, label: 'unmute state returned' },
+        { path: 'structuredContent.result.localPlayerNum', equals: 0, label: 'local player number returned' },
+        { path: 'structuredContent.result.systemWide', equals: true, label: 'system-wide mute flag returned' },
+        { path: 'structuredContent.result.success', equals: true, label: 'target id mute request completed' }
+      ]
+    },
+    {
       scenario: 'CONFIG: set_voice_attenuation',
       toolName: 'manage_networking',
       arguments: { action: 'set_voice_attenuation', attenuationRadius: 1800, attenuationFalloff: 2.5 },
@@ -537,12 +551,12 @@ const testCases = [
   testCases.push(
     { scenario: 'Setup: create test folder', toolName: 'manage_asset', arguments: { action: 'create_folder', path: TEST_FOLDER }, expected: 'success|already exists' },
 
-    { scenario: 'CREATE: create_game_mode', toolName: 'manage_networking', arguments: { action: 'create_game_mode', name: GAME_MODE_NAME, path: TEST_FOLDER, parentClass: '/Script/Engine.GameMode' }, expected: 'success', assertions: createBlueprintAssertions(GAME_MODE_ASSET_PATH, GAME_MODE_OBJECT_PATH, GAME_MODE_NAME, 'game mode blueprint') },
+    { scenario: 'CREATE: create_hud_class', toolName: 'manage_networking', arguments: { action: 'create_hud_class', name: HUD_NAME, path: TEST_FOLDER, parentClass: '/Script/Engine.HUD', timeoutMs: 120000 }, expected: 'success', assertions: createBlueprintAssertions(HUD_ASSET_PATH, HUD_OBJECT_PATH, HUD_NAME, 'hud blueprint') },
+    { scenario: 'CREATE: create_game_mode', toolName: 'manage_networking', arguments: { action: 'create_game_mode', name: GAME_MODE_NAME, path: TEST_FOLDER, parentClass: '/Script/Engine.GameMode', defaultPawnClass: DEFAULT_PAWN_CLASS, hudClass: HUD_OBJECT_PATH, save: true }, expected: 'success', assertions: createBlueprintAssertions(GAME_MODE_ASSET_PATH, GAME_MODE_OBJECT_PATH, GAME_MODE_NAME, 'game mode blueprint') },
     { scenario: 'CREATE: create_game_state', toolName: 'manage_networking', arguments: { action: 'create_game_state', name: GAME_STATE_NAME, path: TEST_FOLDER, parentClass: '/Script/Engine.GameState' }, expected: 'success', assertions: createBlueprintAssertions(GAME_STATE_ASSET_PATH, GAME_STATE_OBJECT_PATH, GAME_STATE_NAME, 'game state blueprint') },
     { scenario: 'CREATE: create_player_controller', toolName: 'manage_networking', arguments: { action: 'create_player_controller', name: PLAYER_CONTROLLER_NAME, path: TEST_FOLDER, parentClass: '/Script/Engine.PlayerController' }, expected: 'success', assertions: createBlueprintAssertions(PLAYER_CONTROLLER_ASSET_PATH, PLAYER_CONTROLLER_OBJECT_PATH, PLAYER_CONTROLLER_NAME, 'player controller blueprint') },
     { scenario: 'CREATE: create_player_state', toolName: 'manage_networking', arguments: { action: 'create_player_state', name: PLAYER_STATE_NAME, path: TEST_FOLDER, parentClass: '/Script/Engine.PlayerState' }, expected: 'success', assertions: createBlueprintAssertions(PLAYER_STATE_ASSET_PATH, PLAYER_STATE_OBJECT_PATH, PLAYER_STATE_NAME, 'player state blueprint') },
     { scenario: 'CREATE: create_game_instance', toolName: 'manage_networking', arguments: { action: 'create_game_instance', name: GAME_INSTANCE_NAME, path: TEST_FOLDER, parentClass: '/Script/Engine.GameInstance' }, expected: 'success', assertions: createBlueprintAssertions(GAME_INSTANCE_ASSET_PATH, GAME_INSTANCE_OBJECT_PATH, GAME_INSTANCE_NAME, 'game instance blueprint') },
-    { scenario: 'CREATE: create_hud_class', toolName: 'manage_networking', arguments: { action: 'create_hud_class', name: HUD_NAME, path: TEST_FOLDER, parentClass: '/Script/Engine.HUD' }, expected: 'success', assertions: createBlueprintAssertions(HUD_ASSET_PATH, HUD_OBJECT_PATH, HUD_NAME, 'hud blueprint') },
 
     { scenario: 'CONFIG: set_default_pawn_class', toolName: 'manage_networking', arguments: { action: 'set_default_pawn_class', gameModeBlueprint: GAME_MODE_OBJECT_PATH, pawnClass: DEFAULT_PAWN_CLASS }, expected: 'success', assertions: gameModePathAssertion('default pawn class') },
     { scenario: 'INFO: read back default pawn class', toolName: 'manage_networking', arguments: { action: 'get_game_framework_info', gameModeBlueprint: GAME_MODE_OBJECT_PATH }, expected: 'success', assertions: [{ path: 'structuredContent.result.gameFrameworkInfo.defaultPawnClass', equals: DEFAULT_PAWN_CLASS, label: 'default pawn class read back from CDO' }] },
@@ -564,7 +578,7 @@ const testCases = [
     { scenario: 'CONFIG: set_respawn_rules', toolName: 'manage_networking', arguments: { action: 'set_respawn_rules', gameModeBlueprint: GAME_MODE_OBJECT_PATH, respawnDelay: 9.25, respawnLocation: 'TeamStart', forceRespawn: false, respawnLives: 3 }, expected: 'success', assertions: [...gameModePathAssertion('respawn rules'), { path: 'structuredContent.result.variablesAdded', equals: 3, label: 'respawn variables added' }, { path: 'structuredContent.result.configuration.respawnDelay', equals: 9.25, label: 'respawn delay configured' }, { path: 'structuredContent.result.configuration.respawnLocation', equals: 'TeamStart', label: 'respawn location configured' }, { path: 'structuredContent.result.configuration.forceRespawn', equals: false, label: 'force respawn configured' }, { path: 'structuredContent.result.configuration.respawnLives', equals: 3, label: 'respawn lives configured' }] },
     { scenario: 'CONFIG: configure_spectating', toolName: 'manage_networking', arguments: { action: 'configure_spectating', gameModeBlueprint: GAME_MODE_OBJECT_PATH, spectatorClass: SPECTATOR_CLASS, allowSpectating: true, spectatorViewMode: 'FreeCam' }, expected: 'success', assertions: gameModePathAssertion('spectating') },
 
-    { scenario: 'INFO: get_game_framework_info final readback', toolName: 'manage_networking', arguments: { action: 'get_game_framework_info', gameModeBlueprint: GAME_MODE_OBJECT_PATH }, expected: 'success', assertions: [{ path: 'structuredContent.result.success', equals: true, label: 'game framework info native success flag' }, { path: 'structuredContent.result.gameFrameworkInfo.gameModeClass', equals: `${GAME_MODE_OBJECT_PATH}_C`, label: 'game mode generated class read back' }, { path: 'structuredContent.result.gameFrameworkInfo.defaultPawnClass', equals: DEFAULT_PAWN_CLASS, label: 'final default pawn readback' }, { path: 'structuredContent.result.gameFrameworkInfo.playerControllerClass', equals: PLAYER_CONTROLLER_CLASS, label: 'final player controller readback' }, { path: 'structuredContent.result.gameFrameworkInfo.gameStateClass', equals: GAME_STATE_CLASS, label: 'final game state readback' }, { path: 'structuredContent.result.gameFrameworkInfo.playerStateClass', equals: PLAYER_STATE_CLASS, label: 'final player state readback' }] },
+    { scenario: 'INFO: get_game_framework_info final readback', toolName: 'manage_networking', arguments: { action: 'get_game_framework_info', gameModeBlueprint: GAME_MODE_OBJECT_PATH }, expected: 'success', assertions: [{ path: 'structuredContent.result.success', equals: true, label: 'game framework info native success flag' }, { path: 'structuredContent.result.gameFrameworkInfo.gameModeClass', equals: `${GAME_MODE_OBJECT_PATH}_C`, label: 'game mode generated class read back' }, { path: 'structuredContent.result.gameFrameworkInfo.defaultPawnClass', equals: DEFAULT_PAWN_CLASS, label: 'final default pawn readback' }, { path: 'structuredContent.result.gameFrameworkInfo.playerControllerClass', equals: PLAYER_CONTROLLER_CLASS, label: 'final player controller readback' }, { path: 'structuredContent.result.gameFrameworkInfo.gameStateClass', equals: GAME_STATE_CLASS, label: 'final game state readback' }, { path: 'structuredContent.result.gameFrameworkInfo.playerStateClass', equals: PLAYER_STATE_CLASS, label: 'final player state readback' }, { path: 'structuredContent.result.gameFrameworkInfo.hudClass', equals: `${HUD_OBJECT_PATH}_C`, label: 'final HUD class readback' }] },
 
     { scenario: 'Cleanup: delete test folder', toolName: 'manage_asset', arguments: { action: 'delete', path: TEST_FOLDER, force: true }, expected: 'success|not found' }
   );
