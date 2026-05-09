@@ -1225,22 +1225,19 @@ void FMcpNativeTransport::HandleToolsCall(
 		Arguments->SetStringField(TEXT("subAction"), ActionVal);
 	}
 
-	// Dispatch to handler on GameThread
+	// Dispatch through the subsystem queue. The queue is drained by the core
+	// ticker after world ticking, which is required for safe map transitions.
 	TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakSubsystem(Subsystem);
 	FString CapturedRequestId = RequestId;
 	FString CapturedDispatchAction = DispatchAction;
 	TSharedPtr<FJsonObject> CapturedArguments = Arguments;
 
-	AsyncTask(ENamedThreads::GameThread, [WeakSubsystem, CapturedRequestId,
-		CapturedDispatchAction, CapturedArguments]()
+	if (UMcpAutomationBridgeSubsystem* Sub = WeakSubsystem.Get())
 	{
-		if (UMcpAutomationBridgeSubsystem* Sub = WeakSubsystem.Get())
-		{
-			Sub->ProcessAutomationRequest(
-				CapturedRequestId, CapturedDispatchAction, CapturedArguments, nullptr,
-				ERequestOrigin::NativeHTTP);
-		}
-	});
+		Sub->QueueAutomationRequest(
+			CapturedRequestId, CapturedDispatchAction, CapturedArguments, nullptr,
+			ERequestOrigin::NativeHTTP);
+	}
 }
 
 // ─── SSE Connection Management ──────────────────────────────────────────────

@@ -64,10 +64,6 @@ public:
 				[](FMcpSchemaBuilder& S) {
 				S.Number(TEXT("pitch")).Number(TEXT("yaw")).Number(TEXT("roll"));
 			})
-			.Object(TEXT("scale"), TEXT("3D scale (x, y, z)."),
-				[](FMcpSchemaBuilder& S) {
-				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
-			})
 			.Number(TEXT("sizeX"), TEXT(""))
 			.Number(TEXT("sizeY"), TEXT(""))
 			.Number(TEXT("sectionSize"), TEXT(""))
@@ -81,9 +77,7 @@ public:
 			.Number(TEXT("radius"), TEXT(""))
 			.Number(TEXT("strength"), TEXT(""))
 			.Number(TEXT("falloff"), TEXT(""))
-			.Number(TEXT("brushSize"), TEXT(""))
 			.String(TEXT("layerName"), TEXT(""))
-			.Bool(TEXT("eraseMode"), TEXT(""))
 			.String(TEXT("actorName"), TEXT("Name of the actor."))
 			.String(TEXT("foliageType"), TEXT(""))
 			.String(TEXT("foliageTypePath"),
@@ -106,15 +100,10 @@ public:
 			.Number(TEXT("seed"), TEXT(""))
 			.ArrayOfObjects(TEXT("foliageTypes"), TEXT(""))
 			.Number(TEXT("quadsPerSection"), TEXT(""))
-			.Bool(TEXT("enableWorldPartition"), TEXT(""))
-			.String(TEXT("runtimeGrid"), TEXT(""))
-			.Bool(TEXT("isSpatiallyLoaded"), TEXT(""))
-			.Array(TEXT("dataLayers"), TEXT(""))
 			.Number(TEXT("count"), TEXT(""))
 			.Array(TEXT("assets"), TEXT(""))
 			.Number(TEXT("numLODs"), TEXT(""))
 			.Number(TEXT("subdivisions"), TEXT(""))
-			.FreeformObject(TEXT("settings"), TEXT(""))
 			.Number(TEXT("tileSize"), TEXT(""))
 			.String(TEXT("quality"), TEXT(""))
 			.String(TEXT("staticMesh"), TEXT("Mesh asset path."))

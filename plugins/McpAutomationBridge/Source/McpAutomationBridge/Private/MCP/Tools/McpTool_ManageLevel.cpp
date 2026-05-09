@@ -32,9 +32,6 @@ public:
 				TEXT("create_light"),
 				TEXT("build_lighting"),
 				TEXT("set_metadata"),
-				TEXT("load_cells"),
-				TEXT("set_datalayer"),
-				TEXT("create_datalayer"),
 				TEXT("export_level"),
 				TEXT("import_level"),
 				TEXT("list_levels"),
@@ -42,7 +39,6 @@ public:
 				TEXT("delete"),
 				TEXT("delete_level"),
 				TEXT("validate_level"),
-				TEXT("cleanup_invalid_datalayers"),
 				TEXT("add_sublevel"),
 				TEXT("rename_level"),
 				TEXT("duplicate_level"),
@@ -90,27 +86,6 @@ public:
 			.Object(TEXT("rotation"), TEXT("3D rotation (pitch, yaw, roll)."),
 				[](FMcpSchemaBuilder& S) {
 				S.Number(TEXT("pitch")).Number(TEXT("yaw")).Number(TEXT("roll"));
-			})
-			.Array(TEXT("cells"), TEXT(""))
-			.String(TEXT("dataLayerName"), TEXT("Name of the data layer."))
-			.String(TEXT("dataLayerLabel"), TEXT(""))
-			.String(TEXT("dataLayerState"), TEXT(""))
-			.String(TEXT("actorPath"), TEXT("Path to actor."))
-			.Object(TEXT("min"), TEXT("3D location (x, y, z)."),
-				[](FMcpSchemaBuilder& S) {
-				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
-			})
-			.Object(TEXT("max"), TEXT("3D location (x, y, z)."),
-				[](FMcpSchemaBuilder& S) {
-				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
-			})
-			.Object(TEXT("origin"), TEXT("3D location (x, y, z)."),
-				[](FMcpSchemaBuilder& S) {
-				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
-			})
-			.Object(TEXT("extent"), TEXT("3D extent (half-size)."),
-				[](FMcpSchemaBuilder& S) {
-				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
 			})
 			.String(TEXT("template"), TEXT(""))
 			.Bool(TEXT("useWorldPartition"), TEXT(""))

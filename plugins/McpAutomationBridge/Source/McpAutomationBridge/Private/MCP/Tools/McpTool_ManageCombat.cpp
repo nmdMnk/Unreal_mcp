@@ -1,4 +1,4 @@
-// McpTool_ManageCombat.cpp — manage_combat tool definition (38 actions)
+// McpTool_ManageCombat.cpp — manage_combat tool definition (39 actions)
 
 #include "McpVersionCompatibility.h"
 #include "MCP/McpToolDefinition.h"
@@ -68,7 +68,6 @@ public:
 			.String(TEXT("weaponMeshPath"), TEXT("Path to weapon static/skeletal mesh."))
 			.String(TEXT("muzzleSocketName"), TEXT("Muzzle socket name."))
 			.String(TEXT("ejectionSocketName"), TEXT("Shell ejection socket name."))
-			.Array(TEXT("attachmentSocketNames"), TEXT("List of attachment socket names."))
 			.Number(TEXT("baseDamage"), TEXT(""))
 			.Number(TEXT("fireRate"), TEXT(""))
 			.Number(TEXT("range"), TEXT(""))
@@ -105,18 +104,6 @@ public:
 			.Number(TEXT("bounceVelocityRatio"), TEXT("Velocity retained on bounce (0-1)."))
 			.Bool(TEXT("homingEnabled"), TEXT("Enable homing behavior."))
 			.Number(TEXT("homingAcceleration"), TEXT("Homing turn rate."))
-			.String(TEXT("homingTargetTag"), TEXT("Tag for homing targets."))
-			.String(TEXT("damageTypeName"), TEXT("Name for damage type."))
-			.StringEnum(TEXT("damageCategory"), {
-				TEXT("Physical"),
-				TEXT("Fire"),
-				TEXT("Ice"),
-				TEXT("Electric"),
-				TEXT("Poison"),
-				TEXT("Explosion"),
-				TEXT("Radial"),
-				TEXT("Custom")
-			}, TEXT("Damage category."))
 			.Number(TEXT("damageImpulse"), TEXT("Impulse applied on hit."))
 			.Number(TEXT("criticalMultiplier"), TEXT("Critical hit damage multiplier."))
 			.Number(TEXT("headshotMultiplier"), TEXT("Headshot damage multiplier."))
@@ -146,8 +133,8 @@ public:
 			.ArrayOfObjects(TEXT("attachmentSlots"), TEXT("Attachment slot definitions."))
 			.Number(TEXT("switchInTime"), TEXT("Time to equip weapon."))
 			.Number(TEXT("switchOutTime"), TEXT("Time to unequip weapon."))
-			.String(TEXT("switchInAnimationPath"), TEXT("Path to equip animation."))
-			.String(TEXT("switchOutAnimationPath"), TEXT("Path to unequip animation."))
+			.String(TEXT("equipAnimationPath"), TEXT("Path to equip animation montage."))
+			.String(TEXT("unequipAnimationPath"), TEXT("Path to unequip animation montage."))
 			.String(TEXT("muzzleFlashParticlePath"), TEXT("Path to muzzle flash particle."))
 			.Number(TEXT("muzzleFlashScale"), TEXT("Muzzle flash scale."))
 			.String(TEXT("muzzleSoundPath"), TEXT("Path to firing sound."))
@@ -162,10 +149,8 @@ public:
 			.String(TEXT("meleeTraceStartSocket"), TEXT("Socket for trace start."))
 			.String(TEXT("meleeTraceEndSocket"), TEXT("Socket for trace end."))
 			.Number(TEXT("meleeTraceRadius"), TEXT("Sphere trace radius."))
-			.String(TEXT("meleeTraceChannel"), TEXT("Trace channel for melee."))
 			.Number(TEXT("comboWindowTime"), TEXT("Time window for combo input."))
 			.Number(TEXT("maxComboCount"), TEXT("Maximum combo length."))
-			.Array(TEXT("comboAnimations"), TEXT("Paths to combo attack animations."))
 			.Number(TEXT("hitPauseDuration"), TEXT("Hitstop duration in seconds."))
 			.Number(TEXT("hitPauseTimeDilation"), TEXT("Time dilation during hitstop."))
 			.String(TEXT("hitReactionMontage"), TEXT("Path to hit reaction montage."))
@@ -178,6 +163,21 @@ public:
 			.String(TEXT("weaponTrailParticlePath"), TEXT("Path to weapon trail particle."))
 			.String(TEXT("weaponTrailStartSocket"), TEXT("Trail start socket."))
 			.String(TEXT("weaponTrailEndSocket"), TEXT("Trail end socket."))
+			.Number(TEXT("ammoPerShot"), TEXT("Ammo consumed per shot."))
+			.Number(TEXT("armorValue"), TEXT("Armor value to apply."))
+			.Number(TEXT("damageAmount"), TEXT("Damage amount to apply."))
+			.Number(TEXT("damagePerSecond"), TEXT("Damage per second for damage effects."))
+			.Number(TEXT("damageReduction"), TEXT("Armor damage reduction multiplier."))
+			.String(TEXT("damageType"), TEXT("Damage type identifier."))
+			.Number(TEXT("duration"), TEXT("Effect duration in seconds."))
+			.String(TEXT("effectType"), TEXT("Damage effect type."))
+			.Number(TEXT("healAmount"), TEXT("Healing amount to apply."))
+			.Bool(TEXT("infiniteAmmo"), TEXT("Whether ammo is infinite."))
+			.Number(TEXT("maxHealth"), TEXT("Maximum health value."))
+			.Number(TEXT("maxShield"), TEXT("Maximum shield value."))
+			.Number(TEXT("shieldAmount"), TEXT("Current shield amount."))
+			.Number(TEXT("shieldRegenDelay"), TEXT("Delay before shield regeneration."))
+			.Number(TEXT("shieldRegenRate"), TEXT("Shield regeneration rate."))
 			.Required({TEXT("action")})
 			.Build();
 	}

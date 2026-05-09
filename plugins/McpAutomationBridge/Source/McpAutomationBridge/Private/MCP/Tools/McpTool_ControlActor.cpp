@@ -67,11 +67,14 @@ public:
 				TEXT("call_actor_function")
 			}, TEXT("Action"))
 			.String(TEXT("actorName"), TEXT("Name of the actor."))
+			.Array(TEXT("actorNames"), TEXT("Actor names for bulk actor operations."))
 			.String(TEXT("childActor"),
 				TEXT("Name of the child actor (for attach/detach operations)."))
 			.String(TEXT("parentActor"),
 				TEXT("Name of the parent actor (for attach operations)."))
 			.String(TEXT("classPath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
+			.String(TEXT("actorClass"), TEXT("Actor class alias or path."))
+			.String(TEXT("className"), TEXT("Actor class name."))
 			.String(TEXT("meshPath"), TEXT("Mesh asset path."))
 			.String(TEXT("blueprintPath"), TEXT("Blueprint asset path."))
 			.Object(TEXT("location"), TEXT("3D location (x, y, z)."),
@@ -86,6 +89,10 @@ public:
 				[](FMcpSchemaBuilder& S) {
 				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
 			})
+			.Object(TEXT("offset"), TEXT("3D offset (x, y, z)."),
+				[](FMcpSchemaBuilder& S) {
+				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
+			})
 			.Object(TEXT("force"), TEXT("3D vector."),
 				[](FMcpSchemaBuilder& S) {
 				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
@@ -93,11 +100,18 @@ public:
 			.String(TEXT("componentType"), TEXT(""))
 			.String(TEXT("componentName"), TEXT("Name of the component."))
 			.FreeformObject(TEXT("properties"), TEXT(""))
+			.String(TEXT("propertyName"), TEXT("Name of the property."))
+			.FreeformObject(TEXT("value"), TEXT("Generic value (any type)."))
 			.Bool(TEXT("visible"), TEXT("Whether the item/actor is visible."))
 			.String(TEXT("newName"), TEXT("New name for renaming."))
+			.String(TEXT("name"), TEXT("Name identifier."))
 			.String(TEXT("tag"), TEXT("Name of the tag."))
 			.FreeformObject(TEXT("variables"), TEXT(""))
 			.String(TEXT("snapshotName"), TEXT(""))
+			.Integer(TEXT("limit"), TEXT("Maximum number of actors to return."))
+			.Bool(TEXT("collisionEnabled"), TEXT("Whether actor collision is enabled."))
+			.String(TEXT("functionName"), TEXT("Name of the function."))
+			.Array(TEXT("arguments"), TEXT("Arguments to pass to an actor function."))
 			.Required({TEXT("action")})
 			.Build();
 	}

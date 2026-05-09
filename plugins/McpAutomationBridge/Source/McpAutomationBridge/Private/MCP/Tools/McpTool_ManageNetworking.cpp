@@ -82,9 +82,6 @@ public:
 				TEXT("DORM_DormantPartial"),
 				TEXT("DORM_Initial")
 			}, TEXT("Net dormancy mode."))
-			.String(TEXT("nodeClass"), TEXT("Node class path."))
-			.Number(TEXT("spatialBias"), TEXT("Spatial bias for replication graph."))
-			.String(TEXT("defaultSettingsClass"), TEXT("Default replication settings class."))
 			.String(TEXT("functionName"), TEXT("Name of the function."))
 			.StringEnum(TEXT("rpcType"), {
 				TEXT("Server"),
@@ -92,12 +89,6 @@ public:
 				TEXT("NetMulticast")
 			}, TEXT("Type of RPC."))
 			.Bool(TEXT("reliable"), TEXT("Whether the operation is reliable."))
-			.ArrayOfObjects(TEXT("parameters"), TEXT("RPC function parameters."),
-				[](FMcpSchemaBuilder& S) {
-				S.String(TEXT("name"), TEXT("")).String(TEXT("type"), TEXT(""));
-			})
-			.String(TEXT("returnType"), TEXT("RPC return type (usually void)."))
-			.String(TEXT("validationFunctionName"), TEXT("Name of validation function."))
 			.Bool(TEXT("withValidation"), TEXT("Enable RPC validation."))
 			.String(TEXT("ownerActorName"), TEXT("Name of owner actor (null to clear)."))
 			.Bool(TEXT("isAutonomousProxy"), TEXT("Configure as autonomous proxy."))
@@ -106,22 +97,16 @@ public:
 			.Bool(TEXT("alwaysRelevant"), TEXT("Always relevant to all clients."))
 			.Bool(TEXT("onlyRelevantToOwner"), TEXT("Only relevant to owner."))
 			.String(TEXT("structName"), TEXT("Name of struct for custom serialization."))
-			.Bool(TEXT("useNetSerialize"), TEXT("Use custom NetSerialize."))
 			.Bool(TEXT("usePushModel"), TEXT("Use push-model replication."))
-			.Array(TEXT("propertyNames"), TEXT("Properties for push model."))
 			.Bool(TEXT("enablePrediction"), TEXT("Enable client-side prediction."))
-			.String(TEXT("predictionKey"), TEXT("Prediction key identifier."))
 			.Number(TEXT("correctionThreshold"), TEXT("Server correction threshold."))
 			.Number(TEXT("smoothingRate"), TEXT("Smoothing rate for corrections."))
 			.StringEnum(TEXT("dataType"), {
-				TEXT("InputCmd"),
-				TEXT("SyncState"),
-				TEXT("AuxState")
+				TEXT("Transform"),
+				TEXT("Vector"),
+				TEXT("Rotator"),
+				TEXT("Float")
 			}, TEXT("Network prediction data type."))
-			.ArrayOfObjects(TEXT("properties"), TEXT("Predicted properties."),
-				[](FMcpSchemaBuilder& S) {
-				S.String(TEXT("name"), TEXT("")).String(TEXT("type"), TEXT(""));
-			})
 			.StringEnum(TEXT("networkSmoothingMode"), {
 				TEXT("Disabled"),
 				TEXT("Linear"),
@@ -139,16 +124,6 @@ public:
 				TEXT("ROLE_Authority")
 			}, TEXT("Net role."))
 			.Bool(TEXT("replicateMovement"), TEXT("Replicate movement."))
-			.StringEnum(TEXT("replicatedMovementMode"), {
-				TEXT("Default"),
-				TEXT("SkipPhysics"),
-				TEXT("FullMovement")
-			}, TEXT("Replicated movement mode."))
-			.StringEnum(TEXT("locationQuantizationLevel"), {
-				TEXT("RoundWholeNumber"),
-				TEXT("RoundOneDecimal"),
-				TEXT("RoundTwoDecimals")
-			}, TEXT("Location quantization level."))
 			.Bool(TEXT("spatiallyLoaded"), TEXT("Spatially loaded for replication graph."))
 			.Bool(TEXT("netLoadOnClient"), TEXT("Net load on client for replication graph."))
 			.String(TEXT("replicationPolicy"), TEXT("Replication policy for replication graph."))

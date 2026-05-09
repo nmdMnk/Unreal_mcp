@@ -52,7 +52,6 @@ public:
 				TEXT("get_volumes_info")
 			}, TEXT("Volume action to perform"))
 			.String(TEXT("volumeName"), TEXT("Name of the volume."))
-			.String(TEXT("volumePath"), TEXT("Path to volume."))
 			.String(TEXT("actorPath"), TEXT("Path to actor."))
 			.Object(TEXT("location"),
 				TEXT("World location for the volume."),
@@ -83,8 +82,6 @@ public:
 				TEXT("Whether the volume causes pain/damage."))
 			.Number(TEXT("damagePerSec"),
 				TEXT("Damage per second for pain volumes."))
-			.String(TEXT("damageType"),
-				TEXT("Damage type class path for pain volumes."))
 			.Bool(TEXT("bWaterVolume"),
 				TEXT("Whether this is a water volume."))
 			.Number(TEXT("fluidFriction"),
@@ -94,25 +91,17 @@ public:
 			.Number(TEXT("priority"), TEXT("Priority value."))
 			.Bool(TEXT("bEnabled"),
 				TEXT("Whether the audio volume is enabled."))
-			.String(TEXT("reverbEffect"),
-				TEXT("Reverb effect asset path."))
 			.Number(TEXT("reverbVolume"),
 				TEXT("Volume level for reverb (0.0-1.0)."))
 			.Number(TEXT("fadeTime"), TEXT("Fade time in seconds."))
 			.ArrayOfObjects(TEXT("cullDistances"),
 				TEXT("Array of size/distance pairs for cull distance volumes."))
-			.String(TEXT("areaClass"),
-				TEXT("Navigation area class path."))
-			.Bool(TEXT("bDynamicModifier"),
-				TEXT("Whether nav modifier updates dynamically."))
 			.Bool(TEXT("bUnbound"),
 				TEXT("Whether post process volume affects entire world."))
 			.Number(TEXT("blendRadius"),
 				TEXT("Blend radius for post process volume."))
 			.Number(TEXT("blendWeight"),
 				TEXT("Blend weight (0.0-1.0) for post process."))
-			.FreeformObject(TEXT("properties"),
-				TEXT("Additional volume-specific properties as key-value pairs."))
 			.String(TEXT("filter"), TEXT("General search filter."))
 			.String(TEXT("volumeType"),
 				TEXT("Type filter for get_volumes_info "

@@ -54,14 +54,11 @@ public:
 			.String(TEXT("path"), TEXT("Directory path for asset creation."))
 			.String(TEXT("assetPath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
 			.String(TEXT("blueprintPath"), TEXT("Blueprint asset path."))
-			.Bool(TEXT("save"), TEXT("Save the asset(s) after the operation."))
 			.StringEnum(TEXT("replicationMode"), {
 				TEXT("Full"),
 				TEXT("Minimal"),
 				TEXT("Mixed")
 			}, TEXT("ASC replication mode."))
-			.String(TEXT("ownerActor"), TEXT("Owner actor class for ASC."))
-			.String(TEXT("avatarActor"), TEXT("Avatar actor class for ASC."))
 			.String(TEXT("attributeSetPath"), TEXT("Path to Attribute Set asset."))
 			.String(TEXT("attributeName"), TEXT("Name of the attribute."))
 			.StringEnum(TEXT("attributeType"), {
@@ -87,18 +84,13 @@ public:
 				TEXT("MinMax")
 			}, TEXT("Attribute clamping mode."))
 			.String(TEXT("abilityPath"), TEXT("Path to ability asset."))
-			.String(TEXT("parentClass"), TEXT("Path or name of the parent class."))
 			.Array(TEXT("abilityTags"), TEXT("Gameplay tags for this ability."))
 			.Array(TEXT("cancelAbilitiesWithTag"), TEXT("Tags of abilities to cancel when this activates."))
 			.Array(TEXT("blockAbilitiesWithTag"), TEXT("Tags of abilities blocked while this is active."))
 			.Array(TEXT("activationRequiredTags"), TEXT("Tags required to activate this ability."))
 			.Array(TEXT("activationBlockedTags"), TEXT("Tags that block activation of this ability."))
 			.String(TEXT("costEffectPath"), TEXT("Path to cost Gameplay Effect."))
-			.String(TEXT("costAttribute"), TEXT("Attribute used for cost (e.g., Mana)."))
-			.Number(TEXT("costMagnitude"), TEXT("Cost magnitude."))
 			.String(TEXT("cooldownEffectPath"), TEXT("Path to cooldown Gameplay Effect."))
-			.Number(TEXT("cooldownDuration"), TEXT("Cooldown duration in seconds."))
-			.Array(TEXT("cooldownTags"), TEXT("Tags applied during cooldown."))
 			.StringEnum(TEXT("targetingMode"), {
 				TEXT("None"),
 				TEXT("SingleTarget"),
@@ -120,7 +112,6 @@ public:
 				TEXT("ApplyRootMotionConstantForce"),
 				TEXT("WaitMovementModeChange")
 			}, TEXT("Type of ability task to add."))
-			.FreeformObject(TEXT("taskSettings"), TEXT("Task-specific settings."))
 			.StringEnum(TEXT("activationPolicy"), {
 				TEXT("OnInputPressed"),
 				TEXT("WhileInputActive"),
@@ -154,10 +145,6 @@ public:
 				TEXT("CustomCalculationClass")
 			}, TEXT("How magnitude is calculated."))
 			.String(TEXT("setByCallerTag"), TEXT("Tag for SetByCaller magnitude."))
-			.Number(TEXT("coefficient"), TEXT("Coefficient for attribute-based calculation."))
-			.Number(TEXT("preMultiplyAdditiveValue"), TEXT("Value added before multiplication."))
-			.Number(TEXT("postMultiplyAdditiveValue"), TEXT("Value added after multiplication."))
-			.String(TEXT("sourceAttribute"), TEXT("Source attribute for attribute-based calculation."))
 			.String(TEXT("targetAttribute"), TEXT("Target attribute for modifier."))
 			.String(TEXT("calculationClass"), TEXT("UGameplayEffectExecutionCalculation class path."))
 			.String(TEXT("cueTag"), TEXT("Gameplay Cue tag (e.g., GameplayCue.Damage.Fire)."))

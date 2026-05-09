@@ -47,7 +47,6 @@ public:
 			.String(TEXT("path"), TEXT("Directory path for asset creation."))
 			.String(TEXT("gameModeBlueprint"), TEXT("Path to GameMode blueprint to configure."))
 			.String(TEXT("blueprintPath"), TEXT("Blueprint asset path."))
-			.String(TEXT("levelPath"), TEXT("Level asset path."))
 			.String(TEXT("parentClass"), TEXT("Path or name of the parent class."))
 			.String(TEXT("pawnClass"), TEXT("Pawn class to use."))
 			.String(TEXT("defaultPawnClass"), TEXT("Default pawn class for GameMode."))
@@ -56,10 +55,7 @@ public:
 			.String(TEXT("playerStateClass"), TEXT("PlayerState class path."))
 			.String(TEXT("spectatorClass"), TEXT("Spectator pawn class."))
 			.String(TEXT("hudClass"), TEXT("HUD class path."))
-			.Number(TEXT("timeLimit"), TEXT(""))
-			.Number(TEXT("scoreLimit"), TEXT(""))
 			.Bool(TEXT("bDelayedStart"), TEXT("Whether to delay match start."))
-			.Number(TEXT("startPlayersNeeded"), TEXT(""))
 			.ArrayOfObjects(TEXT("states"), TEXT("Match state definitions."))
 			.Number(TEXT("numRounds"), TEXT(""))
 			.Number(TEXT("roundTime"), TEXT(""))
@@ -83,17 +79,7 @@ public:
 				TEXT("LastDeath"),
 				TEXT("TeamBase")
 			}, TEXT("Where players respawn."))
-			.Array(TEXT("respawnConditions"), TEXT("Conditions for respawn (e.g., \"RoundEnd\", \"Manual\")."))
 			.Bool(TEXT("usePlayerStarts"), TEXT("Use PlayerStart actors."))
-			.Object(TEXT("location"), TEXT("Spawn location."),
-				[](FMcpSchemaBuilder& S) {
-				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
-			})
-			.Object(TEXT("rotation"), TEXT("Spawn rotation."),
-				[](FMcpSchemaBuilder& S) {
-				S.Number(TEXT("pitch")).Number(TEXT("yaw")).Number(TEXT("roll"));
-			})
-			.Bool(TEXT("bPlayerOnly"), TEXT("Restrict to players only."))
 			.Bool(TEXT("allowSpectating"), TEXT("Allow spectator mode."))
 			.StringEnum(TEXT("spectatorViewMode"), {
 				TEXT("FreeCam"),

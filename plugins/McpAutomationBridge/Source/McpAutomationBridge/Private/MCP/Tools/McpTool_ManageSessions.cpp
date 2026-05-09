@@ -57,7 +57,6 @@ public:
 				TEXT("get_sessions_info")
 			}, TEXT("Sessions action to perform."))
 			.String(TEXT("sessionName"), TEXT("Name of the session."))
-			.String(TEXT("sessionId"), TEXT("Session ID."))
 			.Number(TEXT("maxPlayers"), TEXT(""))
 			.Bool(TEXT("bIsLANMatch"), TEXT("Whether this is a LAN match."))
 			.Bool(TEXT("bAllowJoinInProgress"), TEXT("Allow joining games in progress."))

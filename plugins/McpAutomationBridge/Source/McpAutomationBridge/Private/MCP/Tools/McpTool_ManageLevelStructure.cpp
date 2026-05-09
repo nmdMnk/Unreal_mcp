@@ -43,7 +43,6 @@ public:
 			.String(TEXT("levelName"), TEXT(""))
 			.String(TEXT("levelPath"), TEXT("Level asset path."))
 			.String(TEXT("parentLevel"), TEXT("Parent level path."))
-			.String(TEXT("templateLevel"), TEXT("Template level path."))
 			.Bool(TEXT("bCreateWorldPartition"),
 				TEXT("Create with World Partition enabled."))
 			.Bool(TEXT("bUseExternalActors"),
@@ -93,8 +92,6 @@ public:
 			.Number(TEXT("loadingRange"),
 				TEXT("Loading range for grid cells."))
 			.String(TEXT("dataLayerName"), TEXT("Name of the data layer."))
-			.String(TEXT("dataLayerLabel"),
-				TEXT("Display label for the data layer."))
 			.Bool(TEXT("bIsInitiallyVisible"),
 				TEXT("Data layer initially visible."))
 			.Bool(TEXT("bIsInitiallyLoaded"),

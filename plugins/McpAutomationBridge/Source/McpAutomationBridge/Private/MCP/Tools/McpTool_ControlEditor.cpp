@@ -83,6 +83,7 @@ public:
 			.Number(TEXT("height"), TEXT(""))
 			.String(TEXT("command"), TEXT(""))
 			.Integer(TEXT("steps"), TEXT(""))
+			.Integer(TEXT("id"), TEXT("Bookmark identifier/index."))
 			.String(TEXT("bookmarkName"), TEXT(""))
 			.String(TEXT("assetPath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
 			.String(TEXT("levelPath"), TEXT("Level asset path."))
@@ -96,11 +97,8 @@ public:
 			.String(TEXT("stat"), TEXT(""))
 			.String(TEXT("category"), TEXT(""))
 			.FreeformObject(TEXT("preferences"), TEXT(""))
-			.String(TEXT("section"), TEXT(""))
 			.String(TEXT("key"), TEXT(""))
-			.FreeformObject(TEXT("value"), TEXT("Generic value (any type)."))
 			.String(TEXT("inputAction"), TEXT(""))
-			.String(TEXT("axis"), TEXT(""))
 			.Required({TEXT("action")})
 			.Build();
 	}

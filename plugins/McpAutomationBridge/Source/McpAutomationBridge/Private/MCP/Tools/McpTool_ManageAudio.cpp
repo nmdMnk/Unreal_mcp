@@ -1,6 +1,6 @@
 // McpTool_ManageAudio.cpp — manage_audio tool definition
 
-#include "McpVersionCompatibility.h"
+#include "McpVersionCompatibility.h"  // IWYU pragma: keep
 #include "MCP/McpToolDefinition.h"
 #include "MCP/McpToolRegistry.h"
 #include "MCP/McpSchemaBuilder.h"
@@ -109,28 +109,22 @@ public:
 				[](FMcpSchemaBuilder& S) {
 				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
 			})
-			.Number(TEXT("fftSize"), TEXT(""))
+			.String(TEXT("analysisType"), TEXT("Audio analysis type."))
+			.Number(TEXT("windowSize"), TEXT("Audio analysis window size."))
 			.String(TEXT("outputType"), TEXT(""))
 			.String(TEXT("soundName"), TEXT(""))
 			.String(TEXT("fadeType"), TEXT(""))
-			.Number(TEXT("scale"), TEXT(""))
 			.Number(TEXT("lowPassFilterFrequency"), TEXT(""))
-			.Number(TEXT("volumeAttenuation"), TEXT(""))
 			.Bool(TEXT("enabled"), TEXT("Whether the item/feature is enabled."))
+			.Bool(TEXT("enable"), TEXT("Whether the item/feature is enabled."))
 			.String(TEXT("path"), TEXT("Directory path for asset creation."))
 			.String(TEXT("assetPath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
 			.Bool(TEXT("save"), TEXT("Save the asset(s) after the operation."))
 			.String(TEXT("wavePath"), TEXT("Path to SoundWave asset."))
 			.String(TEXT("nodeType"), TEXT(""))
-			.String(TEXT("nodeId"), TEXT("ID of the node."))
 			.String(TEXT("sourceNodeId"), TEXT("ID of the source node."))
 			.String(TEXT("targetNodeId"), TEXT("ID of the target node."))
-			.Number(TEXT("outputPin"), TEXT(""))
-			.Number(TEXT("inputPin"), TEXT(""))
 			.Bool(TEXT("looping"), TEXT("Whether to loop."))
-			.Number(TEXT("x"), TEXT(""))
-			.Number(TEXT("y"), TEXT(""))
-			.String(TEXT("metasoundType"), TEXT(""))
 			.String(TEXT("inputName"), TEXT("Name of the input."))
 			.String(TEXT("inputType"), TEXT(""))
 			.String(TEXT("outputName"), TEXT("Name of the output."))
@@ -139,9 +133,23 @@ public:
 			.String(TEXT("targetNode"), TEXT("Target node name."))
 			.String(TEXT("targetPin"), TEXT("Name of the target pin."))
 			.FreeformObject(TEXT("defaultValue"), TEXT(""))
-			.String(TEXT("metasoundNodeType"), TEXT(""))
 			.String(TEXT("soundClassPath"), TEXT("Sound class path."))
-			.String(TEXT("parentClassPath"), TEXT("Parent class path."))
+			.Number(TEXT("dopplerIntensity"), TEXT("Doppler intensity."))
+			.String(TEXT("effectType"), TEXT("Effect type."))
+			.Bool(TEXT("enableReverbSend"), TEXT("Whether reverb send is enabled."))
+			.Number(TEXT("occlusionFilterScale"), TEXT("Occlusion filter scale."))
+			.Number(TEXT("occlusionInterpolationTime"), TEXT("Occlusion interpolation time."))
+			.Number(TEXT("occlusionVolumeScale"), TEXT("Occlusion volume scale."))
+			.Number(TEXT("reverbDistanceMax"), TEXT("Maximum reverb send distance."))
+			.Number(TEXT("reverbDistanceMin"), TEXT("Minimum reverb send distance."))
+			.Number(TEXT("reverbWetLevelMax"), TEXT("Maximum reverb wet level."))
+			.Number(TEXT("reverbWetLevelMin"), TEXT("Minimum reverb wet level."))
+			.String(TEXT("sourceOutputName"), TEXT("Source MetaSound output name."))
+			.String(TEXT("spatialization"), TEXT("Spatialization algorithm."))
+			.String(TEXT("speakerPath"), TEXT("Dialogue speaker path."))
+			.String(TEXT("targetInputName"), TEXT("Target MetaSound input name."))
+			.Number(TEXT("velocityScale"), TEXT("Velocity scale."))
+			.Number(TEXT("volumeAdjuster"), TEXT("Sound mix volume adjuster."))
 			.Required({TEXT("action")})
 			.Build();
 	}

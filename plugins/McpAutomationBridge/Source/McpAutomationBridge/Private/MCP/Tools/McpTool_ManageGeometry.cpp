@@ -66,6 +66,8 @@ public:
 				TEXT("stretch"),
 				TEXT("spherify"),
 				TEXT("cylindrify"),
+				TEXT("lattice_deform"),
+				TEXT("displace_by_texture"),
 				TEXT("triangulate"),
 				TEXT("poke"),
 				TEXT("mirror"),
@@ -97,9 +99,6 @@ public:
 				TEXT("convert_to_static_mesh"),
 				TEXT("get_mesh_info")
 			}, TEXT("Geometry action to perform"))
-			.String(TEXT("meshPath"), TEXT("Mesh asset path."))
-			.String(TEXT("targetMeshPath"),
-				TEXT("Path to second mesh for boolean operations."))
 			.String(TEXT("outputPath"), TEXT("Output file or directory path."))
 			.String(TEXT("actorName"), TEXT("Name of the actor."))
 			.Number(TEXT("width"), TEXT("Width value."))
@@ -145,6 +144,11 @@ public:
 				TEXT("Z")
 			}, TEXT("Axis for deformation operations."))
 			.Number(TEXT("strength"), TEXT("Strength or weight."))
+			.Number(TEXT("weight"), TEXT("Weight for lattice deformation."))
+			.Number(TEXT("latticeResolution"), TEXT("Control lattice resolution for lattice deformation."))
+			.Number(TEXT("heightScale"), TEXT("Texture displacement height scale."))
+			.Number(TEXT("midpoint"), TEXT("Texture luminance midpoint for displacement."))
+			.String(TEXT("texturePath"), TEXT("Texture asset path for displacement."))
 			.Number(TEXT("iterations"),
 				TEXT("Number of iterations for smooth, remesh."))
 			.Number(TEXT("targetTriangleCount"),
@@ -153,17 +157,6 @@ public:
 				TEXT("Target edge length for remeshing."))
 			.Number(TEXT("weldDistance"),
 				TEXT("Distance threshold for vertex welding."))
-			.Array(TEXT("faceIndices"), TEXT("Array of face indices."),
-				TEXT("number"))
-			.Array(TEXT("edgeIndices"), TEXT("Array of edge indices."),
-				TEXT("number"))
-			.Array(TEXT("vertexIndices"), TEXT("Array of vertex indices."),
-				TEXT("number"))
-			.Object(TEXT("selectionBox"), TEXT("Bounding box for selection."),
-				[](FMcpSchemaBuilder& S) {
-				S.FreeformObject(TEXT("min"), TEXT(""))
-					.FreeformObject(TEXT("max"), TEXT(""));
-			})
 			.Number(TEXT("uvChannel"), TEXT("UV channel index (0-7)."))
 			.Object(TEXT("uvScale"), TEXT("UV scale."),
 				[](FMcpSchemaBuilder& S) {
@@ -173,17 +166,10 @@ public:
 				[](FMcpSchemaBuilder& S) {
 				S.Number(TEXT("u")).Number(TEXT("v"));
 			})
-			.StringEnum(TEXT("projectionDirection"), {
-				TEXT("X"),
-				TEXT("Y"),
-				TEXT("Z"),
-				TEXT("Auto")
-			}, TEXT("Projection direction for UV."))
 			.Number(TEXT("hardEdgeAngle"),
 				TEXT("Angle threshold for hard edges (degrees)."))
 			.Bool(TEXT("computeWeightedNormals"),
 				TEXT("Use area-weighted normals."))
-			.Number(TEXT("smoothingGroupId"), TEXT("Smoothing group ID."))
 			.StringEnum(TEXT("collisionType"), {
 				TEXT("Default"),
 				TEXT("Simple"),
@@ -203,30 +189,8 @@ public:
 				TEXT("Specific LOD index to configure."))
 			.Number(TEXT("reductionPercent"),
 				TEXT("Percent of triangles to reduce per LOD."))
-			.Number(TEXT("screenSize"),
-				TEXT("Screen size threshold for LOD switching."))
 			.Array(TEXT("screenSizes"),
 				TEXT("Array of screen sizes for each LOD."), TEXT("number"))
-			.Bool(TEXT("preserveBorders"),
-				TEXT("Preserve mesh borders during LOD generation."))
-			.Bool(TEXT("preserveUVs"),
-				TEXT("Preserve UV seams during LOD generation."))
-			.StringEnum(TEXT("exportFormat"), {
-				TEXT("FBX"),
-				TEXT("OBJ"),
-				TEXT("glTF"),
-				TEXT("USD")
-			}, TEXT("Export file format."))
-			.String(TEXT("exportPath"), TEXT("Export file path."))
-			.Bool(TEXT("includeNormals"), TEXT("Include normals in export."))
-			.Bool(TEXT("includeUVs"), TEXT("Include UVs in export."))
-			.Bool(TEXT("includeTangents"), TEXT("Include tangents in export."))
-			.Bool(TEXT("createAsset"), TEXT("Create as persistent asset."))
-			.Bool(TEXT("overwrite"),
-				TEXT("Overwrite if the asset/file already exists."))
-			.Bool(TEXT("save"), TEXT("Save the asset(s) after the operation."))
-			.Bool(TEXT("enableNanite"),
-				TEXT("Enable Nanite for the output mesh."))
 			.Required({TEXT("action")})
 			.Build();
 	}

@@ -42,11 +42,7 @@ public:
 				TEXT("add_cached_pose"),
 				TEXT("add_slot_node"),
 				TEXT("create_control_rig"),
-				TEXT("add_control"),
-				TEXT("add_rig_unit"),
-				TEXT("connect_rig_elements"),
 				TEXT("create_ik_rig"),
-				TEXT("add_ik_chain"),
 				TEXT("setup_ik"),
 				TEXT("create_pose_library"),
 				TEXT("create_animation_asset"),
@@ -79,17 +75,10 @@ public:
 			.String(TEXT("name"), TEXT("Name identifier."))
 			.String(TEXT("savePath"), TEXT("Path to save the asset."))
 			.String(TEXT("skeletonPath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
-			.String(TEXT("meshPath"), TEXT("Mesh asset path."))
+			.String(TEXT("skeletalMeshPath"), TEXT("Skeletal mesh path."))
 			.String(TEXT("parentClass"), TEXT(""))
 			.String(TEXT("actorName"), TEXT("Name of the actor."))
-			.String(TEXT("skeletonName"), TEXT(""))
 			.String(TEXT("targetSkeleton"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
-			.String(TEXT("blueprintName"), TEXT(""))
-			.String(TEXT("montageName"), TEXT(""))
-			.String(TEXT("animSequence"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
-			.String(TEXT("animPath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
-			.String(TEXT("animAssetPath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
-			.String(TEXT("animMontagePath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
 			.String(TEXT("slotName"), TEXT(""))
 			.String(TEXT("sectionName"), TEXT(""))
 			.String(TEXT("notifyName"), TEXT(""))
@@ -97,15 +86,8 @@ public:
 			.String(TEXT("curveName"), TEXT(""))
 			.String(TEXT("stateName"), TEXT(""))
 			.String(TEXT("machineName"), TEXT(""))
-			.String(TEXT("transitionName"), TEXT(""))
-			.String(TEXT("blendSpacePath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
-			.Number(TEXT("numSamples"), TEXT(""))
 			.String(TEXT("interpolationType"), TEXT(""))
 			.String(TEXT("axisName"), TEXT(""))
-			.Number(TEXT("min"), TEXT(""))
-			.Number(TEXT("max"), TEXT(""))
-			.ArrayOfObjects(TEXT("samples"), TEXT(""))
-			.String(TEXT("animSequencePath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
 			.Number(TEXT("playRate"), TEXT(""))
 			.Number(TEXT("frame"), TEXT(""))
 			.Number(TEXT("time"), TEXT(""))
@@ -123,27 +105,13 @@ public:
 				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
 			})
 			.FreeformObject(TEXT("value"), TEXT("Generic value (any type)."))
-			.Bool(TEXT("enabled"), TEXT("Whether the item/feature is enabled."))
-			.String(TEXT("rigPath"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
-			.String(TEXT("chainName"), TEXT(""))
-			.String(TEXT("startBone"), TEXT("Name of the bone."))
-			.String(TEXT("endBone"), TEXT("Name of the bone."))
-			.String(TEXT("controlName"), TEXT(""))
-			.String(TEXT("unitType"), TEXT(""))
-			.String(TEXT("sourceNode"), TEXT(""))
-			.String(TEXT("targetNode"), TEXT(""))
-			.String(TEXT("sourcePin"), TEXT(""))
-			.String(TEXT("targetPin"), TEXT(""))
 			.String(TEXT("vehicleType"), TEXT(""))
-			.FreeformObject(TEXT("wheelConfig"), TEXT(""))
-			.Number(TEXT("engineTorque"), TEXT(""))
 			.Number(TEXT("mass"), TEXT(""))
 			.Number(TEXT("dragCoefficient"), TEXT(""))
 			.Array(TEXT("artifacts"), TEXT(""))
-			.Bool(TEXT("ragdollActive"), TEXT(""))
+			.String(TEXT("physicsAssetName"), TEXT("Physics asset name for setup_physics_simulation."))
+			.Bool(TEXT("assignToMesh"), TEXT("Assign the created physics asset to the skeletal mesh."))
 			.String(TEXT("sourceSkeleton"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
-			.String(TEXT("retargetSkeleton"), TEXT("Asset path (e.g., /Game/Path/Asset)."))
-			.String(TEXT("retargetProfile"), TEXT(""))
 			.Required({TEXT("action")})
 			.Build();
 	}

@@ -53,7 +53,6 @@ public:
 			.String(TEXT("name"), TEXT("Name of the asset to create."))
 			.String(TEXT("path"), TEXT("Directory path for asset creation."))
 			.String(TEXT("blueprintPath"), TEXT("Blueprint asset path."))
-			.Bool(TEXT("save"), TEXT("Save the asset(s) after the operation."))
 			.StringEnum(TEXT("parentClass"), {
 				TEXT("Character"),
 				TEXT("ACharacter"),
@@ -72,11 +71,6 @@ public:
 				[](FMcpSchemaBuilder& S) {
 				S.Number(TEXT("pitch")).Number(TEXT("yaw")).Number(TEXT("roll"));
 			})
-			.String(TEXT("cameraSocketName"), TEXT("Camera socket name."))
-			.Object(TEXT("cameraOffset"), TEXT("Camera location offset."),
-				[](FMcpSchemaBuilder& S) {
-				S.Number(TEXT("x")).Number(TEXT("y")).Number(TEXT("z"));
-			})
 			.Bool(TEXT("cameraUsePawnControlRotation"), TEXT("Camera follows controller rotation."))
 			.Number(TEXT("springArmLength"), TEXT(""))
 			.Bool(TEXT("springArmLagEnabled"), TEXT("Enable camera lag."))
@@ -92,7 +86,6 @@ public:
 			.Number(TEXT("groundFriction"), TEXT(""))
 			.Number(TEXT("jumpHeight"), TEXT(""))
 			.Number(TEXT("airControl"), TEXT(""))
-			.Bool(TEXT("doubleJumpEnabled"), TEXT("Enable double jump."))
 			.Number(TEXT("maxJumpCount"), TEXT(""))
 			.Number(TEXT("jumpHoldTime"), TEXT("Max hold time for variable jump."))
 			.Number(TEXT("gravityScale"), TEXT(""))
@@ -107,28 +100,21 @@ public:
 			.Number(TEXT("navAgentRadius"), TEXT(""))
 			.Number(TEXT("navAgentHeight"), TEXT(""))
 			.Bool(TEXT("avoidanceEnabled"), TEXT("Enable AI avoidance."))
-			.Bool(TEXT("pathFollowingEnabled"), TEXT("Enable path following."))
 			.Number(TEXT("mantleHeight"), TEXT("Maximum mantle height."))
 			.Number(TEXT("mantleReachDistance"), TEXT("Forward reach for mantle check."))
-			.String(TEXT("mantleAnimationPath"), TEXT("Path to mantle animation montage."))
 			.Number(TEXT("vaultHeight"), TEXT("Maximum vault obstacle height."))
 			.Number(TEXT("vaultDepth"), TEXT("Obstacle depth to check."))
-			.String(TEXT("vaultAnimationPath"), TEXT("Path to vault animation montage."))
 			.Number(TEXT("climbSpeed"), TEXT(""))
 			.String(TEXT("climbableTag"), TEXT("Tag for climbable surfaces."))
-			.String(TEXT("climbAnimationPath"), TEXT("Path to climb animation."))
 			.Number(TEXT("slideSpeed"), TEXT(""))
 			.Number(TEXT("slideDuration"), TEXT(""))
 			.Number(TEXT("slideCooldown"), TEXT(""))
-			.String(TEXT("slideAnimationPath"), TEXT("Path to slide animation."))
 			.Number(TEXT("wallRunSpeed"), TEXT("Wall running speed."))
 			.Number(TEXT("wallRunDuration"), TEXT("Maximum wall run duration."))
 			.Number(TEXT("wallRunGravityScale"), TEXT("Gravity during wall run."))
-			.String(TEXT("wallRunAnimationPath"), TEXT("Path to wall run animation."))
 			.Number(TEXT("grappleRange"), TEXT("Maximum grapple distance."))
 			.Number(TEXT("grappleSpeed"), TEXT("Grapple pull speed."))
 			.String(TEXT("grappleTargetTag"), TEXT("Tag for grapple targets."))
-			.String(TEXT("grappleCablePath"), TEXT("Path to cable mesh/material."))
 			.Bool(TEXT("footstepEnabled"), TEXT("Enable footstep system."))
 			.String(TEXT("footstepSocketLeft"), TEXT("Left foot socket name."))
 			.String(TEXT("footstepSocketRight"), TEXT("Right foot socket name."))
@@ -146,9 +132,6 @@ public:
 				TEXT("Gravel"),
 				TEXT("Custom")
 			}, TEXT("Physical surface type."))
-			.String(TEXT("footstepSoundPath"), TEXT("Path to footstep sound cue."))
-			.String(TEXT("footstepParticlePath"), TEXT("Path to footstep particle."))
-			.String(TEXT("footstepDecalPath"), TEXT("Path to footstep decal."))
 			.Required({TEXT("action")})
 			.Build();
 	}
