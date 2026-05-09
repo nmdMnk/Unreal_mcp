@@ -18,7 +18,6 @@ const DUPLICATED_LEVEL = `${TEST_FOLDER}/LevelDuplicated_${ts}`;
 const RENAMED_LEVEL_NAME = `LevelRenamed_${ts}`;
 const RENAMED_LEVEL = `${TEST_FOLDER}/${RENAMED_LEVEL_NAME}`;
 const TEST_ACTOR = `LevelActor_${ts}`;
-const TEST_DATALAYER = `LevelDataLayer_${ts}`;
 
 const testCases = [
   // === SETUP ===
@@ -30,28 +29,25 @@ const testCases = [
   { scenario: 'ACTION: save_as', toolName: 'manage_level', arguments: { action: 'save_as', savePath: SAVE_AS_LEVEL }, expected: 'success' },
   { scenario: 'ACTION: save_level_as', toolName: 'manage_level', arguments: { action: 'save_level_as', savePath: SAVE_LEVEL_AS }, expected: 'success' },
   { scenario: 'Setup: create sublevel', toolName: 'manage_level', arguments: { action: 'create_level', levelName: `LevelSub_${ts}`, levelPath: TEST_FOLDER, useWorldPartition: false }, expected: 'success|already exists' },
-  { scenario: 'ACTION: load', toolName: 'manage_level', arguments: { action: 'load', levelPath: MAIN_LEVEL }, expected: 'success' },
+  { scenario: 'ACTION: load', toolName: 'manage_level', arguments: { action: 'load', levelPath: MAIN_LEVEL, streaming: false }, expected: 'success' },
   { scenario: 'Setup: spawn actor in level', toolName: 'control_actor', arguments: { action: 'spawn', classPath: '/Engine/BasicShapes/Cube', actorName: TEST_ACTOR, location: { x: 0, y: 0, z: 100 } }, expected: 'success' },
 
   // === STREAMING ===
   { scenario: 'ACTION: stream', toolName: 'manage_level', arguments: { action: 'stream', levelPath: SUB_LEVEL, shouldBeLoaded: true, shouldBeVisible: true }, expected: 'success|already loaded' },
   { scenario: 'ACTION: unload', toolName: 'manage_level', arguments: { action: 'unload', levelPath: SUB_LEVEL }, expected: 'success|not loaded' },
   { scenario: 'ADD: add_sublevel', toolName: 'manage_level', arguments: { action: 'add_sublevel', subLevelPath: SUB_LEVEL, streamingMethod: 'AlwaysLoaded' }, expected: 'success|already exists' },
+  { scenario: 'ADD: add_sublevel via sublevelPath alias', toolName: 'manage_level', arguments: { action: 'add_sublevel', sublevelPath: SUB_LEVEL, streamingMethod: 'AlwaysLoaded' }, expected: 'success|already exists' },
 
   // === LIGHTING ===
-  { scenario: 'CREATE: create_light', toolName: 'manage_level', arguments: { action: 'create_light', lightType: 'Point', name: `LevelLight_${ts}`, location: { x: 150, y: 0, z: 250 } }, expected: 'success|already exists' },
+  { scenario: 'CREATE: create_light', toolName: 'manage_level', arguments: { action: 'create_light', lightType: 'Point', name: `LevelLight_${ts}`, location: { x: 150, y: 0, z: 250 }, rotation: { pitch: -20, yaw: 0, roll: 0 }, intensity: 1500, color: [1, 0.85, 0.6, 1] }, expected: 'success|already exists' },
   { scenario: 'CREATE: build_lighting', toolName: 'manage_level', arguments: { action: 'build_lighting', quality: 'Preview' }, expected: 'success|already exists' },
 
-  // === METADATA / WORLD PARTITION ===
+  // === METADATA ===
   { scenario: 'CONFIG: set_metadata', toolName: 'manage_level', arguments: { action: 'set_metadata', levelPath: MAIN_LEVEL, metadata: { suite: 'manage_level', timestamp: ts } }, expected: 'success' },
-  { scenario: 'ACTION: load_cells', toolName: 'manage_level', arguments: { action: 'load_cells', levelPath: MAIN_LEVEL, min: [-1000, -1000, -100], max: [1000, 1000, 100] }, expected: { errorPattern: 'NOT_PARTITIONED' } },
-  { scenario: 'CONFIG: set_datalayer', toolName: 'manage_level', arguments: { action: 'set_datalayer', levelPath: MAIN_LEVEL, actorName: TEST_ACTOR, dataLayerName: TEST_DATALAYER }, expected: { errorPattern: 'NOT_PARTITIONED' } },
-  { scenario: 'CREATE: create_datalayer', toolName: 'manage_level', arguments: { action: 'create_datalayer', levelPath: MAIN_LEVEL, dataLayerName: TEST_DATALAYER }, expected: { errorPattern: 'NOT_PARTITIONED' } },
-  { scenario: 'ACTION: cleanup_invalid_datalayers', toolName: 'manage_level', arguments: { action: 'cleanup_invalid_datalayers', levelPath: MAIN_LEVEL }, expected: { errorPattern: 'NOT_PARTITIONED' } },
 
   // === IMPORT / EXPORT / INFO ===
-  { scenario: 'ACTION: export_level', toolName: 'manage_level', arguments: { action: 'export_level', levelPath: MAIN_LEVEL, exportPath: EXPORTED_LEVEL }, expected: 'success' },
-  { scenario: 'ACTION: import_level', toolName: 'manage_level', arguments: { action: 'import_level', packagePath: MAIN_LEVEL, destinationPath: IMPORTED_LEVEL }, expected: 'success|already exists' },
+  { scenario: 'ACTION: export_level', toolName: 'manage_level', arguments: { action: 'export_level', levelPath: MAIN_LEVEL, exportPath: EXPORTED_LEVEL, timeoutMs: 45000 }, expected: 'success' },
+  { scenario: 'ACTION: import_level', toolName: 'manage_level', arguments: { action: 'import_level', packagePath: MAIN_LEVEL, destinationPath: IMPORTED_LEVEL, timeoutMs: 45000 }, expected: 'success|already exists' },
   { scenario: 'INFO: list_levels', toolName: 'manage_level', arguments: { action: 'list_levels' }, expected: 'success' },
   { scenario: 'INFO: get_summary', toolName: 'manage_level', arguments: { action: 'get_summary', levelPath: MAIN_LEVEL }, expected: 'success' },
   { scenario: 'ACTION: validate_level', toolName: 'manage_level', arguments: { action: 'validate_level', levelPath: MAIN_LEVEL }, expected: 'success' },

@@ -39,18 +39,18 @@ const testCases = [
   { scenario: 'CONFIG: set_camera_fov', toolName: 'control_editor', arguments: { action: 'set_camera_fov', fov: 85 }, expected: 'success' },
   { scenario: 'CONFIG: set_view_mode', toolName: 'control_editor', arguments: { action: 'set_view_mode', viewMode: 'Lit' }, expected: 'success' },
   { scenario: 'CONFIG: set_viewport_resolution', toolName: 'control_editor', arguments: { action: 'set_viewport_resolution', width: 1280, height: 720 }, expected: 'success' },
-  { scenario: 'CONFIG: set_viewport_realtime', toolName: 'control_editor', arguments: { action: 'set_viewport_realtime', enabled: true }, expected: 'success' },
+  { scenario: 'CONFIG: set_viewport_realtime', toolName: 'control_editor', arguments: { action: 'set_viewport_realtime', realtime: false }, expected: 'success' },
 
   // === COMMANDS / CAPTURE / RECORDING ===
   { scenario: 'ACTION: console_command', toolName: 'control_editor', arguments: { action: 'console_command', command: 'stat fps' }, expected: 'success' },
   { scenario: 'ACTION: execute_command', toolName: 'control_editor', arguments: { action: 'execute_command', command: 'stat unit' }, expected: 'success' },
   { scenario: 'ACTION: screenshot', toolName: 'control_editor', arguments: { action: 'screenshot', filename: SCREENSHOT_NAME, resolution: '640x360' }, expected: 'success' },
   { scenario: 'ACTION: take_screenshot', toolName: 'control_editor', arguments: { action: 'take_screenshot', filename: `${SCREENSHOT_NAME}_Alias`, resolution: '640x360' }, expected: 'success' },
-  { scenario: 'ACTION: start_recording', toolName: 'control_editor', arguments: { action: 'start_recording', name: `Recording_${ts}`, frameRate: 24, durationSeconds: 1 }, expected: 'success' },
+  { scenario: 'ACTION: start_recording', toolName: 'control_editor', arguments: { action: 'start_recording', name: `Recording_${ts}` }, expected: 'success' },
   { scenario: 'PLAYBACK: stop_recording', toolName: 'control_editor', arguments: { action: 'stop_recording' }, expected: 'success' },
 
   // === BOOKMARKS / PREFERENCES / ASSETS ===
-  { scenario: 'CREATE: create_bookmark', toolName: 'control_editor', arguments: { action: 'create_bookmark', id: 0, bookmarkName: '0', description: 'MCP control editor test bookmark' }, expected: 'success|already exists' },
+  { scenario: 'CREATE: create_bookmark', toolName: 'control_editor', arguments: { action: 'create_bookmark', id: 0, bookmarkName: '0' }, expected: 'success|already exists' },
   { scenario: 'ACTION: jump_to_bookmark', toolName: 'control_editor', arguments: { action: 'jump_to_bookmark', id: 0, bookmarkName: '0' }, expected: 'success' },
   { scenario: 'CONFIG: set_preferences', toolName: 'control_editor', arguments: { action: 'set_preferences', category: 'LevelEditor', preferences: { RealtimeAudio: false } }, expected: 'success' },
   { scenario: 'ACTION: open_asset', toolName: 'control_editor', arguments: { action: 'open_asset', assetPath: BP_PATH }, expected: 'success' },
@@ -74,6 +74,7 @@ const testCases = [
 
   // === CLEANUP ===
   { scenario: 'Cleanup: delete spawned actors', toolName: 'control_actor', arguments: { action: 'delete', actorNames: [FOCUS_ACTOR, PIE_PAWN] }, expected: 'success|not found' },
+  { scenario: 'ACTION: open_level via path alias', toolName: 'control_editor', arguments: { action: 'open_level', path: '/Game/MCPTest/MainLevel' }, expected: 'success' },
   { scenario: 'ACTION: open_level', toolName: 'control_editor', arguments: { action: 'open_level', levelPath: '/Game/MCPTest/MainLevel' }, expected: 'success' },
   { scenario: 'Cleanup: delete test folder', toolName: 'manage_asset', arguments: { action: 'delete', path: TEST_FOLDER, force: true }, expected: 'success|not found' },
 ];

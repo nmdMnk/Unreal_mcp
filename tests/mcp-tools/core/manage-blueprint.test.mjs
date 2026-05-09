@@ -17,6 +17,9 @@ const TEST_FOLDER = '/Game/MCPTest/AuthoringAssets';
 const ts = Date.now();
 const BP_NAME = `BP_Test_${ts}`;
 const BP_PATH = `${TEST_FOLDER}/${BP_NAME}`;
+const ENGINE_CUBE_MESH = '/Engine/BasicShapes/Cube.Cube';
+const ENGINE_BASIC_MATERIAL = '/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial';
+const ENGINE_DEFAULT_TEXTURE = '/Engine/EngineResources/DefaultTexture.DefaultTexture';
 
 const testCases = [
   // === SETUP ===
@@ -24,19 +27,19 @@ const testCases = [
   { scenario: 'Setup: create test blueprint', toolName: 'manage_blueprint', arguments: { action: 'create_blueprint', name: BP_NAME, path: TEST_FOLDER, parentClass: 'Actor' }, expected: 'success|already exists', assertions: [{ path: 'structuredContent.result.assetPath', equals: BP_PATH, label: 'create_blueprint path alias uses requested folder' }] },
 
   // === ACTION: create (requires name + path/blueprintPath) ===
-  { scenario: 'ACTION: create', toolName: 'manage_blueprint', arguments: { action: 'create', name: `BP_Create_${ts}`, path: TEST_FOLDER, parentClass: 'Actor' }, expected: 'success|already exists' },
+  { scenario: 'ACTION: create', toolName: 'manage_blueprint', arguments: { action: 'create', name: `BP_Create_${ts}`, savePath: TEST_FOLDER, blueprintType: 'Actor', properties: { bReplicates: true } }, expected: 'success|already exists' },
 
   // === INFO: get_blueprint (uses blueprintPath) ===
   { scenario: 'INFO: get_blueprint', toolName: 'manage_blueprint', arguments: { action: 'get_blueprint', blueprintPath: BP_PATH }, expected: 'success' },
 
   // === ACTION: get (uses blueprintPath via name fallback) ===
-  { scenario: 'ACTION: get', toolName: 'manage_blueprint', arguments: { action: 'get', blueprintPath: BP_PATH }, expected: 'success' },
+  { scenario: 'ACTION: get', toolName: 'manage_blueprint', arguments: { action: 'get', blueprintPath: BP_PATH, timeoutMs: 5000 }, expected: 'success' },
 
   // === ACTION: compile (uses blueprintPath) ===
-  { scenario: 'ACTION: compile', toolName: 'manage_blueprint', arguments: { action: 'compile', blueprintPath: BP_PATH }, expected: 'success' },
+  { scenario: 'ACTION: compile', toolName: 'manage_blueprint', arguments: { action: 'compile', blueprintPath: BP_PATH, saveAfterCompile: false }, expected: 'success' },
 
   // === ADD: add_component (blueprintPath + componentClass + componentName) ===
-  { scenario: 'ADD: add_component', toolName: 'manage_blueprint', arguments: { action: 'add_component', blueprintPath: BP_PATH, componentClass: 'PointLightComponent', componentName: 'TestLight' }, expected: 'success|already exists' },
+  { scenario: 'ADD: add_component', toolName: 'manage_blueprint', arguments: { action: 'add_component', blueprintPath: BP_PATH, componentType: 'PointLightComponent', componentName: 'TestLight', attachTo: 'DefaultSceneRoot' }, expected: 'success|already exists' },
 
 // === CONFIG: set_default (blueprintPath + propertyName + value/propertyValue) ===
 // bGenerateOverlapEvents is on UPrimitiveComponent; this Actor BP root is SceneComponent.
@@ -44,22 +47,26 @@ const testCases = [
 { scenario: 'CONFIG: set_default', toolName: 'manage_blueprint', arguments: { action: 'set_default', blueprintPath: BP_PATH, propertyName: 'bReplicates', propertyValue: true }, expected: 'success' },
 
   // === CONFIG: modify_scs (blueprintPath + operations) ===
-  { scenario: 'CONFIG: modify_scs', toolName: 'manage_blueprint', arguments: { action: 'modify_scs', blueprintPath: BP_PATH, operations: [{ type: 'add_component', componentName: 'TestModSCSComp', componentClass: 'SceneComponent' }] }, expected: 'success|already exists' },
+  { scenario: 'CONFIG: modify_scs', toolName: 'manage_blueprint', arguments: { action: 'modify_scs', blueprintPath: BP_PATH, operations: [{ type: 'add_component', componentName: 'TestModSCSComp', componentClass: 'SceneComponent' }], applyAndSave: true }, expected: 'success|already exists' },
 
   // === INFO: get_scs (blueprintPath) ===
   { scenario: 'INFO: get_scs', toolName: 'manage_blueprint', arguments: { action: 'get_scs', blueprintPath: BP_PATH }, expected: 'success' },
 
   // === ADD: add_scs_component (blueprint_path + component_class + component_name) ===
-  { scenario: 'ADD: add_scs_component', toolName: 'manage_blueprint', arguments: { action: 'add_scs_component', blueprintPath: BP_PATH, componentClass: 'PointLightComponent', componentName: 'TestSCSComp' }, expected: 'success|already exists' },
+  { scenario: 'ADD: add_scs_component', toolName: 'manage_blueprint', arguments: { action: 'add_scs_component', blueprintPath: BP_PATH, componentClass: 'PointLightComponent', componentName: 'TestSCSComp', parentComponent: 'DefaultSceneRoot' }, expected: 'success|already exists' },
+
+  // === ADD: add_scs_component with mesh/material assignment ===
+  { scenario: 'ADD: add_scs_component with mesh material', toolName: 'manage_blueprint', arguments: { action: 'add_scs_component', blueprintPath: BP_PATH, componentClass: 'StaticMeshComponent', componentName: 'TestStaticMeshSCSComp', parentComponent: 'DefaultSceneRoot', meshPath: ENGINE_CUBE_MESH, materialPath: ENGINE_BASIC_MATERIAL }, expected: 'success|already exists', assertions: [{ path: 'structuredContent.result.mesh_applied', equals: true, label: 'SCS static mesh assignment applied' }, { path: 'structuredContent.result.material_applied', equals: true, label: 'SCS material assignment applied' }] },
 
   // === DELETE: remove_scs_component (blueprintPath + componentName) ===
   { scenario: 'DELETE: remove_scs_component', toolName: 'manage_blueprint', arguments: { action: 'remove_scs_component', blueprintPath: BP_PATH, componentName: 'TestSCSComp' }, expected: 'success|not found' },
+  { scenario: 'DELETE: remove_scs_static_mesh_component', toolName: 'manage_blueprint', arguments: { action: 'remove_scs_component', blueprintPath: BP_PATH, componentName: 'TestStaticMeshSCSComp' }, expected: 'success|not found' },
 
   // === ACTION: reparent_scs_component (blueprintPath + componentName + newParent) ===
   { scenario: 'ACTION: reparent_scs_component', toolName: 'manage_blueprint', arguments: { action: 'reparent_scs_component', blueprintPath: BP_PATH, componentName: 'TestModSCSComp', newParent: 'DefaultSceneRoot' }, expected: 'success' },
 
   // === CONFIG: set_scs_transform (blueprintPath + componentName + location/rotation/scale) ===
-  { scenario: 'CONFIG: set_scs_transform', toolName: 'manage_blueprint', arguments: { action: 'set_scs_transform', blueprintPath: BP_PATH, componentName: 'TestModSCSComp', location: { x: 100, y: 0, z: 50 } }, expected: 'success' },
+  { scenario: 'CONFIG: set_scs_transform', toolName: 'manage_blueprint', arguments: { action: 'set_scs_transform', blueprintPath: BP_PATH, componentName: 'TestModSCSComp', location: { x: 100, y: 0, z: 50 }, rotation: { pitch: 0, yaw: 45, roll: 0 }, scale: { x: 1.1, y: 1.1, z: 1.1 } }, expected: 'success' },
 
   // === CONFIG: set_scs_property (blueprintPath + componentName + propertyName + propertyValue) ===
   // C++ ApplyJsonValueToProperty supports struct (FVector) via array format [x, y, z].
@@ -73,7 +80,7 @@ const testCases = [
 
   // === ADD: add_variable (blueprintPath + variableName + variableType) ===
   // This variable will be renamed in the next step — do NOT delete it before rename.
-  { scenario: 'ADD: add_variable', toolName: 'manage_blueprint', arguments: { action: 'add_variable', blueprintPath: BP_PATH, variableName: 'TestVariable', variableType: 'Boolean' }, expected: 'success|already exists' },
+  { scenario: 'ADD: add_variable', toolName: 'manage_blueprint', arguments: { action: 'add_variable', blueprintPath: BP_PATH, variableName: 'TestVariable', variableType: 'Boolean', category: 'MCP', isReplicated: true, isPublic: true }, expected: 'success|already exists' },
 
   // === ACTION: rename_variable (blueprintPath + oldName + newName) ===
   // Renames the variable added above (NOT deleted).
@@ -88,10 +95,10 @@ const testCases = [
   { scenario: 'DELETE: remove_variable', toolName: 'manage_blueprint', arguments: { action: 'remove_variable', blueprintPath: BP_PATH, variableName: 'RenamedVariable' }, expected: 'success|not found' },
 
   // === ADD: add_function (blueprintPath + functionName) ===
-  { scenario: 'ADD: add_function', toolName: 'manage_blueprint', arguments: { action: 'add_function', blueprintPath: BP_PATH, functionName: 'TestFunction' }, expected: 'success|already exists' },
+  { scenario: 'ADD: add_function', toolName: 'manage_blueprint', arguments: { action: 'add_function', blueprintPath: BP_PATH, memberName: 'TestFunction', inputs: [{ name: 'InputValue', type: 'Float' }], outputs: [{ name: 'ReturnValue', type: 'Float' }], isPublic: true }, expected: 'success|already exists' },
 
   // === ADD: add_event (blueprintPath + eventType) ===
-  { scenario: 'ADD: add_event', toolName: 'manage_blueprint', arguments: { action: 'add_event', blueprintPath: BP_PATH, eventType: 'Custom', customEventName: 'TestEvent' }, expected: 'success|already exists' },
+  { scenario: 'ADD: add_event', toolName: 'manage_blueprint', arguments: { action: 'add_event', blueprintPath: BP_PATH, eventType: 'Custom', customEventName: 'TestEvent', parameters: [{ name: 'Payload', type: 'String' }] }, expected: 'success|already exists' },
 
   // === DELETE: remove_event (blueprintPath + eventName) ===
   { scenario: 'DELETE: remove_event', toolName: 'manage_blueprint', arguments: { action: 'remove_event', blueprintPath: BP_PATH, eventName: 'TestEvent' }, expected: 'success|not found' },
@@ -104,7 +111,12 @@ const testCases = [
 
   // === CREATE: create_node (blueprintPath as assetPath + nodeType + graphName) ===
   // Capture the nodeId for use in subsequent node operations.
-  { scenario: 'CREATE: create_node', toolName: 'manage_blueprint', arguments: { action: 'create_node', blueprintPath: BP_PATH, nodeType: 'Sequence', graphName: 'EventGraph' }, expected: 'success|already exists', captureResult: { key: 'seqNodeId', fromField: 'nodeId' } },
+  { scenario: 'CREATE: create_node', toolName: 'manage_blueprint', arguments: { action: 'create_node', blueprintPath: BP_PATH, nodeType: 'Sequence', graphName: 'EventGraph', posX: -240, posY: 120 }, expected: 'success|already exists', captureResult: { key: 'seqNodeId', fromField: 'nodeId' } },
+
+  // === CREATE: create_node variants with specialized metadata ===
+  { scenario: 'CREATE: create_node call function metadata', toolName: 'manage_blueprint', arguments: { action: 'create_node', blueprintPath: BP_PATH, nodeType: 'CallFunction', memberName: 'PrintString', memberClass: 'KismetSystemLibrary', graphName: 'EventGraph', posX: -40, posY: 120 }, expected: 'success|already exists' },
+  { scenario: 'CREATE: create_node cast target class', toolName: 'manage_blueprint', arguments: { action: 'create_node', blueprintPath: BP_PATH, nodeType: 'Cast', targetClass: 'Actor', graphName: 'EventGraph', posX: 160, posY: 120 }, expected: 'success|already exists' },
+  { scenario: 'CREATE: create_node input axis event', toolName: 'manage_blueprint', arguments: { action: 'create_node', blueprintPath: BP_PATH, nodeType: 'InputAxisEvent', inputAxisName: 'MoveForward', graphName: 'EventGraph', posX: 360, posY: 120 }, expected: 'success|already exists' },
 
   // === ADD: add_node (blueprintPath as assetPath + nodeType + nodeName) ===
   // Capture a real PrintString node for connect/default/delete operations.
@@ -120,6 +132,21 @@ const testCases = [
   // === ACTION: break_pin_links (blueprintPath + nodeGuid + pinName) ===
   // Uses the real Sequence output pin that was just connected.
   { scenario: 'ACTION: break_pin_links', toolName: 'manage_blueprint', arguments: { action: 'break_pin_links', blueprintPath: BP_PATH, nodeGuid: '${captured:seqNodeId}', pinName: 'then_0', graphName: 'EventGraph' }, expected: 'success' },
+
+  // === CONNECT: connect_pins using native field names ===
+  { scenario: 'CONNECT: connect_pins via native fields', toolName: 'manage_blueprint', arguments: { action: 'connect_pins', blueprintPath: BP_PATH, fromNodeId: '${captured:seqNodeId}', fromPinName: 'then_0', toNodeId: '${captured:printNodeId}', toPinName: 'execute', graphName: 'EventGraph' }, expected: 'success' },
+
+  // === VERIFY: native-field connected pin state ===
+  { scenario: 'VERIFY: native-field connected pin state', toolName: 'manage_blueprint', arguments: { action: 'get_pin_details', blueprintPath: BP_PATH, nodeId: '${captured:seqNodeId}', pinName: 'then_0', graphName: 'EventGraph' }, expected: 'success', assertions: [{ path: 'structuredContent.result.pins', includesObject: { pinName: 'then_0', linkedTo: { length: 1 } }, label: 'then_0 has one real graph link after native-field connect_pins' }] },
+
+  // === ACTION: break_pin_links via nodeId alias ===
+  { scenario: 'ACTION: break_pin_links via nodeId', toolName: 'manage_blueprint', arguments: { action: 'break_pin_links', blueprintPath: BP_PATH, nodeId: '${captured:seqNodeId}', pinName: 'then_0', graphName: 'EventGraph' }, expected: 'success' },
+
+  // === CONNECT: connect_pins using linkedTo alias ===
+  { scenario: 'CONNECT: connect_pins via linkedTo', toolName: 'manage_blueprint', arguments: { action: 'connect_pins', blueprintPath: BP_PATH, nodeId: '${captured:seqNodeId}', pinName: 'then_0', linkedTo: '${captured:printNodeId}.execute', graphName: 'EventGraph' }, expected: 'success' },
+
+  // === ACTION: break_pin_links after linkedTo connect ===
+  { scenario: 'ACTION: break_pin_links after linkedTo connect', toolName: 'manage_blueprint', arguments: { action: 'break_pin_links', blueprintPath: BP_PATH, nodeId: '${captured:seqNodeId}', pinName: 'then_0', graphName: 'EventGraph' }, expected: 'success' },
 
   // === CONFIG: set_node_property (blueprintPath + nodeGuid + propertyName + propertyValue) ===
   // Uses the real nodeId captured from the first Sequence node.
@@ -167,29 +194,29 @@ const testCases = [
   const ANIMATION_NAME = `IntroFade_${ts}`;
 
   const widgetArgs = (action, extra = {}) => ({ action, widgetPath: WIDGET_PATH, ...extra });
-  const createTemplateArgs = (action, name, extra = {}) => ({ action, name: `${name}_${ts}`, path: TEST_FOLDER, ...extra });
+  const createTemplateArgs = (action, name, extra = {}) => ({ action, name: `${name}_${ts}`, folder: TEST_FOLDER, ...extra });
 
   const addWidgetCases = [
     ['ADD: add_horizontal_box', 'add_horizontal_box', 'MainHorizontalBox'],
     ['ADD: add_vertical_box', 'add_vertical_box', 'MainVerticalBox'],
     ['ADD: add_overlay', 'add_overlay', 'MainOverlay'],
     ['ADD: add_grid_panel', 'add_grid_panel', 'InventoryGrid', { columnCount: 2, rowCount: 2 }],
-    ['ADD: add_uniform_grid', 'add_uniform_grid', 'UniformGrid', { minDesiredSlotWidth: 32, minDesiredSlotHeight: 32 }],
-    ['ADD: add_wrap_box', 'add_wrap_box', 'TagWrap', { wrapWidth: 256, explicitWrapWidth: true }],
-    ['ADD: add_scroll_box', 'add_scroll_box', 'OptionsScroll', { orientation: 'Vertical' }],
-    ['ADD: add_size_box', 'add_size_box', 'SizedPanel', { widthOverride: 300, heightOverride: 120 }],
-    ['ADD: add_scale_box', 'add_scale_box', 'ScaledPanel', { stretch: 'ScaleToFit' }],
+    ['ADD: add_uniform_grid', 'add_uniform_grid', 'UniformGrid', { slotPadding: { left: 4, top: 4, right: 4, bottom: 4 }, minDesiredSlotWidth: 32, minDesiredSlotHeight: 32 }],
+    ['ADD: add_wrap_box', 'add_wrap_box', 'TagWrap', { innerSlotPadding: { left: 2, top: 2, right: 2, bottom: 2 }, wrapWidth: 256, explicitWrapWidth: true }],
+    ['ADD: add_scroll_box', 'add_scroll_box', 'OptionsScroll', { orientation: 'Vertical', scrollBarVisibility: 'Visible', alwaysShowScrollbar: true }],
+    ['ADD: add_size_box', 'add_size_box', 'SizedPanel', { widthOverride: 300, heightOverride: 120, minDesiredWidth: 200, minDesiredHeight: 80 }],
+    ['ADD: add_scale_box', 'add_scale_box', 'ScaledPanel', { stretch: 'UserSpecified', stretchDirection: 'Both', userSpecifiedScale: 0.85 }],
     ['ADD: add_border', 'add_border', 'FramedBorder', { brushColor: { r: 0.1, g: 0.2, b: 0.8, a: 1 } }],
-    ['ADD: add_text_block', 'add_text_block', 'TitleText', { text: 'Widget Authoring Test', fontSize: 24 }],
+    ['ADD: add_text_block', 'add_text_block', 'TitleText', { text: 'Widget Authoring Test', fontSize: 24, colorAndOpacity: { r: 1, g: 0.9, b: 0.6, a: 1 }, autoWrap: true }],
     ['ADD: add_rich_text_block', 'add_rich_text_block', 'RichBodyText', { text: '<Rich>Body</>' }],
-    ['ADD: add_image', 'add_image', 'LogoImage', { brushSize: { x: 64, y: 64 } }],
+    ['ADD: add_image', 'add_image', 'LogoImage', { texturePath: ENGINE_DEFAULT_TEXTURE, brushSize: { x: 64, y: 64 } }],
     ['ADD: add_button', 'add_button', 'PlayButton', { isEnabled: true }],
     ['ADD: add_check_box', 'add_check_box', 'OptionCheckBox', { isChecked: true }],
-    ['ADD: add_slider', 'add_slider', 'VolumeSlider', { value: 0.5, minValue: 0, maxValue: 1 }],
-    ['ADD: add_progress_bar', 'add_progress_bar', 'LoadingProgress', { percent: 0.75 }],
+    ['ADD: add_slider', 'add_slider', 'VolumeSlider', { value: 0.5, minValue: 0, maxValue: 1, stepSize: 0.1 }],
+    ['ADD: add_progress_bar', 'add_progress_bar', 'LoadingProgress', { percent: 0.75, fillColorAndOpacity: { r: 0.2, g: 0.8, b: 0.3, a: 1 }, isMarquee: false }],
     ['ADD: add_text_input', 'add_text_input', 'NameInput', { hintText: 'Name', inputType: 'single' }],
     ['ADD: add_combo_box', 'add_combo_box', 'QualityCombo', { options: ['Low', 'High'], selectedOption: 'High' }],
-    ['ADD: add_spin_box', 'add_spin_box', 'AmountSpinBox', { value: 5, minValue: 0, maxValue: 10 }],
+    ['ADD: add_spin_box', 'add_spin_box', 'AmountSpinBox', { value: 5, minValue: 0, maxValue: 10, delta: 0.5 }],
     ['ADD: add_list_view', 'add_list_view', 'InventoryList'],
     ['ADD: add_tree_view', 'add_tree_view', 'QuestTree'],
   ].map(([scenario, action, slotName, extra = {}]) => ({
@@ -200,13 +227,13 @@ const testCases = [
   }));
 
   const layoutCases = [
-    ['CONFIG: set_anchor', 'set_anchor', { preset: 'TopCenter' }],
+    ['CONFIG: set_anchor', 'set_anchor', { preset: 'TopCenter', anchorMin: { x: 0.5, y: 0 }, anchorMax: { x: 0.5, y: 0 } }],
     ['CONFIG: set_alignment', 'set_alignment', { alignment: { x: 0.5, y: 0 } }],
     ['CONFIG: set_position', 'set_position', { position: { x: 80, y: 40 } }],
     ['CONFIG: set_size', 'set_size', { size: { x: 420, y: 72 } }],
-    ['CONFIG: set_padding', 'set_padding', { padding: 8 }],
+    ['CONFIG: set_padding', 'set_padding', { padding: { left: 8, top: 8, right: 8, bottom: 8 } }],
     ['CONFIG: set_z_order', 'set_z_order', { zOrder: 10 }],
-    ['CONFIG: set_render_transform', 'set_render_transform', { translation: { x: 4, y: 2 }, scale: { x: 1, y: 1 }, angle: 0 }],
+    ['CONFIG: set_render_transform', 'set_render_transform', { translation: { x: 4, y: 2 }, scale: { x: 1, y: 1 }, shear: { x: 0.05, y: 0 }, angle: 0 }],
     ['CONFIG: set_visibility', 'set_visibility', { visibility: 'Visible' }],
     ['CONFIG: set_style', 'set_style', { propertyName: 'RenderOpacity', value: '0.9' }],
     ['CONFIG: set_clipping', 'set_clipping', { clipping: 'Inherit' }],
