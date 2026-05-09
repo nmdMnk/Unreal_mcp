@@ -11,8 +11,8 @@ const repoRoot = path.resolve(__dirname, '..');
 const reportsDir = path.join(__dirname, 'reports');
 
 // CRITICAL: Include both singular and plural forms for flexible matching
-const failureKeywords = ['failed', 'error', 'exception', 'invalid', 'not found', 'not_found', 'missing', 'timed out', 'timeout', 'unsupported', 'unknown', 'traversal', 'blocked', 'denied', 'forbidden', 'security', 'violation', 'invalid_path', 'object_not_found', 'actor_not_found', 'actors not found', 'not exist'];
-const successKeywords = ['success', 'created', 'updated', 'deleted', 'completed', 'done', 'ok', 'skipped', 'handled', 'not_implemented'];
+const failureKeywords = ['failed', 'error', 'exception', 'invalid', 'not found', 'not_found', 'missing', 'timed out', 'timeout', 'unsupported', 'unknown', 'not implemented', 'not_implemented', 'traversal', 'blocked', 'denied', 'forbidden', 'security', 'violation', 'invalid_path', 'object_not_found', 'actor_not_found', 'actors not found', 'not exist'];
+const successKeywords = ['success', 'created', 'updated', 'deleted', 'completed', 'done', 'ok', 'skipped', 'handled'];
 // Defaults for spawning the MCP server.
 let serverCommand = process.env.UNREAL_MCP_SERVER_CMD ?? 'node';
 let serverArgs = process.env.UNREAL_MCP_SERVER_ARGS ? process.env.UNREAL_MCP_SERVER_ARGS.split(',') : [path.join(repoRoot, 'dist', 'cli.js')];
@@ -90,6 +90,112 @@ function collectResponseText(value) {
   return '';
 }
 
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function findNestedFailure(value) {
+  if (!isRecord(value)) return null;
+  if (value.success === false || value.isError === true) return value;
+
+  const dataFailure = findNestedFailure(value.data);
+  if (dataFailure) return dataFailure;
+
+  const resultFailure = findNestedFailure(value.result);
+  if (resultFailure) return resultFailure;
+
+  return null;
+}
+
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+
+function getExpectedConditions(lowerExpected) {
+  if (lowerExpected.includes(' or ')) return lowerExpected.split(' or ').map((condition) => condition.trim()).filter(Boolean);
+  if (lowerExpected.includes('|')) return lowerExpected.split('|').map((condition) => condition.trim()).filter(Boolean);
+  const trimmed = lowerExpected.trim();
+  return trimmed ? [trimmed] : [];
+}
+
+function normalizeConditionText(value) {
+  return String(value).replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function conditionMatchesResponseText(condition, responseText) {
+  const normalizedCondition = normalizeConditionText(condition);
+  const normalizedResponseText = normalizeConditionText(responseText);
+  if (!normalizedCondition || !normalizedResponseText) return false;
+  if (responseText.includes(condition) || normalizedResponseText.includes(normalizedCondition)) return true;
+  if (normalizedCondition === 'already exists') return /\b(already|asset|level) exists\b/.test(normalizedResponseText);
+  return false;
+}
+
+const explicitFailureAlternatives = [
+  'already exists',
+  'already_exists',
+  'asset exists',
+  'asset_exists',
+  'level already exists',
+  'level_already_exists',
+  'not found',
+  'not_found',
+  'object_not_found',
+  'actor_not_found',
+  'actors not found',
+  'asset_not_found',
+  'node_not_found',
+  'function_not_found',
+  'property_not_found',
+  'component_not_found',
+  'class_not_found',
+  'does not exist',
+  'not exist',
+  'not loaded',
+  'not_loaded',
+  'not partitioned',
+  'not_partitioned',
+  'sc_disabled'
+];
+
+function isExplicitFailureAlternative(condition) {
+  const normalizedCondition = normalizeConditionText(condition);
+  return explicitFailureAlternatives.some((alternative) => {
+    const normalizedAlternative = normalizeConditionText(alternative);
+    return condition.includes(alternative) || normalizedCondition.includes(normalizedAlternative);
+  });
+}
+
+function findMatchedExplicitFailureAlternative(conditions, responseText) {
+  for (const condition of conditions.slice(1)) {
+    if (!isExplicitFailureAlternative(condition)) continue;
+    if (conditionMatchesResponseText(condition, responseText)) return condition;
+  }
+  return null;
+}
+
+export function getResponseOutcome(response) {
+  const structuredContent = isRecord(response?.structuredContent) ? response.structuredContent : {};
+  const nestedFailure = findNestedFailure(structuredContent);
+  const structuredSuccess = nestedFailure
+    ? false
+    : (typeof structuredContent.success === 'boolean' ? structuredContent.success : undefined);
+  const actualSuccess = structuredSuccess ?? !(response?.isError || structuredContent.isError);
+  const errorSource = nestedFailure ?? structuredContent;
+
+  return {
+    structuredContent,
+    nestedFailure,
+    structuredSuccess,
+    actualSuccess,
+    actualError: firstNonEmptyString(errorSource.error, errorSource.errorCode, structuredContent.error),
+    actualMessage: firstNonEmptyString(errorSource.message, structuredContent.message)
+  };
+}
+
 function isBridgeDisconnectedSignal(value) {
   const text = collectResponseText(value).toLowerCase();
   if (!text) return false;
@@ -121,9 +227,14 @@ async function persistResults(toolName, results) {
     scenario: result.scenario,
     toolName: result.toolName,
     arguments: result.arguments,
+    expected: result.expected,
     status: result.status,
     durationMs: result.durationMs,
-    detail: result.detail
+    detail: result.detail,
+    responseSuccess: result.responseSuccess,
+    responseIsError: result.responseIsError,
+    responseError: result.responseError,
+    responseMessage: result.responseMessage
   }));
   await fs.writeFile(resultsPath, JSON.stringify({ generatedAt: new Date().toISOString(), toolName, results: serializable }, null, 2));
   return resultsPath;
@@ -146,7 +257,7 @@ function summarize(toolName, results, resultsPath) {
 /**
  * Evaluates whether a test case passed based on expected outcome
  */
-function evaluateExpectation(testCase, response) {
+export function evaluateExpectation(testCase, response) {
   const expectation = testCase.expected;
 
   // Normalize expected into a comparable form. If expected is an object
@@ -165,47 +276,19 @@ function evaluateExpectation(testCase, response) {
   // CRITICAL FIX: Determine PRIMARY intent (first condition in pipe-separated list)
   // Tests like "success|error" should have PRIMARY intent of success, meaning
   // if we get success=false, it should FAIL even though "error" is in the alternatives.
-  const primaryCondition = lowerExpected.split('|')[0].split(' or ')[0].trim();
+  const expectedConditions = getExpectedConditions(lowerExpected);
+  const primaryCondition = expectedConditions[0] ?? '';
   const primaryExpectsSuccess = successKeywords.some((word) => primaryCondition.includes(word));
   const primaryExpectsFailure = failureKeywords.some((word) => primaryCondition.includes(word));
 
-  const structuredSuccess = typeof response.structuredContent?.success === 'boolean'
-    ? response.structuredContent.success
-    : undefined;
-  const actualSuccess = structuredSuccess ?? !(response.isError || response.structuredContent?.isError);
+  const responseOutcome = getResponseOutcome(response);
+  const structuredSuccess = responseOutcome.structuredSuccess;
+  const actualSuccess = responseOutcome.actualSuccess;
+  let actualError = responseOutcome.actualError;
+  let actualMessage = responseOutcome.actualMessage;
 
-  // Object expectations can intentionally assert exact controlled error codes
-  // (for example NOT_PARTITIONED guards). Honor those before the generic
-  // "expected success" rejection below so tests don't need broad `error|...`
-  // strings that can mask unrelated failures.
-  if (typeof expectation === 'object' && expectation !== null && !actualSuccess && expectation.errorPattern) {
-    const pattern = String(expectation.errorPattern).toLowerCase();
-    const serializedResponse = JSON.stringify(response).toLowerCase();
-    if (serializedResponse.includes(pattern)) {
-      return { passed: true, reason: `Error pattern matched: ${expectation.errorPattern}` };
-    }
-  }
-
-  // CRITICAL: If response explicitly indicates an error (isError: true or structuredContent.success: false
-  // or structuredContent.isError: true) and the PRIMARY expectation is success (not just a fallback alternative),
-  // FAIL immediately. This prevents false positives where tests like "success|handled|error" pass even when
-  // the engine returns success: false.
-  if ((response.isError === true || response.structuredContent?.isError === true || structuredSuccess === false) && !primaryExpectsFailure) {
-    const errorReason = response.structuredContent?.error || response.structuredContent?.message || 'Unknown error';
-    return {
-      passed: false,
-      reason: `Response indicates error but test expected success (primary intent: ${primaryCondition}): ${errorReason}`
-    };
-  }
-
-  // Extract actual error/message from response
-  let actualError = null;
-  let actualMessage = null;
-  if (response.structuredContent) {
-    actualError = response.structuredContent.error;
-    actualMessage = response.structuredContent.message;
-  }
-  // Also check top-level message field (MCP errors may not have structuredContent)
+  // Extract actual error/message from response.
+  // Also check top-level message field (MCP errors may not have structuredContent).
   if (!actualMessage && response.message) {
     actualMessage = response.message;
   }
@@ -224,11 +307,45 @@ function evaluateExpectation(testCase, response) {
       .join('\n');
   }
 
-  // Helper to get effective actual strings for matching
+  // Helper to get effective actual strings for matching.
   const messageStr = (actualMessage || '').toString().toLowerCase();
   const errorStr = (actualError || '').toString().toLowerCase();
   const contentStr = contentText.toString().toLowerCase();
   const combined = `${messageStr} ${errorStr} ${contentStr}`;
+  const matchedExplicitFailureAlternative = !actualSuccess && primaryExpectsSuccess
+    ? findMatchedExplicitFailureAlternative(expectedConditions, combined)
+    : null;
+
+  // Object expectations can intentionally assert exact controlled error codes
+  // (for example NOT_PARTITIONED guards). Honor those before the generic
+  // "expected success" rejection below so tests don't need broad `error|...`
+  // strings that can mask unrelated failures.
+  if (typeof expectation === 'object' && expectation !== null && !actualSuccess && expectation.errorPattern) {
+    const pattern = String(expectation.errorPattern).toLowerCase();
+    const serializedResponse = JSON.stringify(response).toLowerCase();
+    if (serializedResponse.includes(pattern)) {
+      return { passed: true, reason: `Error pattern matched: ${expectation.errorPattern}` };
+    }
+  }
+
+  // Pipe alternatives can intentionally allow specific idempotent failure
+  // outcomes such as `success|already exists` and cleanup cases like
+  // `success|not found`. Keep rejecting broad fallbacks like `success|error`.
+  if (matchedExplicitFailureAlternative) {
+    return { passed: true, reason: `Expected explicit failure alternative met: ${matchedExplicitFailureAlternative}` };
+  }
+
+  // CRITICAL: If response explicitly indicates an error (isError: true or structuredContent.success: false
+  // or structuredContent.isError: true) and the PRIMARY expectation is success (not just a fallback alternative),
+  // FAIL immediately. This prevents false positives where tests like "success|handled|error" pass even when
+  // the engine returns success: false.
+  if ((response.isError === true || response.structuredContent?.isError === true || structuredSuccess === false) && !primaryExpectsFailure) {
+    const errorReason = actualError || actualMessage || response.error || response.message || 'Unknown error';
+    return {
+      passed: false,
+      reason: `Response indicates error but test expected success (primary intent: ${primaryCondition}): ${errorReason}`
+    };
+  }
 
   // CRITICAL FIX: Detect infrastructure errors that should FAIL tests even if
   // structuredContent.success is true or the expectation allows success as fallback.
@@ -401,9 +518,9 @@ function evaluateExpectation(testCase, response) {
     return { passed: false, reason: `None of the expected conditions matched: ${expectedCondition}` };
   }
 
-  // Also flag common automation/plugin failure phrases
-  // NOTE: "not_implemented" is acceptable when test expects it (added to successKeywords)
-  const pluginFailureIndicators = ['does not match prefix', 'unknown', 'unavailable', 'unsupported'];
+  // Also flag common automation/plugin failure phrases.
+  // Placeholder/not-implemented responses must never satisfy success tests.
+  const pluginFailureIndicators = ['does not match prefix', 'unknown', 'unavailable', 'unsupported', 'not implemented', 'not_implemented'];
   const hasPluginFailure = pluginFailureIndicators.some(term => combined.includes(term));
 
   if (!containsFailure && hasPluginFailure) {
@@ -514,6 +631,16 @@ function evaluateExpectation(testCase, response) {
     reason = 'No structured response returned';
   }
   return { passed, reason };
+}
+
+export function summarizeResponseForReport(response) {
+  const outcome = getResponseOutcome(response);
+  return {
+    responseSuccess: typeof outcome.structuredSuccess === 'boolean' ? outcome.structuredSuccess : undefined,
+    responseIsError: response?.isError === true || outcome.structuredContent.isError === true || outcome.nestedFailure !== null,
+    responseError: outcome.actualError ?? undefined,
+    responseMessage: outcome.actualMessage ?? undefined
+  };
 }
 
 function getValueAtPath(source, pathExpression) {
@@ -1363,11 +1490,12 @@ export async function runToolTests(toolName, testCases) {
       const startTime = performance.now();
 
       try {
-        // Log test start to Unreal Engine console
-        const cleanScenario = (testCase.scenario || 'Unknown Test').replace(/"/g, "'");
+        // Log test start to Unreal Engine console without echoing scenario text.
+        // Scenario names can contain words like "delete" that are correctly
+        // blocked by the console command safety validator.
         await callToolOnce({
           name: 'system_control',
-          arguments: { action: 'console_command', command: `Log "---- STARTING TEST: ${cleanScenario} ----"` }
+          arguments: { action: 'console_command', command: `Log Starting MCP test ${i + 1} of ${testCases.length}` }
         }, 5000).catch(() => { });
       } catch (e) { /* ignore */ }
 
@@ -1411,7 +1539,7 @@ export async function runToolTests(toolName, testCases) {
         // where success=false is the correct expected result.
         const isPerformanceTest = testCase.arguments?.timeoutMs !== undefined || 
                                   testCase.scenario?.includes('performance');
-        const responseSuccess = normalizedResponse?.structuredContent?.success;
+        const responseSuccess = getResponseOutcome(normalizedResponse).structuredSuccess;
         
         // Check PRIMARY intent - if the test EXPECTS failure, success=false is correct
         const lowerExpected = (testCase.expected || '').toString().toLowerCase();
@@ -1430,15 +1558,19 @@ export async function runToolTests(toolName, testCases) {
           reason = `Performance test failed: Operation returned success=false. Error: ${errorMsg}`;
         }
 
+        const responseSummary = summarizeResponseForReport(normalizedResponse);
+
         if (!passed) {
           console.log(`[FAILED] ${testCase.scenario} (${durationMs.toFixed(1)} ms) => ${reason}`);
           results.push({
             scenario: testCase.scenario,
             toolName: testCase.toolName,
             arguments: testCase.arguments,
+            expected: testCase.expected,
             status: 'failed',
             durationMs,
             detail: reason,
+            ...responseSummary,
             response: normalizedResponse
           });
           if (isBridgeDisconnectedSignal(normalizedResponse) || isBridgeDisconnectedSignal(reason)) {
@@ -1451,9 +1583,11 @@ export async function runToolTests(toolName, testCases) {
             scenario: testCase.scenario,
             toolName: testCase.toolName,
             arguments: testCase.arguments,
+            expected: testCase.expected,
             status: 'passed',
             durationMs,
-            detail: reason
+            detail: reason,
+            ...responseSummary
           });
         }
 
@@ -1481,9 +1615,13 @@ export async function runToolTests(toolName, testCases) {
             scenario: testCase.scenario,
             toolName: testCase.toolName,
             arguments: testCase.arguments,
+            expected: testCase.expected,
             status: 'failed',
             durationMs,
-            detail: `Infrastructure failure (crash/disconnection): ${errorMessage}`
+            detail: `Infrastructure failure (crash/disconnection): ${errorMessage}`,
+            responseSuccess: false,
+            responseIsError: true,
+            responseError: errorMessage
           });
           console.log('🛑 Automation bridge is not connected; aborting remaining tests to avoid wasting time.');
           break;
@@ -1508,9 +1646,13 @@ export async function runToolTests(toolName, testCases) {
             scenario: testCase.scenario,
             toolName: testCase.toolName,
             arguments: testCase.arguments,
+            expected: testCase.expected,
             status: 'passed',
             durationMs,
-            detail: errorMessage
+            detail: errorMessage,
+            responseSuccess: false,
+            responseIsError: true,
+            responseError: errorMessage
           });
           continue;
         }
@@ -1520,9 +1662,13 @@ export async function runToolTests(toolName, testCases) {
           scenario: testCase.scenario,
           toolName: testCase.toolName,
           arguments: testCase.arguments,
+          expected: testCase.expected,
           status: 'failed',
           durationMs,
-          detail: errorMessage
+          detail: errorMessage,
+          responseSuccess: false,
+          responseIsError: true,
+          responseError: errorMessage
         });
         if (isBridgeDisconnectedSignal(errorMessage)) {
           console.log('🛑 Automation bridge is not connected; aborting remaining tests to avoid wasting time.');
@@ -1864,11 +2010,10 @@ export class TestRunner {
         const startTime = performance.now();
 
         try {
-          // Log step start to Unreal Engine console
-          const cleanName = (step.name || 'Unknown Step').replace(/"/g, "'");
+          // Log step start to Unreal Engine console without echoing scenario text.
           await callToolOnce({
             name: 'system_control',
-            arguments: { action: 'console_command', command: `Log "---- STARTING STEP: ${cleanName} ----"` }
+            arguments: { action: 'console_command', command: 'Log Starting MCP test step' }
           }, 5000).catch(() => { });
         } catch (e) { /* ignore */ }
 
