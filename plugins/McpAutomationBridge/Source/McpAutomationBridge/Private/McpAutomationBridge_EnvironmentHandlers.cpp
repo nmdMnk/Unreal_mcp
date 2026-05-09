@@ -936,7 +936,10 @@ bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
     else if (LowerSub == TEXT("set_time_of_day"))
     {
         float TimeOfDay = 12.0f;
-        Payload->TryGetNumberField(TEXT("time"), TimeOfDay);
+        if (!Payload->TryGetNumberField(TEXT("time"), TimeOfDay))
+        {
+            Payload->TryGetNumberField(TEXT("hour"), TimeOfDay);
+        }
 
         if (GEditor)
         {
@@ -1719,6 +1722,40 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     // Delegate actor-related actions to the control_actor handler
     if (bIsActorAction)
     {
+        FString ActorAlias;
+        Payload->TryGetStringField(TEXT("actorName"), ActorAlias);
+        ActorAlias.TrimStartAndEndInline();
+        if (ActorAlias.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("name"), ActorAlias);
+            ActorAlias.TrimStartAndEndInline();
+        }
+        if (ActorAlias.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("objectPath"), ActorAlias);
+            ActorAlias.TrimStartAndEndInline();
+        }
+        if (!ActorAlias.IsEmpty())
+        {
+            Payload->SetStringField(TEXT("actorName"), ActorAlias);
+        }
+
+        if (LowerSubAction.Equals(TEXT("get_property")) || LowerSubAction.Equals(TEXT("set_property")))
+        {
+            FString ObjectPath;
+            FString BlueprintPath;
+            Payload->TryGetStringField(TEXT("objectPath"), ObjectPath);
+            Payload->TryGetStringField(TEXT("blueprintPath"), BlueprintPath);
+            if (ObjectPath.IsEmpty() && BlueprintPath.IsEmpty() && !ActorAlias.IsEmpty())
+            {
+                Payload->SetStringField(TEXT("objectPath"), ActorAlias);
+            }
+        }
+        else if (LowerSubAction.Equals(TEXT("delete_object")))
+        {
+            Payload->SetStringField(TEXT("action"), TEXT("delete"));
+        }
+
         return HandleControlActorAction(RequestId, TEXT("control_actor"), Payload, RequestingSocket);
     }
 
@@ -1728,10 +1765,19 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     FString ObjectPath;
     if (!bIsGlobalAction)
     {
-        if (!Payload->TryGetStringField(TEXT("objectPath"), ObjectPath) || ObjectPath.IsEmpty())
+        Payload->TryGetStringField(TEXT("objectPath"), ObjectPath);
+        if (ObjectPath.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("actorName"), ObjectPath);
+        }
+        if (ObjectPath.IsEmpty())
+        {
+            Payload->TryGetStringField(TEXT("name"), ObjectPath);
+        }
+        if (ObjectPath.IsEmpty())
         {
             SendAutomationError(RequestingSocket, RequestId,
-                                TEXT("objectPath required"),
+                                TEXT("objectPath, actorName, or name required"),
                                 TEXT("INVALID_ARGUMENT"));
             return true;
         }
@@ -1960,6 +2006,10 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
             {
                 PropertyNames.Add(PropertyName);
             }
+            else if (Payload->TryGetStringField(TEXT("propertyPath"), PropertyName) && !PropertyName.IsEmpty())
+            {
+                PropertyNames.Add(PropertyName);
+            }
             const TArray<TSharedPtr<FJsonValue>> *PropertyNamesArray = nullptr;
             if (Payload->TryGetArrayField(TEXT("propertyNames"), PropertyNamesArray) && PropertyNamesArray)
             {
@@ -2072,6 +2122,10 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
         {
             FString ClassName;
             Payload->TryGetStringField(TEXT("className"), ClassName);
+            if (ClassName.IsEmpty())
+            {
+                Payload->TryGetStringField(TEXT("classPath"), ClassName);
+            }
             TArray<TSharedPtr<FJsonValue>> ObjectsArray;
 
             if (GEditor && GEditor->GetEditorWorldContext().World() && !ClassName.IsEmpty())
@@ -2137,6 +2191,10 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
         {
             FString ClassName;
             Payload->TryGetStringField(TEXT("className"), ClassName);
+            if (ClassName.IsEmpty())
+            {
+                Payload->TryGetStringField(TEXT("classPath"), ClassName);
+            }
             if (!ClassName.IsEmpty())
             {
                 // Try to find the class

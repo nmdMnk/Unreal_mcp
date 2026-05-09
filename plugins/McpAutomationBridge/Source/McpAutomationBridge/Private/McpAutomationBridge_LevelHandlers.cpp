@@ -61,7 +61,6 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "HAL/FileManager.h"
 #include "Misc/PackageName.h"
-#include "TickTaskManagerInterface.h"  // Required for proper tick system cleanup
 #include "WorldPartition/WorldPartition.h"  // Required for World Partition detection
 
 // ScopedTransaction header location varies by UE version
@@ -110,8 +109,8 @@ bool IsSafeLevelConsoleToken(const FString& Value) {
  * the old world remain registered when the new world is created.
  *
  * Root Cause Analysis:
- * The FTickTaskManager maintains a LevelList that's filled during StartFrame() 
- * and cleared during EndFrame(). When NewMap() destroys the old world:
+ * The FTickTaskManager tracks visible levels during the engine frame. When
+ * NewMap() destroys the old world:
  * 1. ULevel destructor calls FreeTickTaskLevel()
  * 2. FreeTickTaskLevel() asserts: check(!LevelList.Contains(TickTaskLevel))
  * 3. If a tick frame started but didn't complete, LevelList still has entries
@@ -119,7 +118,8 @@ bool IsSafeLevelConsoleToken(const FString& Value) {
  * Fix Strategy:
  * 1. Set all levels to invisible (prevents FillLevelList from adding them)
  * 2. Disable all actor/component ticking
- * 3. Force a complete tick frame cycle to clear LevelList
+ * 3. Drain end-of-frame updates, render work, streaming, and GC without
+ *    manually advancing the engine tick lifecycle
  * 4. Properly cleanup before world destruction
   *
   * @param bForceNewMap If true, create a completely new empty map (default: true)
@@ -269,25 +269,17 @@ static UWorld* McpSafeNewMap(bool bForceNewMap = true, UMcpAutomationBridgeSubsy
             Subsystem->SendProgressUpdate(RequestId, 55.0f, TEXT("Garbage collection complete"));
         }
         
-        // STEP 9: CRITICAL FIX - Call EndFrame() to clear FTickTaskManager's LevelList
-        // The FTickTaskManager maintains a LevelList that's populated by FillLevelList() during
-        // StartFrame() and cleared by LevelList.Reset() in EndFrame(). When NewMap() destroys
-        // the old world, FreeTickTaskLevel() asserts that the TickTaskLevel is NOT in LevelList.
-        // By calling EndFrame(), we ensure LevelList is cleared before world destruction.
-        // 
-        // This is safe because:
-        // 1. We've already unregistered all tick functions (Step 2)
-        // 2. We've set bIsVisible=false on all levels (Step 1)
-        // 3. EndFrame() doesn't have assertions that would fail if called outside a tick frame
-        // 4. The TickTaskSequencer.EndFrame() just clears batched tick data
-        // 5. The LevelList.Reset() is the critical operation we need
-        FTickTaskManagerInterface::Get().EndFrame();
-        UE_LOG(LogTemp, Log, TEXT("McpSafeNewMap: Called EndFrame() to clear LevelList"));
-        
-        // Progress update: LevelList cleared
+        // STEP 9: Do not call FTickTaskManagerInterface::EndFrame() from an
+        // automation handler. EndFrame belongs to the engine frame lifecycle;
+        // invoking it here can corrupt active tick state and later crash during
+        // level load with TickTaskManager assertions. The explicit tick
+        // unregister, end-of-frame update, GC, and render flushes above are the
+        // safe cleanup boundary for this handler.
+
+        // Progress update: tick cleanup complete
         if (Subsystem && !RequestId.IsEmpty())
         {
-            Subsystem->SendProgressUpdate(RequestId, 65.0f, TEXT("Cleared tick task level list"));
+            Subsystem->SendProgressUpdate(RequestId, 65.0f, TEXT("Completed tick cleanup"));
         }
         
         // STEP 10: Give the engine a moment to process cleanup
@@ -313,21 +305,25 @@ static UWorld* McpSafeNewMap(bool bForceNewMap = true, UMcpAutomationBridgeSubsy
     
     if (NewWorld)
     {
-        // STEP 12: CRITICAL - Disable ticking on the new world's actors immediately
-        // The NewMap creates actors (like WorldSettings) that might trigger tick assertions
-        // if not properly initialized before the next tick frame
+        // STEP 12: CRITICAL - Unregister ticking on the new world's actors immediately.
+        // SetActorTickEnabled(false) only disables execution; the tick function can
+        // remain registered in TickTaskManager. Unregistering removes these newly
+        // created editor-world ticks from the manager before the next frame.
         if (NewWorld->PersistentLevel)
         {
             for (AActor* Actor : NewWorld->PersistentLevel->Actors)
             {
                 if (Actor)
                 {
-                    Actor->SetActorTickEnabled(false);
+                    if (Actor->PrimaryActorTick.IsTickFunctionRegistered())
+                    {
+                        Actor->PrimaryActorTick.UnRegisterTickFunction();
+                    }
                     for (UActorComponent* Component : Actor->GetComponents())
                     {
-                        if (Component)
+                        if (Component && Component->PrimaryComponentTick.IsTickFunctionRegistered())
                         {
-                            Component->SetComponentTickEnabled(false);
+                            Component->PrimaryComponentTick.UnRegisterTickFunction();
                         }
                     }
                 }
@@ -1004,6 +1000,20 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
           FString());
       return true;
     }
+
+    // UE 5.7: GEditor->NewMap can assert while destroying the current editor
+    // world if TickTaskManager still tracks a level from a previous automation
+    // map transition. The manage_level_structure create_level path creates and
+    // saves an inactive UWorld package without switching the editor world, so it
+    // avoids EditorDestroyWorld/NewMap entirely while still producing a real
+    // level asset that manage_level load/stream/export actions can use.
+    TSharedPtr<FJsonObject> CreatePayload = MakeShared<FJsonObject>();
+    CreatePayload->SetStringField(TEXT("subAction"), TEXT("create_level"));
+    CreatePayload->SetStringField(TEXT("levelName"), FPaths::GetBaseFilename(SavePath));
+    CreatePayload->SetStringField(TEXT("levelPath"), FPaths::GetPath(SavePath));
+    CreatePayload->SetBoolField(TEXT("bCreateWorldPartition"), bUseWorldPartition);
+    CreatePayload->SetBoolField(TEXT("save"), true);
+    return HandleManageLevelStructureAction(RequestId, TEXT("manage_level_structure"), CreatePayload, RequestingSocket);
 
     // Create new map
 #if defined(MCP_HAS_LEVELEDITOR_SUBSYSTEM) && __has_include("FileHelpers.h")

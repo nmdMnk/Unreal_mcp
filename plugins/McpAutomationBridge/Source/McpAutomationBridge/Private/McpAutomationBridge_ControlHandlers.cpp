@@ -171,6 +171,26 @@ FString MakeSafeConsoleName(const FString &RawName, const TCHAR *Prefix) {
   }
   return CleanName;
 }
+
+FEditorViewportClient* GetActiveEditorViewportClientForMcp() {
+#if MCP_HAS_LEVEL_EDITOR_MODULE
+  if (FModuleManager::Get().IsModuleLoaded(TEXT("LevelEditor"))) {
+    if (FLevelEditorModule* LevelEditorModule =
+            FModuleManager::GetModulePtr<FLevelEditorModule>(TEXT("LevelEditor"))) {
+      TSharedPtr<IAssetViewport> ActiveViewport = LevelEditorModule->GetFirstActiveViewport();
+      if (ActiveViewport.IsValid()) {
+        return &ActiveViewport->GetAssetViewportClient();
+      }
+    }
+  }
+#endif
+
+  if (GEditor && GEditor->GetActiveViewport()) {
+    return static_cast<FEditorViewportClient*>(GEditor->GetActiveViewport()->GetClient());
+  }
+
+  return nullptr;
+}
 } // namespace
 #endif
 
@@ -1177,12 +1197,25 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
     return true;
   }
 
+  TSharedPtr<FJsonObject> PropertiesObject;
   const TSharedPtr<FJsonObject> *PropertiesPtr = nullptr;
-  if (!(Payload->TryGetObjectField(TEXT("properties"), PropertiesPtr) &&
-        PropertiesPtr && PropertiesPtr->IsValid())) {
-    SendStandardErrorResponse(this, Socket, RequestId, TEXT("INVALID_ARGUMENT"),
-                              TEXT("properties object required"), nullptr);
-    return true;
+  if (Payload->TryGetObjectField(TEXT("properties"), PropertiesPtr) &&
+      PropertiesPtr && PropertiesPtr->IsValid()) {
+    PropertiesObject = *PropertiesPtr;
+  } else {
+    FString PropertyName;
+    Payload->TryGetStringField(TEXT("propertyName"), PropertyName);
+    if (PropertyName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("propertyPath"), PropertyName);
+    }
+    const TSharedPtr<FJsonValue> ValueField = Payload->TryGetField(TEXT("value"));
+    if (PropertyName.IsEmpty() || !ValueField.IsValid()) {
+      SendStandardErrorResponse(this, Socket, RequestId, TEXT("INVALID_ARGUMENT"),
+                                TEXT("properties object or propertyName/propertyPath and value required"), nullptr);
+      return true;
+    }
+    PropertiesObject = MakeShared<FJsonObject>();
+    PropertiesObject->SetField(PropertyName, ValueField);
   }
 
   AActor *Found = FindActorByName(TargetName);
@@ -1212,7 +1245,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
   // JSON casing
   const TSharedPtr<FJsonValue> *MobilityVal = nullptr;
   FString MobilityKey;
-  for (const auto &Pair : (*PropertiesPtr)->Values) {
+  for (const auto &Pair : PropertiesObject->Values) {
     if (Pair.Key.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase)) {
       MobilityVal = &Pair.Value;
       MobilityKey = Pair.Key;
@@ -1242,7 +1275,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
     }
   }
 
-  for (const auto &Pair : (*PropertiesPtr)->Values) {
+  for (const auto &Pair : PropertiesObject->Values) {
     // Skip Mobility as we already handled it
     if (Pair.Key.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase))
       continue;
@@ -2301,6 +2334,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorGetComponentProperty(
   Payload->TryGetStringField(TEXT("actorName"), ActorName);
   Payload->TryGetStringField(TEXT("componentName"), ComponentName);
   Payload->TryGetStringField(TEXT("propertyName"), PropertyName);
+  if (PropertyName.IsEmpty()) {
+    Payload->TryGetStringField(TEXT("propertyPath"), PropertyName);
+  }
   
   if (ActorName.IsEmpty() || ComponentName.IsEmpty() || PropertyName.IsEmpty()) {
     SendAutomationError(Socket, RequestId, TEXT("actorName, componentName, and propertyName are required"), TEXT("MISSING_PARAM"));
@@ -2825,32 +2861,82 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetViewMode(
   Payload->TryGetStringField(TEXT("viewMode"), Mode);
   FString LowerMode = Mode.ToLower();
   FString Chosen;
+  EViewModeIndex ViewModeIndex = VMI_Lit;
+  bool bHasNativeViewMode = true;
   if (LowerMode == TEXT("lit"))
+  {
     Chosen = TEXT("Lit");
+    ViewModeIndex = VMI_Lit;
+  }
   else if (LowerMode == TEXT("unlit"))
+  {
     Chosen = TEXT("Unlit");
+    ViewModeIndex = VMI_Unlit;
+  }
   else if (LowerMode == TEXT("wireframe"))
+  {
     Chosen = TEXT("Wireframe");
+    ViewModeIndex = VMI_Wireframe;
+  }
   else if (LowerMode == TEXT("detaillighting"))
+  {
     Chosen = TEXT("DetailLighting");
+    ViewModeIndex = VMI_Lit_DetailLighting;
+  }
   else if (LowerMode == TEXT("lightingonly"))
+  {
     Chosen = TEXT("LightingOnly");
+    ViewModeIndex = VMI_LightingOnly;
+  }
   else if (LowerMode == TEXT("lightcomplexity"))
+  {
     Chosen = TEXT("LightComplexity");
+    ViewModeIndex = VMI_LightComplexity;
+  }
   else if (LowerMode == TEXT("shadercomplexity"))
+  {
     Chosen = TEXT("ShaderComplexity");
+    ViewModeIndex = VMI_ShaderComplexity;
+  }
   else if (LowerMode == TEXT("lightmapdensity"))
+  {
     Chosen = TEXT("LightmapDensity");
+    ViewModeIndex = VMI_LightmapDensity;
+  }
   else if (LowerMode == TEXT("stationarylightoverlap"))
+  {
     Chosen = TEXT("StationaryLightOverlap");
+    ViewModeIndex = VMI_StationaryLightOverlap;
+  }
   else if (LowerMode == TEXT("reflectionoverride"))
+  {
     Chosen = TEXT("ReflectionOverride");
+    ViewModeIndex = VMI_ReflectionOverride;
+  }
   else if (IsSafeConsoleArgumentToken(Mode))
+  {
     Chosen = Mode;
+    bHasNativeViewMode = false;
+  }
   else {
     SendStandardErrorResponse(this, Socket, RequestId, TEXT("INVALID_ARGUMENT"),
                               TEXT("Invalid viewMode"), nullptr);
     return true;
+  }
+
+  if (bHasNativeViewMode) {
+    if (FEditorViewportClient* ViewportClient = GetActiveEditorViewportClientForMcp()) {
+      ViewportClient->SetViewMode(ViewModeIndex);
+      ViewportClient->Invalidate();
+
+      TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+      Resp->SetBoolField(TEXT("success"), true);
+      Resp->SetStringField(TEXT("viewMode"), Chosen);
+      Resp->SetStringField(TEXT("method"), TEXT("viewport_client"));
+      SendAutomationResponse(Socket, RequestId, true, TEXT("View mode set"), Resp,
+                             FString());
+      return true;
+    }
   }
 
   const FString Cmd = FString::Printf(TEXT("viewmode %s"), *Chosen);
@@ -2864,6 +2950,75 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetViewMode(
   }
   SendStandardErrorResponse(this, Socket, RequestId, TEXT("EXEC_FAILED"),
                               TEXT("View mode command failed"), nullptr);
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetCameraFov(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> Socket) {
+#if WITH_EDITOR
+  double Fov = 90.0;
+  Payload->TryGetNumberField(TEXT("fov"), Fov);
+  if (Fov <= 1.0 || Fov >= 179.0) {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("INVALID_ARGUMENT"),
+                              TEXT("fov must be between 1 and 179 degrees"), nullptr);
+    return true;
+  }
+
+  if (FEditorViewportClient* ViewportClient = GetActiveEditorViewportClientForMcp()) {
+    ViewportClient->ViewFOV = static_cast<float>(Fov);
+    ViewportClient->FOVAngle = static_cast<float>(Fov);
+    ViewportClient->Invalidate();
+
+    TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+    Resp->SetBoolField(TEXT("success"), true);
+    Resp->SetNumberField(TEXT("fov"), Fov);
+    Resp->SetStringField(TEXT("method"), TEXT("viewport_client"));
+    SendAutomationResponse(Socket, RequestId, true, TEXT("Camera FOV set"), Resp,
+                           FString());
+    return true;
+  }
+
+  SendStandardErrorResponse(this, Socket, RequestId, TEXT("VIEWPORT_NOT_AVAILABLE"),
+                            TEXT("No editor viewport available for FOV update"), nullptr);
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetGameSpeed(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> Socket) {
+#if WITH_EDITOR
+  double Speed = 1.0;
+  Payload->TryGetNumberField(TEXT("speed"), Speed);
+  if (Speed <= 0.0 || Speed > 20.0) {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("INVALID_ARGUMENT"),
+                              TEXT("speed must be greater than 0 and no more than 20"), nullptr);
+    return true;
+  }
+
+  UWorld* World = GEditor && GEditor->PlayWorld
+      ? GEditor->PlayWorld.Get()
+      : (GEditor ? GEditor->GetEditorWorldContext().World() : nullptr);
+  if (!World || !World->GetWorldSettings()) {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("NO_WORLD"),
+                              TEXT("No world available for game speed update"), nullptr);
+    return true;
+  }
+
+  World->GetWorldSettings()->SetTimeDilation(static_cast<float>(Speed));
+
+  TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
+  Resp->SetBoolField(TEXT("success"), true);
+  Resp->SetNumberField(TEXT("speed"), Speed);
+  Resp->SetNumberField(TEXT("timeDilation"), World->GetWorldSettings()->GetEffectiveTimeDilation());
+  SendAutomationResponse(Socket, RequestId, true, TEXT("Game speed set"), Resp,
+                         FString());
   return true;
 #else
   return false;
@@ -2912,6 +3067,10 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorAction(
     return HandleControlEditorSetCamera(RequestId, Payload, RequestingSocket);
   if (LowerSub == TEXT("set_view_mode"))
     return HandleControlEditorSetViewMode(RequestId, Payload, RequestingSocket);
+  if (LowerSub == TEXT("set_camera_fov"))
+    return HandleControlEditorSetCameraFov(RequestId, Payload, RequestingSocket);
+  if (LowerSub == TEXT("set_game_speed"))
+    return HandleControlEditorSetGameSpeed(RequestId, Payload, RequestingSocket);
   if (LowerSub == TEXT("open_asset"))
     return HandleControlEditorOpenAsset(RequestId, Payload, RequestingSocket);
   if (LowerSub == TEXT("screenshot") || LowerSub == TEXT("take_screenshot"))
@@ -3335,6 +3494,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorCreateBookmark(
 
   int32 BookmarkIndex = 0;
   Payload->TryGetNumberField(TEXT("index"), BookmarkIndex);
+  if (!Payload->HasField(TEXT("index"))) {
+    Payload->TryGetNumberField(TEXT("id"), BookmarkIndex);
+  }
 
   // Clamp to valid bookmark range (0-9)
   BookmarkIndex = FMath::Clamp(BookmarkIndex, 0, 9);
@@ -3371,6 +3533,9 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorJumpToBookmark(
 
   int32 BookmarkIndex = 0;
   Payload->TryGetNumberField(TEXT("index"), BookmarkIndex);
+  if (!Payload->HasField(TEXT("index"))) {
+    Payload->TryGetNumberField(TEXT("id"), BookmarkIndex);
+  }
 
   // Clamp to valid bookmark range (0-9)
   BookmarkIndex = FMath::Clamp(BookmarkIndex, 0, 9);
@@ -3803,7 +3968,6 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorUndo(
   GEditor->Exec(GEditor->GetEditorWorldContext().World(), TEXT("Undo"));
 
   TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-  Resp->SetStringField(TEXT("action"), TEXT("undo"));
   Resp->SetStringField(TEXT("command"), TEXT("Undo"));
   SendAutomationResponse(Socket, RequestId, true, TEXT("Undo executed"), Resp, FString());
   return true;
@@ -3826,7 +3990,6 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorRedo(
   GEditor->Exec(GEditor->GetEditorWorldContext().World(), TEXT("Redo"));
 
   TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-  Resp->SetStringField(TEXT("action"), TEXT("redo"));
   Resp->SetStringField(TEXT("command"), TEXT("Redo"));
   SendAutomationResponse(Socket, RequestId, true, TEXT("Redo executed"), Resp, FString());
   return true;
@@ -3888,7 +4051,6 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorShowStats(
   }
 
   TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-  Resp->SetStringField(TEXT("action"), TEXT("showStats"));
   TArray<TSharedPtr<FJsonValue>> StatsArray;
   for (const FString& Stat : StatsShown) {
     StatsArray.Add(MakeShared<FJsonValueString>(Stat));
@@ -3917,7 +4079,6 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorHideStats(
   }
 
   TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-  Resp->SetStringField(TEXT("action"), TEXT("hideStats"));
   Resp->SetStringField(TEXT("command"), TEXT("Stat None"));
   SendAutomationResponse(Socket, RequestId, true, TEXT("Stats hidden"), Resp, FString());
   return true;

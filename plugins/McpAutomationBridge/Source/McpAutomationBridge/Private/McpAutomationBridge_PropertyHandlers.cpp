@@ -125,7 +125,6 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
 
   // --- Parameter Validation (using McpHandlerUtils patterns) ---
   FString ObjectPath;
-  FString ParamError;
   // objectPath is optional when blueprintPath is provided
   Payload->TryGetStringField(TEXT("objectPath"), ObjectPath);
   ObjectPath.TrimStartAndEndInline();
@@ -143,9 +142,18 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
   }
 
   FString PropertyName;
-  if (!McpHandlerUtils::TryGetRequiredString(Payload, TEXT("propertyName"), PropertyName, ParamError))
+  Payload->TryGetStringField(TEXT("propertyName"), PropertyName);
+  PropertyName.TrimStartAndEndInline();
+  if (PropertyName.IsEmpty())
   {
-      SendAutomationError(RequestingSocket, RequestId, ParamError, TEXT("INVALID_PROPERTY"));
+      Payload->TryGetStringField(TEXT("propertyPath"), PropertyName);
+      PropertyName.TrimStartAndEndInline();
+  }
+  if (PropertyName.IsEmpty())
+  {
+      SendAutomationError(RequestingSocket, RequestId,
+          TEXT("propertyName or propertyPath is required."),
+          TEXT("INVALID_PROPERTY"));
       return true;
   }
 
@@ -422,11 +430,17 @@ bool UMcpAutomationBridgeSubsystem::HandleGetObjectProperty(
   }
 
   FString PropertyName;
-  if (!Payload->TryGetStringField(TEXT("propertyName"), PropertyName) ||
-      PropertyName.TrimStartAndEnd().IsEmpty()) {
+  Payload->TryGetStringField(TEXT("propertyName"), PropertyName);
+  PropertyName.TrimStartAndEndInline();
+  if (PropertyName.IsEmpty())
+  {
+      Payload->TryGetStringField(TEXT("propertyPath"), PropertyName);
+      PropertyName.TrimStartAndEndInline();
+  }
+  if (PropertyName.IsEmpty()) {
     SendAutomationError(
         RequestingSocket, RequestId,
-        TEXT("get_object_property requires a non-empty propertyName."),
+        TEXT("get_object_property requires a non-empty propertyName or propertyPath."),
         TEXT("INVALID_PROPERTY"));
     return true;
   }
@@ -3028,6 +3042,15 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectCdoAction(
     Payload->TryGetBoolField(TEXT("detailed"), bDetailed);
 
     TArray<FName> PropertyNameFilter;
+    FString PropertyPathFilter;
+    if (Payload->TryGetStringField(TEXT("propertyPath"), PropertyPathFilter))
+    {
+        PropertyPathFilter.TrimStartAndEndInline();
+        if (!PropertyPathFilter.IsEmpty())
+        {
+            PropertyNameFilter.Add(FName(*PropertyPathFilter));
+        }
+    }
     const TArray<TSharedPtr<FJsonValue>>* PropNamesArr = nullptr;
     if (Payload->TryGetArrayField(TEXT("propertyNames"), PropNamesArr) && PropNamesArr)
     {

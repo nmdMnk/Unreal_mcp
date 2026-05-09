@@ -259,6 +259,8 @@ bool UMcpAutomationBridgeSubsystem::HandleAssetAction(
     return HandleCreateMaterial(RequestId, Payload, RequestingSocket);
   if (Lower == TEXT("create_material_instance"))
     return HandleCreateMaterialInstance(RequestId, Payload, RequestingSocket);
+  if (Lower == TEXT("create_render_target"))
+    return HandleManageTextureAction(RequestId, TEXT("manage_texture"), Payload, RequestingSocket);
   if (Lower == TEXT("get_dependencies"))
     return HandleGetDependencies(RequestId, Payload, RequestingSocket);
   if (Lower == TEXT("get_asset_graph"))
@@ -3625,7 +3627,9 @@ bool UMcpAutomationBridgeSubsystem::HandleGenerateLODs(
   Payload->TryGetStringField(TEXT("assetPath"), SingleAssetPath);
   
   const TArray<TSharedPtr<FJsonValue>> *AssetPathsArray = nullptr;
-  Payload->TryGetArrayField(TEXT("assetPaths"), AssetPathsArray);
+  if (!Payload->TryGetArrayField(TEXT("assetPaths"), AssetPathsArray)) {
+    Payload->TryGetArrayField(TEXT("assets"), AssetPathsArray);
+  }
 
   // Support both lodCount and numLODs
   int32 NumLODs = 4;

@@ -272,7 +272,20 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateLandscape(
   bool bHasCY = Payload->TryGetNumberField(TEXT("componentsY"), ComponentsY);
 
   int32 ComponentCount = 0;
-  Payload->TryGetNumberField(TEXT("componentCount"), ComponentCount);
+  const TSharedPtr<FJsonObject> *ComponentCountObj = nullptr;
+  if (Payload->TryGetObjectField(TEXT("componentCount"), ComponentCountObj) && ComponentCountObj) {
+    double ComponentCountX = 0.0, ComponentCountY = 0.0;
+    if (!bHasCX && (*ComponentCountObj)->TryGetNumberField(TEXT("x"), ComponentCountX)) {
+      ComponentsX = FMath::Max(1, static_cast<int32>(ComponentCountX));
+      bHasCX = true;
+    }
+    if (!bHasCY && (*ComponentCountObj)->TryGetNumberField(TEXT("y"), ComponentCountY)) {
+      ComponentsY = FMath::Max(1, static_cast<int32>(ComponentCountY));
+      bHasCY = true;
+    }
+  } else {
+    Payload->TryGetNumberField(TEXT("componentCount"), ComponentCount);
+  }
   if (!bHasCX && ComponentCount > 0) {
     ComponentsX = ComponentCount;
   }
@@ -297,7 +310,9 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateLandscape(
   if (!Payload->TryGetNumberField(TEXT("quadsPerComponent"),
                                   QuadsPerComponent)) {
     // Accept quadsPerSection synonym from some clients
-    Payload->TryGetNumberField(TEXT("quadsPerSection"), QuadsPerComponent);
+    if (!Payload->TryGetNumberField(TEXT("quadsPerSection"), QuadsPerComponent)) {
+      Payload->TryGetNumberField(TEXT("sectionSize"), QuadsPerComponent);
+    }
   }
 
   int32 SectionsPerComponent = 1;
@@ -666,6 +681,11 @@ bool UMcpAutomationBridgeSubsystem::HandleModifyHeightmap(
     (*RegionObj)->TryGetNumberField(TEXT("minY"), RegionMinY);
     (*RegionObj)->TryGetNumberField(TEXT("maxX"), RegionMaxX);
     (*RegionObj)->TryGetNumberField(TEXT("maxY"), RegionMaxY);
+  } else {
+    Payload->TryGetNumberField(TEXT("minX"), RegionMinX);
+    Payload->TryGetNumberField(TEXT("minY"), RegionMinY);
+    Payload->TryGetNumberField(TEXT("maxX"), RegionMaxX);
+    Payload->TryGetNumberField(TEXT("maxY"), RegionMaxY);
   }
 
   const TArray<TSharedPtr<FJsonValue>> *HeightDataArray = nullptr;
@@ -689,6 +709,9 @@ bool UMcpAutomationBridgeSubsystem::HandleModifyHeightmap(
   bool bSkipFlush = false;
   Payload->TryGetBoolField(TEXT("skipFlush"), bSkipFlush);
 
+  bool bUpdateNormals = false;
+  Payload->TryGetBoolField(TEXT("updateNormals"), bUpdateNormals);
+
   // Copy height data for async task
   TArray<uint16> HeightValues;
   if (bHasHeightData) {
@@ -708,7 +731,7 @@ bool UMcpAutomationBridgeSubsystem::HandleModifyHeightmap(
                                         LandscapeName, Operation,
                                         RegionMinX, RegionMinY, RegionMaxX, RegionMaxY,
                                         HeightValues =
-                                            MoveTemp(HeightValues), bSkipFlush]() {
+                                            MoveTemp(HeightValues), bSkipFlush, bUpdateNormals]() {
     UMcpAutomationBridgeSubsystem *Subsystem = WeakSubsystem.Get();
     if (!Subsystem)
       return;
@@ -918,7 +941,7 @@ bool UMcpAutomationBridgeSubsystem::HandleModifyHeightmap(
     // This prevents 60+ second hangs on large landscapes
     FLandscapeEditDataInterface LandscapeEditWrite(LandscapeInfo, false);
     LandscapeEditWrite.SetHeightData(MinX, MinY, MaxX, MaxY, OutputHeights.GetData(),
-                                     SizeX, false);
+                                     SizeX, bUpdateNormals);
 
     // Flush is expensive - it forces render thread synchronization
     // Skip if requested for batch operations, but note that changes
@@ -943,6 +966,7 @@ bool UMcpAutomationBridgeSubsystem::HandleModifyHeightmap(
     Resp->SetNumberField(TEXT("regionSizeX"), SizeX);
     Resp->SetNumberField(TEXT("regionSizeY"), SizeY);
     Resp->SetBoolField(TEXT("flushSkipped"), bSkipFlush);
+    Resp->SetBoolField(TEXT("updateNormals"), bUpdateNormals);
     
     // Add verification data
     McpHandlerUtils::AddVerification(Resp, Landscape);
@@ -1045,13 +1069,19 @@ bool UMcpAutomationBridgeSubsystem::HandleSculptLandscape(
   FVector TargetLocation(LocX, LocY, LocZ);
 
   FString ToolMode = TEXT("Raise");
-  Payload->TryGetStringField(TEXT("toolMode"), ToolMode);
+  if (!Payload->TryGetStringField(TEXT("toolMode"), ToolMode)) {
+    Payload->TryGetStringField(TEXT("tool"), ToolMode);
+  }
 
   double BrushRadius = 1000.0;
-  Payload->TryGetNumberField(TEXT("brushRadius"), BrushRadius);
+  if (!Payload->TryGetNumberField(TEXT("brushRadius"), BrushRadius)) {
+    Payload->TryGetNumberField(TEXT("radius"), BrushRadius);
+  }
 
   double BrushFalloff = 0.5;
-  Payload->TryGetNumberField(TEXT("brushFalloff"), BrushFalloff);
+  if (!Payload->TryGetNumberField(TEXT("brushFalloff"), BrushFalloff)) {
+    Payload->TryGetNumberField(TEXT("falloff"), BrushFalloff);
+  }
 
   double Strength = 0.1;
   Payload->TryGetNumberField(TEXT("strength"), Strength);
@@ -1340,6 +1370,11 @@ bool UMcpAutomationBridgeSubsystem::HandlePaintLandscapeLayer(
     (*RegionObj)->TryGetNumberField(TEXT("minY"), MinY);
     (*RegionObj)->TryGetNumberField(TEXT("maxX"), MaxX);
     (*RegionObj)->TryGetNumberField(TEXT("maxY"), MaxY);
+  } else {
+    Payload->TryGetNumberField(TEXT("minX"), MinX);
+    Payload->TryGetNumberField(TEXT("minY"), MinY);
+    Payload->TryGetNumberField(TEXT("maxX"), MaxX);
+    Payload->TryGetNumberField(TEXT("maxY"), MaxY);
   }
 
   double Strength = 1.0;
@@ -1769,9 +1804,12 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateLandscapeGrassType(
   FString MeshPath;
   if (!Payload->TryGetStringField(TEXT("meshPath"), MeshPath) ||
       MeshPath.IsEmpty()) {
-    SendAutomationError(RequestingSocket, RequestId, TEXT("meshPath required"),
-                        TEXT("INVALID_ARGUMENT"));
-    return true;
+    Payload->TryGetStringField(TEXT("staticMesh"), MeshPath);
+    if (MeshPath.IsEmpty()) {
+      SendAutomationError(RequestingSocket, RequestId, TEXT("meshPath or staticMesh required"),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
   }
 
   // Security: Validate mesh path

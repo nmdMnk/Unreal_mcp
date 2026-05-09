@@ -724,6 +724,9 @@ bool UMcpAutomationBridgeSubsystem::HandleAddFoliageType(
   bool RandomYaw = true;
   Payload->TryGetBoolField(TEXT("randomYaw"), RandomYaw);
 
+  int32 CullDistance = 0;
+  Payload->TryGetNumberField(TEXT("cullDistance"), CullDistance);
+
   // Use Silent load to avoid engine warnings
   UStaticMesh *StaticMesh = LoadObject<UStaticMesh>(nullptr, *MeshPath);
   if (!StaticMesh) {
@@ -802,6 +805,10 @@ bool UMcpAutomationBridgeSubsystem::HandleAddFoliageType(
   FoliageType->ScaleZ.Max = static_cast<float>(MaxScale);
   FoliageType->AlignToNormal = AlignToNormal;
   FoliageType->RandomYaw = RandomYaw;
+  if (CullDistance > 0) {
+    FoliageType->CullDistance.Min = 0;
+    FoliageType->CullDistance.Max = CullDistance;
+  }
   FoliageType->ReapplyDensity = true;
 
   McpSafeAssetSave(FoliageType);
@@ -1203,7 +1210,9 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateProceduralFoliage(
     return true;
   }
 
-  Spawner->TileSize = 1000.0f; // Default tile size
+  double TileSize = 1000.0;
+  Payload->TryGetNumberField(TEXT("tileSize"), TileSize);
+  Spawner->TileSize = static_cast<float>(FMath::Max(1.0, TileSize));
   Spawner->NumUniqueTiles = 10;
   Spawner->RandomSeed = Seed;
 
