@@ -28,7 +28,7 @@ export const MATERIAL_AUTHORING_ACTIONS = [
   'get_node_chain', 'get_connected_subgraph',
   'add_material_node', 'rebuild_material', 'set_material_parameter',
   'get_material_node_details', 'remove_material_node',
-  'set_two_sided', 'set_cast_shadows',
+  'set_two_sided',
 ] as const;
 
 export const TEXTURE_ACTIONS = [
@@ -200,10 +200,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         destinationPath: commonSchemas.destinationPath,
         assetPaths: commonSchemas.arrayOfStrings,
         lodCount: commonSchemas.numberProp,
-        reductionSettings: commonSchemas.objectProp,
-        nodeName: commonSchemas.name,
-        eventName: commonSchemas.eventName,
-        memberClass: commonSchemas.stringProp,
         posX: commonSchemas.numberProp,
         posY: commonSchemas.numberProp,
         newName: commonSchemas.newName,
@@ -214,30 +210,22 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         name: commonSchemas.name,
         path: commonSchemas.directoryPath,
         parentMaterial: commonSchemas.materialPath,
-        parameters: commonSchemas.objectProp,
         width: commonSchemas.numberProp,
         height: commonSchemas.numberProp,
+        depth: commonSchemas.numberProp,
         format: commonSchemas.stringProp,
         meshPath: commonSchemas.meshPath,
         tag: commonSchemas.tagName,
         metadata: commonSchemas.objectProp,
-        graphName: commonSchemas.graphName,
         nodeType: commonSchemas.stringProp,
         nodeId: commonSchemas.nodeId,
         sourceNodeId: commonSchemas.sourceNodeId,
         targetNodeId: commonSchemas.targetNodeId,
         inputName: commonSchemas.pinName,
-        fromNodeId: commonSchemas.sourceNodeId,
-        fromPin: commonSchemas.sourcePin,
-        toNodeId: commonSchemas.targetNodeId,
-        toPin: commonSchemas.targetPin,
         parameterName: commonSchemas.parameterName,
         value: commonSchemas.value,
         x: commonSchemas.numberProp,
         y: commonSchemas.numberProp,
-        comment: commonSchemas.stringProp,
-        parentNodeId: commonSchemas.nodeId,
-        childNodeId: commonSchemas.nodeId,
         maxDepth: commonSchemas.numberProp,
         // Bulk operations (C++ TryGetStringField)
         prefix: commonSchemas.stringProp,
@@ -252,23 +240,80 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         showConfirmation: commonSchemas.booleanProp,
         // Material graph operations
         pinName: commonSchemas.pinName,
-        desc: commonSchemas.stringProp,
         materialPath: commonSchemas.materialPath,
         texturePath: commonSchemas.texturePath,
-        expressionClass: commonSchemas.stringProp,
         coordinateIndex: commonSchemas.numberProp,
         parameterType: commonSchemas.stringProp,
-        nodes: commonSchemas.arrayOfObjects,
         tags: commonSchemas.arrayOfStrings,
         // Handler aliases (alternative parameter names accepted by handler)
         folderPath: commonSchemas.directoryPath,
-        sourceNode: commonSchemas.sourceNodeId,
-        targetNode: commonSchemas.targetNodeId,
-        outputPin: commonSchemas.sourcePin,
-        inputPin: commonSchemas.targetPin,
         type: commonSchemas.stringProp,
         defaultValue: commonSchemas.value,
-        expressionIndex: commonSchemas.nodeId
+        force: commonSchemas.booleanProp,
+        recursive: commonSchemas.booleanProp,
+        reportType: commonSchemas.stringProp,
+        pattern: commonSchemas.stringProp,
+        replacement: commonSchemas.stringProp,
+        materialDomain: commonSchemas.stringProp,
+        blendMode: commonSchemas.stringProp,
+        shadingModel: commonSchemas.stringProp,
+        domain: commonSchemas.stringProp,
+        twoSided: commonSchemas.booleanProp,
+        uTiling: commonSchemas.numberProp,
+        vTiling: commonSchemas.numberProp,
+        operation: commonSchemas.stringProp,
+        constA: commonSchemas.numberProp,
+        constB: commonSchemas.numberProp,
+        code: commonSchemas.stringProp,
+        outputType: commonSchemas.stringProp,
+        inputs: commonSchemas.arrayOfObjects,
+        additionalOutputs: commonSchemas.arrayOfObjects,
+        group: commonSchemas.stringProp,
+        sourcePin: commonSchemas.sourcePin,
+        targetPin: commonSchemas.targetPin,
+        direction: commonSchemas.stringProp,
+        downstream: commonSchemas.booleanProp,
+        startNodeId: commonSchemas.nodeId,
+        endPin: commonSchemas.pinName,
+        orphansOnly: commonSchemas.booleanProp,
+        functionPath: commonSchemas.assetPath,
+        inputType: commonSchemas.stringProp,
+        instancePath: commonSchemas.assetPath,
+        layerName: commonSchemas.stringProp,
+        blendType: commonSchemas.stringProp,
+        layers: commonSchemas.arrayOfObjects,
+        nodeIds: commonSchemas.arrayOfStrings,
+        sourceTexture: commonSchemas.texturePath,
+        strength: commonSchemas.numberProp,
+        scale: commonSchemas.numberProp,
+        octaves: commonSchemas.numberProp,
+        samples: commonSchemas.numberProp,
+        newWidth: commonSchemas.numberProp,
+        newHeight: commonSchemas.numberProp,
+        filterMethod: commonSchemas.stringProp,
+        inBlack: commonSchemas.numberProp,
+        inWhite: commonSchemas.numberProp,
+        gamma: commonSchemas.numberProp,
+        curvePoints: commonSchemas.arrayOfObjects,
+        amount: commonSchemas.numberProp,
+        radius: commonSchemas.numberProp,
+        channel: commonSchemas.stringProp,
+        redTexture: commonSchemas.texturePath,
+        greenTexture: commonSchemas.texturePath,
+        blueTexture: commonSchemas.texturePath,
+        baseTexture: commonSchemas.texturePath,
+        blendTexture: commonSchemas.texturePath,
+        opacity: commonSchemas.numberProp,
+        compressionSettings: commonSchemas.stringProp,
+        textureGroup: commonSchemas.stringProp,
+        lodBias: commonSchemas.numberProp,
+        virtualTextureStreaming: commonSchemas.booleanProp,
+        neverStream: commonSchemas.booleanProp,
+        streamingPriority: commonSchemas.numberProp,
+        speed: commonSchemas.numberProp,
+        speedX: commonSchemas.numberProp,
+        speedY: commonSchemas.numberProp,
+        levels: commonSchemas.numberProp
       },
       required: ['action']
     },
@@ -334,8 +379,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         rotation: commonSchemas.arrayOfNumbers,
         scale: commonSchemas.arrayOfNumbers,
         operations: commonSchemas.arrayOfObjects,
-        compile: commonSchemas.compile,
-        save: commonSchemas.save,
         eventType: commonSchemas.stringProp,
         customEventName: commonSchemas.eventName,
         parameters: commonSchemas.arrayOfObjects,
@@ -345,7 +388,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         category: commonSchemas.stringProp,
         isReplicated: commonSchemas.booleanProp,
         isPublic: commonSchemas.booleanProp,
-        variablePinType: commonSchemas.objectProp,
         // Function configuration
         functionName: commonSchemas.functionName,
         inputs: commonSchemas.arrayOfObjects,
@@ -359,30 +401,21 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         parentComponent: commonSchemas.stringProp,
         meshPath: commonSchemas.meshPath,
         materialPath: commonSchemas.materialPath,
-        transform: commonSchemas.objectProp,
         applyAndSave: commonSchemas.booleanProp,
-        // Script configuration
-        scriptName: commonSchemas.stringProp,
         // Graph operations
         memberClass: commonSchemas.stringProp,
         targetClass: commonSchemas.stringProp,
         inputAxisName: commonSchemas.stringProp,
-        inputPin: commonSchemas.pinName,
-        outputPin: commonSchemas.pinName,
         // Compilation options
         saveAfterCompile: commonSchemas.booleanProp,
         // Timing/async options
         timeoutMs: commonSchemas.numberProp,
-        waitForCompletion: commonSchemas.booleanProp,
-        waitForCompletionTimeoutMs: commonSchemas.numberProp,
         // Parent class for blueprint creation
         parentClass: commonSchemas.parentClass,
         // Graph pin connections
         fromNodeId: commonSchemas.sourceNodeId,
-        fromPin: commonSchemas.sourcePin,
         fromPinName: commonSchemas.sourcePin,
         toNodeId: commonSchemas.targetNodeId,
-        toPin: commonSchemas.targetPin,
         toPinName: commonSchemas.targetPin
       ,
         path: commonSchemas.directoryPathForCreation,
@@ -405,17 +438,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                   properties: commonSchemas.vector2.properties,
                   description: 'Widget alignment (0-1).'
                 },
-        alignmentX: { type: 'number', description: 'Horizontal alignment (0-1).' },
-        alignmentY: { type: 'number', description: 'Vertical alignment (0-1).' },
-        positionX: { type: 'number', description: 'X position.' },
-        positionY: { type: 'number', description: 'Y position.' },
-        sizeX: { type: 'number', description: 'Width.' },
-        sizeY: { type: 'number', description: 'Height.' },
-        sizeToContent: { type: 'boolean', description: 'Size to content.' },
-        left: { type: 'number', description: 'Left padding.' },
-        top: { type: 'number', description: 'Top padding.' },
-        right: { type: 'number', description: 'Right padding.' },
-        bottom: { type: 'number', description: 'Bottom padding.' },
         zOrder: { type: 'number', description: 'Z-order for canvas slot.' },
         translation: {
                   type: 'object',
@@ -428,11 +450,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                   description: 'Render shear.'
                 },
         angle: commonSchemas.angle,
-        pivot: {
-                  type: 'object',
-                  properties: commonSchemas.vector2.properties,
-                  description: 'Rotation/scale pivot.'
-                },
         visibility: {
                   type: 'string',
                   enum: ['Visible', 'Collapsed', 'Hidden', 'HitTestInvisible', 'SelfHitTestInvisible'],
@@ -444,17 +461,11 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                   description: 'Widget clipping mode.'
                 },
         text: commonSchemas.text,
-        font: { type: 'string', description: 'Font asset path.' },
         fontSize: { type: 'number', description: 'Font size.' },
         colorAndOpacity: {
                   type: 'object',
                   properties: commonSchemas.colorObject.properties,
                   description: 'Color and opacity (0-1 values).'
-                },
-        justification: {
-                  type: 'string',
-                  enum: ['Left', 'Center', 'Right'],
-                  description: 'Text justification.'
                 },
         autoWrap: { type: 'boolean', description: 'Enable text auto-wrap.' },
         texturePath: commonSchemas.texturePath,
@@ -462,11 +473,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                   type: 'object',
                   properties: commonSchemas.vector2.properties,
                   description: 'Brush/image size.'
-                },
-        brushTiling: {
-                  type: 'string',
-                  enum: ['NoTile', 'Horizontal', 'Vertical', 'Both'],
-                  description: 'Image tiling mode.'
                 },
         isEnabled: { type: 'boolean', description: 'Widget enabled state.' },
         isChecked: { type: 'boolean', description: 'Checkbox checked state.' },
@@ -480,31 +486,19 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                   properties: commonSchemas.colorObject.properties,
                   description: 'Fill color for progress bar.'
                 },
-        barFillType: {
-                  type: 'string',
-                  enum: ['LeftToRight', 'RightToLeft', 'TopToBottom', 'BottomToTop', 'FillFromCenter'],
-                  description: 'Progress bar fill direction.'
-                },
         isMarquee: { type: 'boolean', description: 'Progress bar marquee mode.' },
         inputType: { type: 'string', enum: ['single', 'multi'], description: 'Text input type.' },
         hintText: { type: 'string', description: 'Placeholder hint text.' },
-        isPassword: { type: 'boolean', description: 'Password masking.' },
         options: {
                   type: 'array',
                   items: commonSchemas.stringProp,
                   description: 'Combo box options.'
                 },
         selectedOption: { type: 'string', description: 'Selected combo box option.' },
-        entryWidgetClass: { type: 'string', description: 'List/tree view entry widget class.' },
         orientation: {
                   type: 'string',
                   enum: ['Horizontal', 'Vertical'],
                   description: 'Widget orientation.'
-                },
-        selectionMode: {
-                  type: 'string',
-                  enum: ['None', 'Single', 'Multi'],
-                  description: 'Selection mode for list/tree.'
                 },
         scrollBarVisibility: {
                   type: 'string',
@@ -514,10 +508,18 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         alwaysShowScrollbar: { type: 'boolean', description: 'Always show scrollbar.' },
         columnCount: { type: 'number', description: 'Number of columns.' },
         rowCount: { type: 'number', description: 'Number of rows.' },
-        slotPadding: { type: 'number', description: 'Padding between slots.' },
+        slotPadding: {
+                  type: 'object',
+                  properties: { left: commonSchemas.numberProp, top: commonSchemas.numberProp, right: commonSchemas.numberProp, bottom: commonSchemas.numberProp },
+                  description: 'Padding between uniform grid slots.'
+                },
         minDesiredSlotWidth: { type: 'number', description: 'Minimum slot width.' },
         minDesiredSlotHeight: { type: 'number', description: 'Minimum slot height.' },
-        innerSlotPadding: { type: 'number', description: 'Inner slot padding.' },
+        innerSlotPadding: {
+                  type: 'object',
+                  properties: { left: commonSchemas.numberProp, top: commonSchemas.numberProp, right: commonSchemas.numberProp, bottom: commonSchemas.numberProp },
+                  description: 'Inner wrap box slot padding.'
+                },
         wrapWidth: { type: 'number', description: 'Wrap width for wrap box.' },
         explicitWrapWidth: { type: 'boolean', description: 'Use explicit wrap width.' },
         widthOverride: { type: 'number', description: 'Width override for size box.' },
@@ -540,32 +542,15 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                   properties: commonSchemas.colorObject.properties,
                   description: 'Border brush color.'
                 },
-        padding: { type: 'number', description: 'Uniform padding.' },
-        horizontalAlignment: {
-                  type: 'string',
-                  enum: ['Fill', 'Left', 'Center', 'Right'],
-                  description: 'Horizontal alignment.'
-                },
-        verticalAlignment: {
-                  type: 'string',
-                  enum: ['Fill', 'Top', 'Center', 'Bottom'],
-                  description: 'Vertical alignment.'
-                },
-        color: {
+        padding: {
                   type: 'object',
-                  properties: commonSchemas.colorObject.properties,
-                  description: 'Widget color.'
+                  properties: { left: commonSchemas.numberProp, top: commonSchemas.numberProp, right: commonSchemas.numberProp, bottom: commonSchemas.numberProp },
+                  description: 'Widget slot padding.'
                 },
-        opacity: { type: 'number', description: 'Widget opacity (0-1).' },
-        brush: { type: 'string', description: 'Brush asset path.' },
-        backgroundImage: { type: 'string', description: 'Background image path.' },
-        style: { type: 'string', description: 'Style preset name.' },
-        bindingType: { type: 'string', enum: ['function', 'variable'], description: 'Binding type.' },
         bindingSource: { type: 'string', description: 'Variable or function name to bind to.' },
         onHoveredFunction: { type: 'string', description: 'Function to call on hover.' },
         onUnhoveredFunction: { type: 'string', description: 'Function to call on unhover.' },
         animationName: commonSchemas.animationName,
-        length: { type: 'number', description: 'Animation length in seconds.' },
         trackType: {
                   type: 'string',
                   enum: ['transform', 'color', 'opacity', 'renderOpacity', 'material'],
@@ -583,101 +568,43 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                   enum: ['forward', 'reverse', 'pingpong'],
                   description: 'Animation play mode.'
                 },
-        includePlayButton: { type: 'boolean', description: 'Include play button in menu.' },
-        includeSettingsButton: { type: 'boolean', description: 'Include settings button.' },
-        includeQuitButton: { type: 'boolean', description: 'Include quit button.' },
-        includeResumeButton: { type: 'boolean', description: 'Include resume button.' },
-        includeQuitToMenuButton: { type: 'boolean', description: 'Include quit to menu button.' },
         settingsType: {
                   type: 'string',
                   enum: ['video', 'audio', 'controls', 'gameplay', 'all'],
                   description: 'Settings menu type.'
                 },
-        includeApplyButton: { type: 'boolean', description: 'Include apply button.' },
-        includeResetButton: { type: 'boolean', description: 'Include reset button.' },
         includeProgressBar: { type: 'boolean', description: 'Include progress bar.' },
-        includeTipText: { type: 'boolean', description: 'Include tip text.' },
-        includeBackgroundImage: { type: 'boolean', description: 'Include background image.' },
-        titleText: { type: 'string', description: 'Menu title text.' },
-        elements: {
-                  type: 'array',
-                  items: commonSchemas.stringProp,
-                  description: 'HUD elements to include.'
-                },
-        barStyle: {
-                  type: 'string',
-                  enum: ['simple', 'segmented', 'radial'],
-                  description: 'Health bar style.'
-                },
-        showNumbers: { type: 'boolean', description: 'Show numeric values.' },
-        barColor: {
-                  type: 'object',
-                  properties: commonSchemas.colorObject.properties,
-                  description: 'Bar color.'
-                },
-        ammoStyle: {
-                  type: 'string',
-                  enum: ['numeric', 'icon'],
-                  description: 'Ammo counter style.'
-                },
-        showReserve: { type: 'boolean', description: 'Show reserve ammo.' },
-        ammoIcon: { type: 'string', description: 'Ammo icon texture.' },
-        minimapSize: { type: 'number', description: 'Minimap size.' },
-        minimapShape: {
-                  type: 'string',
-                  enum: ['circle', 'square'],
-                  description: 'Minimap shape.'
-                },
-        rotateWithPlayer: { type: 'boolean', description: 'Rotate minimap with player.' },
-        showObjectives: { type: 'boolean', description: 'Show objectives on minimap.' },
-        crosshairStyle: {
-                  type: 'string',
-                  enum: ['dot', 'cross', 'circle', 'custom'],
-                  description: 'Crosshair style.'
-                },
-        crosshairSize: { type: 'number', description: 'Crosshair size.' },
-        spreadMultiplier: { type: 'number', description: 'Crosshair spread multiplier.' },
-        showDegrees: { type: 'boolean', description: 'Show compass degrees.' },
-        showCardinals: { type: 'boolean', description: 'Show cardinal directions.' },
         promptFormat: { type: 'string', description: 'Interaction prompt format.' },
-        showKeyIcon: { type: 'boolean', description: 'Show key icon in prompt.' },
-        keyIconStyle: { type: 'string', description: 'Key icon style.' },
         maxVisibleObjectives: { type: 'number', description: 'Maximum visible objectives.' },
-        showProgress: { type: 'boolean', description: 'Show objective progress.' },
-        animateUpdates: { type: 'boolean', description: 'Animate objective updates.' },
-        indicatorStyle: {
-                  type: 'string',
-                  enum: ['directional', 'vignette', 'both'],
-                  description: 'Damage indicator style.'
-                },
         fadeTime: commonSchemas.fadeTime,
         gridSize: {
                   type: 'object',
                   properties: { columns: commonSchemas.numberProp, rows: commonSchemas.numberProp },
                   description: 'Inventory grid size.'
                 },
-        slotSize: { type: 'number', description: 'Inventory slot size.' },
-        showEquipment: { type: 'boolean', description: 'Show equipment panel.' },
-        showDetails: { type: 'boolean', description: 'Show item details panel.' },
-        showPortrait: { type: 'boolean', description: 'Show speaker portrait.' },
         showSpeakerName: { type: 'boolean', description: 'Show speaker name.' },
-        choiceLayout: {
-                  type: 'string',
-                  enum: ['vertical', 'horizontal', 'radial'],
-                  description: 'Dialog choice layout.'
-                },
         segmentCount: { type: 'number', description: 'Number of radial segments.' },
-        innerRadius: { type: 'number', description: 'Inner radius of radial menu.' },
-        outerRadius: { type: 'number', description: 'Outer radius of radial menu.' },
-        showIcons: { type: 'boolean', description: 'Show icons in radial menu.' },
-        showLabels: { type: 'boolean', description: 'Show labels in radial menu.' },
         previewSize: {
                   type: 'string',
                   enum: ['1080p', '720p', 'mobile', 'custom'],
                   description: 'Preview resolution preset.'
                 },
-        customWidth: { type: 'number', description: 'Custom preview width.' },
-        customHeight: { type: 'number', description: 'Custom preview height.' }},
+        duration: commonSchemas.numberProp,
+        height: commonSchemas.numberProp,
+        nodeGuid: commonSchemas.stringProp,
+        nodeName: commonSchemas.nodeName,
+        parentName: commonSchemas.stringProp,
+        position: commonSchemas.location,
+        preset: commonSchemas.stringProp,
+        propertyValue: commonSchemas.value,
+        size: commonSchemas.numberProp,
+        sourceNode: commonSchemas.stringProp,
+        sourcePin: commonSchemas.sourcePin,
+        targetNode: commonSchemas.stringProp,
+        targetPin: commonSchemas.targetPin,
+        title: commonSchemas.stringProp,
+        width: commonSchemas.numberProp
+      },
       required: ['action']
     },
     outputSchema: {
@@ -738,7 +665,18 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         newName: commonSchemas.newName,
         tag: commonSchemas.tagName,
         variables: commonSchemas.objectProp,
-        snapshotName: commonSchemas.stringProp
+        snapshotName: commonSchemas.stringProp,
+        actorClass: commonSchemas.stringProp,
+        actorNames: commonSchemas.arrayOfStrings,
+        arguments: commonSchemas.value,
+        className: commonSchemas.stringProp,
+        collisionEnabled: commonSchemas.booleanProp,
+        functionName: commonSchemas.functionName,
+        limit: commonSchemas.numberProp,
+        name: commonSchemas.name,
+        offset: commonSchemas.location,
+        propertyName: commonSchemas.propertyName,
+        value: commonSchemas.value
       },
       required: ['action']
     },
@@ -804,8 +742,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         bookmarkName: commonSchemas.stringProp,
         // Path parameters for various actions
         assetPath: commonSchemas.assetPath,
-        levelPath: commonSchemas.levelPath,
         path: commonSchemas.directoryPath,
+        levelPath: commonSchemas.levelPath,
         // Actor-related parameters
         actorName: commonSchemas.actorName,
         name: commonSchemas.name,
@@ -817,12 +755,10 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         stat: commonSchemas.stringProp,
         category: commonSchemas.stringProp,
         preferences: commonSchemas.objectProp,
-        section: commonSchemas.stringProp,
         key: commonSchemas.stringProp,
-        value: commonSchemas.value,
         // simulate_input parameters
         inputAction: commonSchemas.stringProp,
-        axis: commonSchemas.stringProp
+        id: commonSchemas.stringProp
       },
       required: ['action']
     },
@@ -844,9 +780,9 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           type: 'string',
           enum: [
             'load', 'save', 'save_as', 'save_level_as', 'stream', 'unload', 'create_level', 'create_light', 'build_lighting',
-            'set_metadata', 'load_cells', 'set_datalayer', 'create_datalayer',
+            'set_metadata',
             'export_level', 'import_level', 'list_levels', 'get_summary', 'delete', 'delete_level', 'validate_level',
-            'cleanup_invalid_datalayers', 'add_sublevel', 'rename_level', 'duplicate_level', 'get_current_level'
+            'add_sublevel', 'rename_level', 'duplicate_level', 'get_current_level'
           ],
           description: 'Action'
         },
@@ -858,14 +794,11 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         // Save/export/import paths
         savePath: commonSchemas.savePath,
         destinationPath: commonSchemas.destinationPath,
-        targetPath: commonSchemas.directoryPath,
         exportPath: commonSchemas.exportPath,
         packagePath: commonSchemas.directoryPath,
         sourcePath: commonSchemas.sourcePath,
         // Sublevel parameters
         sublevelPath: commonSchemas.levelPath,
-        parentLevel: commonSchemas.parentLevel,
-        parentPath: commonSchemas.directoryPath,
         streamingMethod: commonSchemas.stringProp,
         // Streaming control
         streaming: commonSchemas.booleanProp,
@@ -877,24 +810,15 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         color: commonSchemas.color,
         location: commonSchemas.location,
         rotation: commonSchemas.rotation,
-        // World Partition / Data Layers
-        cells: commonSchemas.arrayOfStrings,
-        dataLayerName: commonSchemas.dataLayerName,
-        dataLayerLabel: commonSchemas.stringProp,
-        dataLayerState: commonSchemas.stringProp,
-        actorPath: commonSchemas.actorPath,
-        // Cell bounds
-        min: commonSchemas.location,
-        max: commonSchemas.location,
-        origin: commonSchemas.location,
-        extent: commonSchemas.extent,
         // Level creation
-        template: commonSchemas.stringProp,
         useWorldPartition: commonSchemas.booleanProp,
         // Metadata & utilities
         metadata: commonSchemas.objectProp,
         newName: commonSchemas.stringProp,
-        timeoutMs: commonSchemas.numberProp
+        timeoutMs: commonSchemas.numberProp,
+        name: commonSchemas.name,
+        quality: commonSchemas.stringProp,
+        subLevelPath: commonSchemas.levelPath
       },
       required: ['action']
     },
@@ -940,7 +864,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         updateNormals: commonSchemas.booleanProp,
         location: commonSchemas.location,
         rotation: commonSchemas.rotation,
-        scale: commonSchemas.scale,
         sizeX: commonSchemas.numberProp,
         sizeY: commonSchemas.numberProp,
         sectionSize: commonSchemas.numberProp,
@@ -951,9 +874,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         radius: commonSchemas.numberProp,
         strength: commonSchemas.numberProp,
         falloff: commonSchemas.numberProp,
-        brushSize: commonSchemas.numberProp,
         layerName: commonSchemas.stringProp,
-        eraseMode: commonSchemas.booleanProp,
         actorName: commonSchemas.actorName,
         foliageType: commonSchemas.stringProp,
         foliageTypePath: commonSchemas.assetPath,
@@ -983,15 +904,10 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         foliageTypes: commonSchemas.arrayOfObjects,
         // Additional handler-used params
         quadsPerSection: commonSchemas.numberProp,
-        enableWorldPartition: commonSchemas.booleanProp,
-        runtimeGrid: commonSchemas.stringProp,
-        isSpatiallyLoaded: commonSchemas.booleanProp,
-        dataLayers: commonSchemas.arrayOfStrings,
         count: commonSchemas.numberProp,
         assets: commonSchemas.arrayOfStrings,
         numLODs: commonSchemas.numberProp,
         subdivisions: commonSchemas.numberProp,
-        settings: commonSchemas.objectProp,
         tileSize: commonSchemas.numberProp,
         quality: commonSchemas.stringProp,
         staticMesh: commonSchemas.meshPath,
@@ -1006,7 +922,39 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         heightScale: commonSchemas.numberProp,
         material: commonSchemas.materialPath,
         hour: commonSchemas.numberProp,
-        intensity: commonSchemas.numberProp
+        intensity: commonSchemas.numberProp,
+        alignToSpline: commonSchemas.booleanProp,
+        arriveTangent: commonSchemas.location,
+        bClosedLoop: commonSchemas.booleanProp,
+        blueprintPath: commonSchemas.blueprintPath,
+        compensationValue: commonSchemas.numberProp,
+        componentName: commonSchemas.componentName,
+        enabled: commonSchemas.enabled,
+        forwardAxis: commonSchemas.stringProp,
+        initialPoints: commonSchemas.arrayOfObjects,
+        leaveTangent: commonSchemas.location,
+        lightType: commonSchemas.stringProp,
+        materialIndex: commonSchemas.numberProp,
+        maxBrightness: commonSchemas.numberProp,
+        method: commonSchemas.stringProp,
+        minBrightness: commonSchemas.numberProp,
+        operation: commonSchemas.stringProp,
+        pointIndex: commonSchemas.numberProp,
+        pointRotation: commonSchemas.rotation,
+        pointScale: commonSchemas.scale,
+        pointType: commonSchemas.stringProp,
+        propertyName: commonSchemas.propertyName,
+        propertyValue: commonSchemas.value,
+        randomOffsetRange: commonSchemas.numberProp,
+        randomizeRotation: commonSchemas.booleanProp,
+        randomizeScale: commonSchemas.booleanProp,
+        region: commonSchemas.objectProp,
+        rotationRange: commonSchemas.rotation,
+        save: commonSchemas.save,
+        skipFlush: commonSchemas.booleanProp,
+        splineType: commonSchemas.stringProp,
+        useRandomOffset: commonSchemas.booleanProp,
+        width: commonSchemas.numberProp
       },
       required: ['action']
     },
@@ -1033,8 +981,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'create_aim_offset', 'add_aim_offset_sample',
             'create_state_machine', 'add_state_machine', 'add_state', 'add_transition',
             'set_transition_rules', 'add_blend_node', 'add_cached_pose', 'add_slot_node',
-            'create_control_rig', 'add_control', 'add_rig_unit', 'connect_rig_elements',
-            'create_ik_rig', 'add_ik_chain', 'setup_ik',
+            'create_control_rig',
+            'create_ik_rig', 'setup_ik',
             'create_pose_library',
             'create_animation_asset', 'create_animation_sequence',
             'set_sequence_length', 'add_bone_track', 'set_bone_key', 'set_curve_key',
@@ -1047,7 +995,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'add_blend_sample', 'set_axis_settings',
             'set_interpolation_settings', 'setup_retargeting',
             'add_layered_blend_per_bone', 'set_anim_graph_node_value',
-            'create_ik_retargeter', 'set_retarget_chain_mapping', 'get_animation_info',
+            'set_retarget_chain_mapping', 'get_animation_info',
             'cleanup'
           ,
             ...SKELETON_ACTIONS],
@@ -1059,17 +1007,9 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         animationPath: commonSchemas.assetPath,
         savePath: commonSchemas.savePath,
         skeletonPath: commonSchemas.assetPath,
-        meshPath: commonSchemas.meshPath,
         parentClass: commonSchemas.stringProp,
         actorName: commonSchemas.actorName,
-        skeletonName: commonSchemas.stringProp,
         targetSkeleton: commonSchemas.assetPath,
-        blueprintName: commonSchemas.stringProp,
-        montageName: commonSchemas.stringProp,
-        animSequence: commonSchemas.assetPath,
-        animPath: commonSchemas.assetPath,
-        animAssetPath: commonSchemas.assetPath,
-        animMontagePath: commonSchemas.assetPath,
         slotName: commonSchemas.stringProp,
         sectionName: commonSchemas.stringProp,
         notifyName: commonSchemas.stringProp,
@@ -1077,17 +1017,10 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         curveName: commonSchemas.stringProp,
         stateName: commonSchemas.stringProp,
         machineName: commonSchemas.stringProp,
-        transitionName: commonSchemas.stringProp,
-        blendSpacePath: commonSchemas.assetPath,
-        numSamples: commonSchemas.numberProp,
         numFrames: commonSchemas.numberProp,
         frameRate: commonSchemas.numberProp,
         interpolationType: commonSchemas.stringProp,
         axisName: commonSchemas.stringProp,
-        min: commonSchemas.numberProp,
-        max: commonSchemas.numberProp,
-        samples: commonSchemas.arrayOfObjects,
-        animSequencePath: commonSchemas.assetPath,
         playRate: commonSchemas.numberProp,
         frame: commonSchemas.numberProp,
         time: commonSchemas.numberProp,
@@ -1096,28 +1029,84 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         rotation: commonSchemas.rotation,
         scale: commonSchemas.scale,
         value: commonSchemas.value,
-        enabled: commonSchemas.enabled,
-        rigPath: commonSchemas.assetPath,
-        chainName: commonSchemas.stringProp,
-        startBone: commonSchemas.boneName,
-        endBone: commonSchemas.boneName,
-        controlName: commonSchemas.stringProp,
-        unitType: commonSchemas.stringProp,
-        sourceNode: commonSchemas.stringProp,
-        targetNode: commonSchemas.stringProp,
-        sourcePin: commonSchemas.stringProp,
-        targetPin: commonSchemas.stringProp,
         vehicleType: commonSchemas.stringProp,
-        wheelConfig: commonSchemas.objectProp,
-        engineTorque: commonSchemas.numberProp,
         mass: commonSchemas.numberProp,
         dragCoefficient: commonSchemas.numberProp,
         artifacts: commonSchemas.arrayOfStrings,
-        ragdollActive: commonSchemas.booleanProp,
         sourceSkeleton: commonSchemas.assetPath,
-        retargetSkeleton: commonSchemas.assetPath,
-        retargetProfile: commonSchemas.stringProp,
-        save: commonSchemas.save
+        save: commonSchemas.save,
+        additiveAnimType: commonSchemas.stringProp,
+        angularDamping: commonSchemas.numberProp,
+        assets: commonSchemas.arrayOfStrings,
+        assignToMesh: commonSchemas.booleanProp,
+        attachBoneName: commonSchemas.boneName,
+        axis: commonSchemas.stringProp,
+        basePoseFrame: commonSchemas.numberProp,
+        basePoseType: commonSchemas.stringProp,
+        blendTime: commonSchemas.numberProp,
+        blendType: commonSchemas.stringProp,
+        blueprintPath: commonSchemas.blueprintPath,
+        bodyA: commonSchemas.stringProp,
+        bodyB: commonSchemas.stringProp,
+        bodyType: commonSchemas.stringProp,
+        boneTracks: commonSchemas.arrayOfObjects,
+        cacheName: commonSchemas.stringProp,
+        center: commonSchemas.location,
+        collisionEnabled: commonSchemas.booleanProp,
+        constraintName: commonSchemas.stringProp,
+        deltas: commonSchemas.arrayOfObjects,
+        enableRootMotion: commonSchemas.booleanProp,
+        endFrame: commonSchemas.numberProp,
+        forceRootLock: commonSchemas.booleanProp,
+        fromSection: commonSchemas.stringProp,
+        fromState: commonSchemas.stringProp,
+        layerSetup: commonSchemas.arrayOfObjects,
+        limits: commonSchemas.objectProp,
+        linearDamping: commonSchemas.numberProp,
+        lodIndex: commonSchemas.numberProp,
+        markerName: commonSchemas.stringProp,
+        maxValue: commonSchemas.numberProp,
+        minValue: commonSchemas.numberProp,
+        montagePath: commonSchemas.assetPath,
+        morphTargetName: commonSchemas.stringProp,
+        morphTargetPath: commonSchemas.assetPath,
+        newBoneName: commonSchemas.boneName,
+        nodeName: commonSchemas.nodeName,
+        outputPath: commonSchemas.outputPath,
+        overwrite: commonSchemas.overwrite,
+        parentBoneName: commonSchemas.boneName,
+        physicsAssetName: commonSchemas.stringProp,
+        physicsAssetPath: commonSchemas.physicsAssetPath,
+        pitch: commonSchemas.numberProp,
+        profileName: commonSchemas.stringProp,
+        propertyName: commonSchemas.propertyName,
+        radius: commonSchemas.numberProp,
+        relativeLocation: commonSchemas.location,
+        relativeRotation: commonSchemas.rotation,
+        relativeScale: commonSchemas.scale,
+        removeChildren: commonSchemas.booleanProp,
+        rootBoneName: commonSchemas.boneName,
+        rootMotionRootLock: commonSchemas.stringProp,
+        sampleValue: commonSchemas.numberProp,
+        simulatePhysics: commonSchemas.booleanProp,
+        skeletalMeshPath: commonSchemas.skeletalMeshPath,
+        socketName: commonSchemas.socketName,
+        sourceBoneName: commonSchemas.boneName,
+        sourceChain: commonSchemas.stringProp,
+        sourceMeshPath: commonSchemas.meshPath,
+        startFrame: commonSchemas.numberProp,
+        startTime: commonSchemas.numberProp,
+        stateMachineName: commonSchemas.stringProp,
+        suffix: commonSchemas.stringProp,
+        targetBoneName: commonSchemas.boneName,
+        targetChain: commonSchemas.stringProp,
+        targetMeshPath: commonSchemas.meshPath,
+        threshold: commonSchemas.numberProp,
+        toSection: commonSchemas.stringProp,
+        toState: commonSchemas.stringProp,
+        trackIndex: commonSchemas.numberProp,
+        weights: commonSchemas.arrayOfNumbers,
+        yaw: commonSchemas.numberProp
       },
       required: ['action']
     },
@@ -1169,7 +1158,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         section: commonSchemas.stringProp,
         key: commonSchemas.stringProp,
         value: commonSchemas.stringProp,
-        configName: commonSchemas.stringProp,
         code: { type: 'string', description: 'Python code to execute inline', maxLength: 1048576 }, // 1MB max — prevents resource exhaustion via oversized payloads
         file: { type: 'string', description: 'Path to .py file to execute', maxLength: 4096 } // Max path length on most OS
       ,
@@ -1179,26 +1167,31 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         detailed: commonSchemas.booleanProp,
         scale: commonSchemas.numberProp,
         maxFPS: commonSchemas.numberProp,
-        verbose: commonSchemas.booleanProp,
         poolSize: commonSchemas.numberProp,
         boostPlayerLocation: commonSchemas.booleanProp,
         forceLOD: commonSchemas.numberProp,
         lodBias: commonSchemas.numberProp,
-        distanceScale: commonSchemas.numberProp,
-        skeletalBias: commonSchemas.numberProp,
-        hzb: commonSchemas.booleanProp,
         enableInstancing: commonSchemas.booleanProp,
         enableBatching: commonSchemas.booleanProp,
         mergeActors: commonSchemas.booleanProp,
         actors: commonSchemas.arrayOfStrings,
-        freezeRendering: commonSchemas.booleanProp,
-        compileOnDemand: commonSchemas.booleanProp,
-        cacheShaders: commonSchemas.booleanProp,
-        reducePermutations: commonSchemas.booleanProp,
-        maxPixelsPerEdge: commonSchemas.numberProp,
-        streamingPoolSize: commonSchemas.numberProp,
         streamingDistance: commonSchemas.numberProp,
-        cellSize: commonSchemas.numberProp},
+        cellSize: commonSchemas.numberProp,
+        categoryName: commonSchemas.stringProp,
+        filename: commonSchemas.stringProp,
+        height: commonSchemas.numberProp,
+        message: commonSchemas.stringProp,
+        name: commonSchemas.name,
+        packageName: commonSchemas.stringProp,
+        paths: commonSchemas.arrayOfStrings,
+        replaceSourceActors: commonSchemas.booleanProp,
+        savePath: commonSchemas.savePath,
+        text: commonSchemas.stringProp,
+        volume: commonSchemas.numberProp,
+        widgetId: commonSchemas.stringProp,
+        width: commonSchemas.numberProp,
+        windowed: commonSchemas.booleanProp
+      },
       required: ['action']
     },
     outputSchema: {
@@ -1237,7 +1230,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         property: commonSchemas.propertyName,
         destinationPath: commonSchemas.destinationPath,
         newName: commonSchemas.newName,
-        overwrite: commonSchemas.overwrite,
         speed: commonSchemas.numberProp,
         startTime: commonSchemas.numberProp,
         loopMode: commonSchemas.stringProp,
@@ -1248,7 +1240,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         muted: commonSchemas.booleanProp,
         solo: commonSchemas.booleanProp,
         locked: commonSchemas.booleanProp,
-        assetPath: commonSchemas.assetPath,
         startFrame: commonSchemas.numberProp,
         endFrame: commonSchemas.numberProp,
         frameRate: commonSchemas.stringProp,
@@ -1303,9 +1294,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         tag: commonSchemas.tagName,
         filter: commonSchemas.stringProp,
         snapshotName: commonSchemas.stringProp,
-        destinationPath: commonSchemas.destinationPath,
-        outputPath: commonSchemas.outputPath,
-        format: commonSchemas.stringProp,
         blueprintPath: commonSchemas.blueprintPath,
         detailed: commonSchemas.booleanProp,
         propertyNames: commonSchemas.arrayOfStrings,
@@ -1401,13 +1389,12 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         falloffMode: commonSchemas.stringProp,
         reverbEffect: commonSchemas.stringProp,
         size: commonSchemas.scale,
-        fftSize: commonSchemas.numberProp,
+        analysisType: commonSchemas.stringProp,
+        windowSize: commonSchemas.numberProp,
         outputType: commonSchemas.stringProp,
         soundName: commonSchemas.stringProp,
         fadeType: commonSchemas.stringProp,
-        scale: commonSchemas.numberProp,
         lowPassFilterFrequency: commonSchemas.numberProp,
-        volumeAttenuation: commonSchemas.numberProp,
         enabled: commonSchemas.enabled,
         // Authoring properties
         path: commonSchemas.directoryPathForCreation,
@@ -1415,15 +1402,9 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         save: commonSchemas.save,
         wavePath: commonSchemas.wavePath,
         nodeType: commonSchemas.stringProp,
-        nodeId: commonSchemas.nodeId,
         sourceNodeId: commonSchemas.sourceNodeId,
         targetNodeId: commonSchemas.targetNodeId,
-        outputPin: commonSchemas.numberProp,
-        inputPin: commonSchemas.numberProp,
         looping: commonSchemas.looping,
-        x: commonSchemas.numberProp,
-        y: commonSchemas.numberProp,
-        metasoundType: commonSchemas.stringProp,
         inputName: commonSchemas.inputName,
         inputType: commonSchemas.stringProp,
         outputName: commonSchemas.outputName,
@@ -1432,9 +1413,24 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         targetNode: commonSchemas.targetNode,
         targetPin: commonSchemas.targetPin,
         defaultValue: commonSchemas.value,
-        metasoundNodeType: commonSchemas.stringProp,
         soundClassPath: commonSchemas.soundClassPath,
-        parentClassPath: commonSchemas.parentClassPath
+        dopplerIntensity: commonSchemas.numberProp,
+        effectType: commonSchemas.stringProp,
+        enable: commonSchemas.booleanProp,
+        enableReverbSend: commonSchemas.booleanProp,
+        occlusionFilterScale: commonSchemas.numberProp,
+        occlusionInterpolationTime: commonSchemas.numberProp,
+        occlusionVolumeScale: commonSchemas.numberProp,
+        reverbDistanceMax: commonSchemas.numberProp,
+        reverbDistanceMin: commonSchemas.numberProp,
+        reverbWetLevelMax: commonSchemas.numberProp,
+        reverbWetLevelMin: commonSchemas.numberProp,
+        sourceOutputName: commonSchemas.stringProp,
+        spatialization: commonSchemas.stringProp,
+        speakerPath: commonSchemas.assetPath,
+        targetInputName: commonSchemas.stringProp,
+        velocityScale: commonSchemas.numberProp,
+        volumeAdjuster: commonSchemas.numberProp
       },
       required: ['action']
     },
@@ -1468,7 +1464,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'extrude_along_spline', 'bridge', 'loft', 'sweep',
             'duplicate_along_spline', 'loop_cut', 'edge_split', 'quadrangulate',
             'bend', 'twist', 'taper', 'noise_deform', 'smooth', 'relax',
-            'stretch', 'spherify', 'cylindrify',
+            'stretch', 'spherify', 'cylindrify', 'lattice_deform', 'displace_by_texture',
             'triangulate', 'poke',
             'mirror', 'array_linear', 'array_radial',
             'simplify_mesh', 'subdivide', 'remesh_uniform', 'merge_vertices', 'remesh_voxel',
@@ -1482,9 +1478,10 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           ],
           description: 'Geometry action to perform'
         },
-        meshPath: commonSchemas.meshPath,
-        targetMeshPath: { type: 'string', description: 'Path to second mesh for boolean operations.' },
         outputPath: commonSchemas.outputPath,
+        assetPath: commonSchemas.assetPath,
+        name: commonSchemas.name,
+        path: commonSchemas.directoryPath,
         actorName: commonSchemas.actorName,
         width: commonSchemas.width,
         height: commonSchemas.height,
@@ -1511,41 +1508,48 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         angle: commonSchemas.angle,
         axis: { type: 'string', enum: ['X', 'Y', 'Z'], description: 'Axis for deformation operations.' },
         strength: commonSchemas.strength,
+        weight: { type: 'number', description: 'Weight for lattice deformation.' },
+        latticeResolution: { type: 'number', description: 'Control lattice resolution for lattice deformation.' },
+        heightScale: { type: 'number', description: 'Texture displacement height scale.' },
+        midpoint: { type: 'number', description: 'Texture luminance midpoint for displacement.' },
+        texturePath: commonSchemas.texturePath,
+        position: commonSchemas.location,
+        center: commonSchemas.location,
+        offset: commonSchemas.location,
+        dimensions: commonSchemas.dimensions,
+        targetActor: commonSchemas.actorName,
+        toolActor: commonSchemas.actorName,
+        trimActorName: commonSchemas.actorName,
+        splineActorName: commonSchemas.actorName,
+        keepTool: commonSchemas.booleanProp,
+        keepInside: commonSchemas.booleanProp,
+        cap: commonSchemas.booleanProp,
+        count: commonSchemas.numberProp,
+        steps: commonSchemas.numberProp,
         iterations: { type: 'number', description: 'Number of iterations for smooth, remesh.' },
         targetTriangleCount: { type: 'number', description: 'Target triangle count for simplification.' },
         targetEdgeLength: { type: 'number', description: 'Target edge length for remeshing.' },
         weldDistance: { type: 'number', description: 'Distance threshold for vertex welding.' },
-        faceIndices: { type: 'array', items: commonSchemas.numberProp, description: 'Array of face indices.' },
-        edgeIndices: { type: 'array', items: commonSchemas.numberProp, description: 'Array of edge indices.' },
-        vertexIndices: { type: 'array', items: commonSchemas.numberProp, description: 'Array of vertex indices.' },
-        selectionBox: { type: 'object', properties: { min: commonSchemas.objectProp, max: commonSchemas.objectProp }, description: 'Bounding box for selection.' },
         uvChannel: { type: 'number', description: 'UV channel index (0-7).' },
         uvScale: { type: 'object', properties: { u: commonSchemas.numberProp, v: commonSchemas.numberProp }, description: 'UV scale.' },
         uvOffset: { type: 'object', properties: { u: commonSchemas.numberProp, v: commonSchemas.numberProp }, description: 'UV offset.' },
-        projectionDirection: { type: 'string', enum: ['X', 'Y', 'Z', 'Auto'], description: 'Projection direction for UV.' },
         hardEdgeAngle: { type: 'number', description: 'Angle threshold for hard edges (degrees).' },
         computeWeightedNormals: { type: 'boolean', description: 'Use area-weighted normals.' },
-        smoothingGroupId: { type: 'number', description: 'Smoothing group ID.' },
         collisionType: { type: 'string', enum: ['Default', 'Simple', 'Complex', 'UseComplexAsSimple', 'UseSimpleAsComplex'], description: 'Collision complexity type.' },
         hullCount: { type: 'number', description: 'Number of convex hulls for decomposition.' },
+        maxHullCount: { type: 'number', description: 'Maximum hull count for complex collision generation.' },
+        maxHullVerts: { type: 'number', description: 'Maximum vertices per hull for complex collision generation.' },
+        targetHullCount: { type: 'number', description: 'Target hull count for collision simplification.' },
+        simplificationFactor: { type: 'number', description: 'Collision simplification factor.' },
         hullPrecision: { type: 'number', description: 'Precision for convex hull generation (0-1).' },
         maxVerticesPerHull: { type: 'number', description: 'Maximum vertices per convex hull.' },
         lodCount: { type: 'number', description: 'Number of LOD levels to generate.' },
         lodIndex: { type: 'number', description: 'Specific LOD index to configure.' },
         reductionPercent: { type: 'number', description: 'Percent of triangles to reduce per LOD.' },
-        screenSize: { type: 'number', description: 'Screen size threshold for LOD switching.' },
-        screenSizes: { type: 'array', items: commonSchemas.numberProp, description: 'Array of screen sizes for each LOD.' },
-        preserveBorders: { type: 'boolean', description: 'Preserve mesh borders during LOD generation.' },
-        preserveUVs: { type: 'boolean', description: 'Preserve UV seams during LOD generation.' },
-        exportFormat: { type: 'string', enum: ['FBX', 'OBJ', 'glTF', 'USD'], description: 'Export file format.' },
-        exportPath: commonSchemas.exportPath,
-        includeNormals: { type: 'boolean', description: 'Include normals in export.' },
-        includeUVs: { type: 'boolean', description: 'Include UVs in export.' },
-        includeTangents: { type: 'boolean', description: 'Include tangents in export.' },
-        createAsset: { type: 'boolean', description: 'Create as persistent asset.' },
-        overwrite: commonSchemas.overwrite,
-        save: commonSchemas.save,
-        enableNanite: { type: 'boolean', description: 'Enable Nanite for the output mesh.' }
+        trianglePercent: { type: 'number', description: 'Percent of triangles to keep for LOD reduction.' },
+        recomputeNormals: commonSchemas.booleanProp,
+        recomputeTangents: commonSchemas.booleanProp,
+        screenSizes: { type: 'array', items: commonSchemas.numberProp, description: 'Array of screen sizes for each LOD.' }
       },
       required: ['action']
     },
@@ -1605,123 +1609,111 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         },
         // Common parameters
         name: commonSchemas.name,
-        assetPath: commonSchemas.assetPath,
+        path: commonSchemas.directoryPathForCreation,
         savePath: commonSchemas.savePath,
-        template: commonSchemas.stringProp,
+        assetPath: commonSchemas.assetPath,
+        timeoutMs: commonSchemas.numberProp,
+        save: commonSchemas.booleanProp,
         // System/Emitter parameters
         system: commonSchemas.assetPath,
         systemPath: commonSchemas.assetPath,
         systemName: commonSchemas.stringProp,
         emitter: commonSchemas.stringProp,
         emitterName: commonSchemas.stringProp,
-        emitterTemplate: commonSchemas.assetPath,
-        // Location and transform
+        emitterPath: commonSchemas.assetPath,
+        emitterProperties: commonSchemas.objectProp,
+        // Placement and lifecycle
         location: commonSchemas.location,
-        rotation: commonSchemas.rotation,
-        scale: commonSchemas.scale,
-        // Effect control
-        effect: commonSchemas.assetPath,
-        effectId: commonSchemas.stringProp,
-        effectHandle: commonSchemas.stringProp,
-        niagaraHandle: commonSchemas.stringProp,
         actorName: commonSchemas.actorName,
+        attachToActor: commonSchemas.actorName,
         reset: commonSchemas.booleanProp,
-        time: commonSchemas.numberProp,
-        // Debug shapes
+        filter: commonSchemas.stringProp,
+        deltaTime: commonSchemas.numberProp,
+        steps: commonSchemas.integerProp,
+        // Debug/particle/fog/light parameters
+        preset: commonSchemas.stringProp,
         shape: commonSchemas.stringProp,
         shapeType: commonSchemas.stringProp,
         radius: commonSchemas.numberProp,
-        color: { type: 'array', items: commonSchemas.numberProp },
+        color: {
+          oneOf: [
+            { type: 'array', items: commonSchemas.numberProp },
+            {
+              type: 'object',
+              properties: {
+                r: commonSchemas.numberProp,
+                g: commonSchemas.numberProp,
+                b: commonSchemas.numberProp,
+                a: commonSchemas.numberProp
+              }
+            }
+          ],
+          description: 'RGBA color as an array [r,g,b,a] or object {r,g,b,a} depending on action.'
+        },
         duration: commonSchemas.numberProp,
-        // Dynamic light
         lightType: commonSchemas.stringProp,
         intensity: commonSchemas.numberProp,
-        // Particle/VFX parameters
-        preset: commonSchemas.stringProp,
-        type: commonSchemas.stringProp,
-        width: commonSchemas.numberProp,
         density: commonSchemas.numberProp,
         scattering: commonSchemas.numberProp,
-        // Trail and ribbon
-        attachTo: commonSchemas.stringProp,
-        ribbonPath: commonSchemas.assetPath,
-        // Impact effect
-        surfaceType: commonSchemas.stringProp,
-        impactType: commonSchemas.stringProp,
-        // Environment effect
-        effectType: commonSchemas.stringProp,
+        extinction: commonSchemas.numberProp,
+        // Niagara graph operations
+        modulePath: commonSchemas.assetPath,
+        scriptType: commonSchemas.stringProp,
+        autoConnect: commonSchemas.booleanProp,
+        nodeId: commonSchemas.nodeId,
         // Niagara parameters
         parameterName: commonSchemas.parameterName,
         parameterType: commonSchemas.stringProp,
+        parameterValue: commonSchemas.value,
         value: commonSchemas.value,
-        // Niagara modules
-        moduleName: commonSchemas.stringProp,
-        fromNode: commonSchemas.stringProp,
-        toNode: commonSchemas.stringProp,
-        fromPin: commonSchemas.sourcePin,
-        toPin: commonSchemas.targetPin,
-        outputPin: commonSchemas.sourcePin,
-        inputPin: commonSchemas.targetPin,
-        node: commonSchemas.stringProp,
-        // Emitter properties
-        loopBehavior: commonSchemas.stringProp,
+        sourceBinding: commonSchemas.stringProp,
+        // Emitter/module authoring
         spawnRate: commonSchemas.numberProp,
-        count: commonSchemas.numberProp,
-        loopCount: commonSchemas.numberProp,
-        unitsPerSpawn: commonSchemas.numberProp,
-        // Particle attributes
-        attributes: commonSchemas.objectProp,
-        updateScript: commonSchemas.stringProp,
-        // Force/velocity/acceleration
+        burstCount: commonSchemas.numberProp,
+        burstTime: commonSchemas.numberProp,
+        spawnPerUnit: commonSchemas.numberProp,
+        lifetime: commonSchemas.numberProp,
+        mass: commonSchemas.numberProp,
         forceType: commonSchemas.stringProp,
-        strength: commonSchemas.numberProp,
+        forceStrength: commonSchemas.numberProp,
+        forceVector: commonSchemas.location,
+        velocity: commonSchemas.location,
         velocityMode: commonSchemas.stringProp,
-        speedMin: commonSchemas.numberProp,
-        speedMax: commonSchemas.numberProp,
         acceleration: commonSchemas.location,
-        // Size
         sizeMode: commonSchemas.stringProp,
-        sizeMin: commonSchemas.location,
-        sizeMax: commonSchemas.location,
-        // Color
+        uniformSize: commonSchemas.numberProp,
         colorMode: commonSchemas.stringProp,
-        gradientStart: { type: 'array', items: commonSchemas.numberProp },
-        gradientEnd: { type: 'array', items: commonSchemas.numberProp },
-        // Renderers
-        material: commonSchemas.materialPath,
-        mesh: commonSchemas.meshPath,
-        lightIntensity: commonSchemas.numberProp,
+        materialPath: commonSchemas.materialPath,
+        alignment: commonSchemas.stringProp,
+        facingMode: commonSchemas.stringProp,
+        meshPath: commonSchemas.meshPath,
         lightRadius: commonSchemas.numberProp,
-        // Collision
         collisionMode: commonSchemas.stringProp,
-        collisionRadius: commonSchemas.numberProp,
-        // Kill particles
+        restitution: commonSchemas.numberProp,
+        friction: commonSchemas.numberProp,
+        dieOnCollision: commonSchemas.booleanProp,
         killCondition: commonSchemas.stringProp,
-        // Camera offset
-        offsetMode: commonSchemas.stringProp,
-        offsetAmount: commonSchemas.numberProp,
-        // User parameters
-        paramName: commonSchemas.stringProp,
-        paramType: commonSchemas.stringProp,
-        sourceActor: commonSchemas.stringProp,
-        // Data interfaces
-        skeletalMesh: commonSchemas.meshPath,
-        staticMesh: commonSchemas.meshPath,
-        splineComponent: commonSchemas.stringProp,
-        audioComponent: commonSchemas.stringProp,
-        queryChannel: commonSchemas.stringProp,
-        // Events
+        cameraOffset: commonSchemas.numberProp,
+        // Events, GPU, and simulation stages
         eventName: commonSchemas.eventName,
-        condition: commonSchemas.stringProp,
-        receiverScript: commonSchemas.stringProp,
-        payload: commonSchemas.objectProp,
-        // GPU simulation
-        enabled: commonSchemas.booleanProp,
-        // Simulation stage
+        eventType: commonSchemas.stringProp,
+        spawnOnEvent: commonSchemas.booleanProp,
+        eventSpawnCount: commonSchemas.numberProp,
+        eventPayload: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: commonSchemas.name,
+              type: commonSchemas.stringProp
+            }
+          },
+          description: 'Niagara event payload attributes to expose.'
+        },
+        fixedBoundsEnabled: commonSchemas.booleanProp,
+        deterministicEnabled: commonSchemas.booleanProp,
         stageName: commonSchemas.stringProp,
-        stageType: commonSchemas.stringProp,
-        // Timeout
-        timeoutMs: commonSchemas.numberProp
+        stageIterationSource: commonSchemas.stringProp
       },
       required: ['action']
     },
@@ -1781,14 +1773,11 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         path: commonSchemas.directoryPathForCreation,
         assetPath: commonSchemas.assetPath,
         blueprintPath: commonSchemas.blueprintPath,
-        save: commonSchemas.save,
         replicationMode: {
           type: 'string',
           enum: ['Full', 'Minimal', 'Mixed'],
           description: 'ASC replication mode.'
         },
-        ownerActor: { type: 'string', description: 'Owner actor class for ASC.' },
-        avatarActor: { type: 'string', description: 'Avatar actor class for ASC.' },
         attributeSetPath: { type: 'string', description: 'Path to Attribute Set asset.' },
         attributeName: commonSchemas.attributeName,
         attributeType: {
@@ -1805,7 +1794,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           description: 'Attribute clamping mode.'
         },
         abilityPath: commonSchemas.abilityPath,
-        parentClass: commonSchemas.parentClass,
         abilityTags: {
           type: 'array',
           items: commonSchemas.stringProp,
@@ -1832,15 +1820,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           description: 'Tags that block activation of this ability.'
         },
         costEffectPath: { type: 'string', description: 'Path to cost Gameplay Effect.' },
-        costAttribute: { type: 'string', description: 'Attribute used for cost (e.g., Mana).' },
-        costMagnitude: { type: 'number', description: 'Cost magnitude.' },
         cooldownEffectPath: { type: 'string', description: 'Path to cooldown Gameplay Effect.' },
-        cooldownDuration: { type: 'number', description: 'Cooldown duration in seconds.' },
-        cooldownTags: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Tags applied during cooldown.'
-        },
         targetingMode: {
           type: 'string',
           enum: ['None', 'SingleTarget', 'AOE', 'Directional', 'Ground', 'ActorPlacement'],
@@ -1852,10 +1832,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           type: 'string',
           enum: ['WaitDelay', 'WaitInputPress', 'WaitInputRelease', 'WaitGameplayEvent', 'WaitTargetData', 'WaitConfirmCancel', 'PlayMontageAndWait', 'ApplyRootMotionConstantForce', 'WaitMovementModeChange'],
           description: 'Type of ability task to add.'
-        },
-        taskSettings: {
-          type: 'object',
-          description: 'Task-specific settings.'
         },
         activationPolicy: {
           type: 'string',
@@ -1887,10 +1863,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           description: 'How magnitude is calculated.'
         },
         setByCallerTag: { type: 'string', description: 'Tag for SetByCaller magnitude.' },
-        coefficient: { type: 'number', description: 'Coefficient for attribute-based calculation.' },
-        preMultiplyAdditiveValue: { type: 'number', description: 'Value added before multiplication.' },
-        postMultiplyAdditiveValue: { type: 'number', description: 'Value added after multiplication.' },
-        sourceAttribute: { type: 'string', description: 'Source attribute for attribute-based calculation.' },
         targetAttribute: { type: 'string', description: 'Target attribute for modifier.' },
         calculationClass: { type: 'string', description: 'UGameplayEffectExecutionCalculation class path.' },
         cueTag: { type: 'string', description: 'Gameplay Cue tag (e.g., GameplayCue.Damage.Fire).' },
@@ -1951,6 +1923,9 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         cameraShakePath: commonSchemas.cameraShakePath,
         decalPath: commonSchemas.decalPath,
         tagName: commonSchemas.tagName,
+        componentName: commonSchemas.componentName,
+        defaultValue: commonSchemas.value,
+        modifierIndex: commonSchemas.numberProp
       },
       required: ['action']
     },
@@ -2014,7 +1989,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         name: commonSchemas.assetNameForCreation,
         path: commonSchemas.directoryPathForCreation,
         blueprintPath: commonSchemas.blueprintPath,
-        save: commonSchemas.save,
         parentClass: {
           type: 'string',
           enum: ['Character', 'ACharacter', 'PlayerCharacter', 'AICharacter'],
@@ -2042,16 +2016,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           },
           description: 'Mesh rotation offset.'
         },
-        cameraSocketName: commonSchemas.cameraSocketName,
-        cameraOffset: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp,
-            y: commonSchemas.numberProp,
-            z: commonSchemas.numberProp
-          },
-          description: 'Camera location offset.'
-        },
         cameraUsePawnControlRotation: { type: 'boolean', description: 'Camera follows controller rotation.' },
         springArmLength: commonSchemas.numberProp,
         springArmLagEnabled: { type: 'boolean', description: 'Enable camera lag.' },
@@ -2067,7 +2031,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         groundFriction: commonSchemas.numberProp,
         jumpHeight: commonSchemas.numberProp,
         airControl: commonSchemas.numberProp,
-        doubleJumpEnabled: { type: 'boolean', description: 'Enable double jump.' },
         maxJumpCount: commonSchemas.numberProp,
         jumpHoldTime: { type: 'number', description: 'Max hold time for variable jump.' },
         gravityScale: commonSchemas.numberProp,
@@ -2082,28 +2045,21 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         navAgentRadius: commonSchemas.numberProp,
         navAgentHeight: commonSchemas.numberProp,
         avoidanceEnabled: { type: 'boolean', description: 'Enable AI avoidance.' },
-        pathFollowingEnabled: { type: 'boolean', description: 'Enable path following.' },
         mantleHeight: { type: 'number', description: 'Maximum mantle height.' },
         mantleReachDistance: { type: 'number', description: 'Forward reach for mantle check.' },
-        mantleAnimationPath: { type: 'string', description: 'Path to mantle animation montage.' },
         vaultHeight: { type: 'number', description: 'Maximum vault obstacle height.' },
         vaultDepth: { type: 'number', description: 'Obstacle depth to check.' },
-        vaultAnimationPath: { type: 'string', description: 'Path to vault animation montage.' },
         climbSpeed: commonSchemas.numberProp,
         climbableTag: { type: 'string', description: 'Tag for climbable surfaces.' },
-        climbAnimationPath: { type: 'string', description: 'Path to climb animation.' },
         slideSpeed: commonSchemas.numberProp,
         slideDuration: commonSchemas.numberProp,
         slideCooldown: commonSchemas.numberProp,
-        slideAnimationPath: { type: 'string', description: 'Path to slide animation.' },
         wallRunSpeed: { type: 'number', description: 'Wall running speed.' },
         wallRunDuration: { type: 'number', description: 'Maximum wall run duration.' },
         wallRunGravityScale: { type: 'number', description: 'Gravity during wall run.' },
-        wallRunAnimationPath: { type: 'string', description: 'Path to wall run animation.' },
         grappleRange: { type: 'number', description: 'Maximum grapple distance.' },
         grappleSpeed: { type: 'number', description: 'Grapple pull speed.' },
         grappleTargetTag: { type: 'string', description: 'Tag for grapple targets.' },
-        grappleCablePath: { type: 'string', description: 'Path to cable mesh/material.' },
         footstepEnabled: { type: 'boolean', description: 'Enable footstep system.' },
         footstepSocketLeft: { type: 'string', description: 'Left foot socket name.' },
         footstepSocketRight: { type: 'string', description: 'Right foot socket name.' },
@@ -2113,9 +2069,12 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           enum: ['Default', 'Concrete', 'Grass', 'Dirt', 'Metal', 'Wood', 'Water', 'Snow', 'Sand', 'Gravel', 'Custom'],
           description: 'Physical surface type.'
         },
-        footstepSoundPath: { type: 'string', description: 'Path to footstep sound cue.' },
-        footstepParticlePath: { type: 'string', description: 'Path to footstep particle.' },
-        footstepDecalPath: { type: 'string', description: 'Path to footstep decal.' }
+        brakingDeceleration: commonSchemas.numberProp,
+        canCrouch: commonSchemas.booleanProp,
+        crouchedHalfHeight: commonSchemas.numberProp,
+        customSpeed: commonSchemas.numberProp,
+        particleScale: commonSchemas.numberProp,
+        volumeMultiplier: commonSchemas.numberProp
       },
       required: ['action']
     },
@@ -2178,11 +2137,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         weaponMeshPath: { type: 'string', description: 'Path to weapon static/skeletal mesh.' },
         muzzleSocketName: commonSchemas.muzzleSocketName,
         ejectionSocketName: commonSchemas.ejectionSocketName,
-        attachmentSocketNames: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'List of attachment socket names.'
-        },
         baseDamage: commonSchemas.numberProp,
         fireRate: commonSchemas.numberProp,
         range: commonSchemas.numberProp,
@@ -2217,13 +2171,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         bounceVelocityRatio: { type: 'number', description: 'Velocity retained on bounce (0-1).' },
         homingEnabled: { type: 'boolean', description: 'Enable homing behavior.' },
         homingAcceleration: { type: 'number', description: 'Homing turn rate.' },
-        homingTargetTag: { type: 'string', description: 'Tag for homing targets.' },
-        damageTypeName: { type: 'string', description: 'Name for damage type.' },
-        damageCategory: {
-          type: 'string',
-          enum: ['Physical', 'Fire', 'Ice', 'Electric', 'Poison', 'Explosion', 'Radial', 'Custom'],
-          description: 'Damage category.'
-        },
         damageImpulse: { type: 'number', description: 'Impulse applied on hit.' },
         criticalMultiplier: { type: 'number', description: 'Critical hit damage multiplier.' },
         headshotMultiplier: { type: 'number', description: 'Headshot damage multiplier.' },
@@ -2264,8 +2211,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         },
         switchInTime: { type: 'number', description: 'Time to equip weapon.' },
         switchOutTime: { type: 'number', description: 'Time to unequip weapon.' },
-        switchInAnimationPath: { type: 'string', description: 'Path to equip animation.' },
-        switchOutAnimationPath: { type: 'string', description: 'Path to unequip animation.' },
+        equipAnimationPath: { type: 'string', description: 'Path to equip animation montage.' },
+        unequipAnimationPath: { type: 'string', description: 'Path to unequip animation montage.' },
         muzzleFlashParticlePath: { type: 'string', description: 'Path to muzzle flash particle.' },
         muzzleFlashScale: { type: 'number', description: 'Muzzle flash scale.' },
         muzzleSoundPath: { type: 'string', description: 'Path to firing sound.' },
@@ -2280,14 +2227,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         meleeTraceStartSocket: { type: 'string', description: 'Socket for trace start.' },
         meleeTraceEndSocket: { type: 'string', description: 'Socket for trace end.' },
         meleeTraceRadius: { type: 'number', description: 'Sphere trace radius.' },
-        meleeTraceChannel: { type: 'string', description: 'Trace channel for melee.' },
         comboWindowTime: { type: 'number', description: 'Time window for combo input.' },
         maxComboCount: { type: 'number', description: 'Maximum combo length.' },
-        comboAnimations: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Paths to combo attack animations.'
-        },
         hitPauseDuration: { type: 'number', description: 'Hitstop duration in seconds.' },
         hitPauseTimeDilation: { type: 'number', description: 'Time dilation during hitstop.' },
         hitReactionMontage: { type: 'string', description: 'Path to hit reaction montage.' },
@@ -2299,7 +2240,22 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         blockStaminaCost: { type: 'number', description: 'Stamina cost per blocked hit.' },
         weaponTrailParticlePath: { type: 'string', description: 'Path to weapon trail particle.' },
         weaponTrailStartSocket: { type: 'string', description: 'Trail start socket.' },
-        weaponTrailEndSocket: { type: 'string', description: 'Trail end socket.' }
+        weaponTrailEndSocket: { type: 'string', description: 'Trail end socket.' },
+        ammoPerShot: commonSchemas.numberProp,
+        armorValue: commonSchemas.numberProp,
+        damageAmount: commonSchemas.numberProp,
+        damagePerSecond: commonSchemas.numberProp,
+        damageReduction: commonSchemas.numberProp,
+        damageType: commonSchemas.stringProp,
+        duration: commonSchemas.numberProp,
+        effectType: commonSchemas.stringProp,
+        healAmount: commonSchemas.numberProp,
+        infiniteAmmo: commonSchemas.booleanProp,
+        maxHealth: commonSchemas.numberProp,
+        maxShield: commonSchemas.numberProp,
+        shieldAmount: commonSchemas.numberProp,
+        shieldRegenDelay: commonSchemas.numberProp,
+        shieldRegenRate: commonSchemas.numberProp
       },
       required: ['action']
     },
@@ -2361,12 +2317,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         controllerPath: commonSchemas.controllerPath,
         behaviorTreePath: commonSchemas.behaviorTreePath,
         blackboardPath: commonSchemas.blackboardPath,
-        parentClass: {
-          type: 'string',
-          enum: ['AAIController', 'APlayerController'],
-          description: 'Parent class for AI controller (default: AAIController).'
-        },
-        autoRunBehaviorTree: { type: 'boolean', description: 'Start behavior tree automatically on possess.' },
         keyName: commonSchemas.keyName,
         keyType: {
           type: 'string',
@@ -2374,8 +2324,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           description: 'Blackboard key data type.'
         },
         isInstanceSynced: { type: 'boolean', description: 'Sync key across instances.' },
-        baseObjectClass: { type: 'string', description: 'Base class for Object/Class keys.' },
-        enumClass: { type: 'string', description: 'Enum class for Enum keys.' },
         compositeType: {
           type: 'string',
           enum: ['Selector', 'Sequence', 'Parallel', 'SimpleParallel'],
@@ -2406,14 +2354,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         },
         parentNodeId: commonSchemas.nodeId,
         nodeId: commonSchemas.nodeId,
-        nodeProperties: {
-          type: 'object',
-          additionalProperties: true,
-          description: 'Properties to set on the node.'
-        },
-        customTaskClass: { type: 'string', description: 'Custom task class path for Custom task type.' },
-        customDecoratorClass: { type: 'string', description: 'Custom decorator class path.' },
-        customServiceClass: { type: 'string', description: 'Custom service class path.' },
         queryPath: commonSchemas.queryPath,
         generatorType: {
           type: 'string',
@@ -2504,57 +2444,10 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         stateName: commonSchemas.stateName,
         fromState: commonSchemas.fromState,
         toState: commonSchemas.toState,
-        transitionCondition: { type: 'string', description: 'Condition expression for transition.' },
-        stateTaskClass: { type: 'string', description: 'Task class for state.' },
-        stateEvaluatorClass: { type: 'string', description: 'Evaluator class for state.' },
         definitionPath: commonSchemas.definitionPath,
         slotIndex: { type: 'number', description: 'Index of slot to configure.' },
-        slotOffset: {
-          type: 'object',
-          properties: commonSchemas.vector3.properties,
-          description: 'Local offset for slot.'
-        },
-        slotRotation: {
-          type: 'object',
-          properties: commonSchemas.rotation.properties,
-          description: 'Local rotation for slot.'
-        },
-        slotBehaviorDefinition: { type: 'string', description: 'Gameplay behavior definition for slot.' },
-        slotActivityTags: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Activity tags for the slot.'
-        },
-        slotUserTags: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Required user tags for slot.'
-        },
-        slotEnabled: { type: 'boolean', description: 'Whether slot is enabled.' },
         configPath: commonSchemas.configPath,
-        massTraits: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'List of Mass traits to add.'
-        },
-        massProcessors: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'List of Mass processors to configure.'
-        },
-        spawnerSettings: {
-          type: 'object',
-          properties: {
-            entityCount: commonSchemas.numberProp,
-            spawnRadius: commonSchemas.numberProp,
-            entityConfig: commonSchemas.stringProp,
-            spawnOnBeginPlay: commonSchemas.booleanProp
-          },
-          description: 'Mass spawner configuration.'
-        },
-        navMeshPath: { type: 'string', description: 'Path to NavMesh data asset.' },
         actorName: commonSchemas.actorName,
-        actorPath: commonSchemas.actorPath,
         agentRadius: { type: 'number', description: 'Navigation agent radius (default: 35).' },
         agentHeight: { type: 'number', description: 'Navigation agent height (default: 144).' },
         agentStepHeight: { type: 'number', description: 'Maximum step height agent can climb (default: 35).' },
@@ -2566,16 +2459,12 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         mergeRegionSize: { type: 'number', description: 'Region merge threshold.' },
         maxSimplificationError: { type: 'number', description: 'Edge simplification error.' },
         areaClass: commonSchemas.areaClass,
-        areaClassToReplace: { type: 'string', description: 'Area class to replace (optional modifier behavior).' },
         failsafeExtent: {
           type: 'object',
           properties: commonSchemas.vector3.properties,
           description: 'Failsafe extent for nav modifier when actor has no collision.'
         },
-        bIncludeAgentHeight: { type: 'boolean', description: 'Expand lower bounds by agent height.' },
         areaCost: { type: 'number', description: 'Pathfinding cost multiplier for area (1.0 = normal).' },
-        fixedAreaEnteringCost: { type: 'number', description: 'Fixed cost added when entering the area.' },
-        linkName: commonSchemas.linkName,
         startPoint: {
           type: 'object',
           properties: commonSchemas.vector3.properties,
@@ -2598,7 +2487,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           enum: ['simple', 'smart'],
           description: 'Type of navigation link.'
         },
-        bSmartLinkIsRelevant: { type: 'boolean', description: 'Toggle smart link relevancy.' },
         enabledAreaClass: { type: 'string', description: 'Area class when smart link is enabled.' },
         disabledAreaClass: { type: 'string', description: 'Area class when smart link is disabled.' },
         broadcastRadius: { type: 'number', description: 'Radius for state change broadcast.' },
@@ -2615,7 +2503,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           description: 'Extent of simple box obstacle.'
         },
         obstacleAreaClass: { type: 'string', description: 'Area class for box obstacle.' },
-        filter: commonSchemas.filter,
         save: commonSchemas.save
       ,
         componentName: commonSchemas.componentName,
@@ -2632,7 +2519,31 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                     pitch: commonSchemas.numberProp, yaw: commonSchemas.numberProp, roll: commonSchemas.numberProp
                   },
                   description: 'Rotation for nav link proxy.'
-                }},
+                },
+        assetPath: commonSchemas.assetPath,
+        childNodeId: commonSchemas.nodeId,
+        comment: commonSchemas.stringProp,
+        enableDamage: commonSchemas.booleanProp,
+        enableHearing: commonSchemas.booleanProp,
+        enableSight: commonSchemas.booleanProp,
+        enabled: commonSchemas.booleanProp,
+        focusActorName: commonSchemas.actorName,
+        hearingRange: commonSchemas.numberProp,
+        loseSightRadius: commonSchemas.numberProp,
+        nodeType: commonSchemas.stringProp,
+        offset: commonSchemas.vector3,
+        parentStateName: commonSchemas.stringProp,
+        peripheralVisionAngle: commonSchemas.numberProp,
+        properties: commonSchemas.objectProp,
+        savePath: commonSchemas.savePath,
+        sightRadius: commonSchemas.numberProp,
+        spawnCount: commonSchemas.numberProp,
+        stateType: commonSchemas.stringProp,
+        triggerType: commonSchemas.stringProp,
+        value: commonSchemas.value,
+        x: commonSchemas.numberProp,
+        y: commonSchemas.numberProp
+      },
       required: ['action']
     },
     outputSchema: {
@@ -2719,69 +2630,20 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         },
         name: commonSchemas.assetNameForCreation,
         path: commonSchemas.directoryPathForCreation,
-        folder: commonSchemas.directoryPath,
         save: commonSchemas.save,
         blueprintPath: commonSchemas.blueprintPath,
         itemPath: commonSchemas.itemDataPath,
-        parentClass: commonSchemas.parentClass,
-        displayName: commonSchemas.stringProp,
-        description: commonSchemas.stringProp,
-        icon: commonSchemas.iconPath,
         iconPath: commonSchemas.iconPath,
-        mesh: commonSchemas.meshAssetPath,
-        stackSize: commonSchemas.numberProp,
         maxStackSize: commonSchemas.numberProp,
         stackable: commonSchemas.booleanProp,
         uniqueItems: commonSchemas.booleanProp,
-        weight: commonSchemas.numberProp,
         enableWeight: commonSchemas.booleanProp,
         encumberanceSystem: commonSchemas.booleanProp,
         encumberanceThreshold: commonSchemas.numberProp,
-        rarity: {
-          type: 'string',
-          enum: ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Custom'],
-          description: 'Item rarity tier.'
-        },
-        value: commonSchemas.numberProp,
-        tags: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Gameplay tags for item categorization.'
-        },
-        customProperties: {
-          type: 'object',
-          additionalProperties: true,
-          description: 'Custom key-value properties for item.'
-        },
         categoryPath: { type: 'string', description: 'Path to item category asset.' },
-        parentCategory: { type: 'string', description: 'Parent category path.' },
-        categoryIcon: { type: 'string', description: 'Icon texture for category.' },
         componentName: commonSchemas.componentName,
         slotCount: commonSchemas.numberProp,
-        slotSize: {
-          type: 'object',
-          properties: { width: commonSchemas.numberProp, height: commonSchemas.numberProp },
-          description: 'Size of each slot (for grid inventory).'
-        },
         maxWeight: commonSchemas.numberProp,
-        allowStacking: { type: 'boolean', description: 'Allow items to stack.' },
-        slotCategories: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Allowed item categories per slot.'
-        },
-        slotRestrictions: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              slotIndex: commonSchemas.numberProp,
-              allowedCategories: commonSchemas.arrayOfStrings,
-              restrictedCategories: commonSchemas.arrayOfStrings
-            }
-          },
-          description: 'Per-slot category restrictions.'
-        },
         replicated: commonSchemas.replicated,
         replicationCondition: {
           type: 'string',
@@ -2789,97 +2651,40 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           description: 'Replication condition for inventory.'
         },
         pickupPath: { type: 'string', description: 'Path to pickup actor Blueprint.' },
-        meshPath: commonSchemas.meshPath,
-        itemDataPath: commonSchemas.itemDataPath,
-        interactionRadius: { type: 'number', description: 'Radius for pickup interaction.' },
         interactionType: {
           type: 'string',
           enum: ['Overlap', 'Interact', 'Key', 'Hold'],
           description: 'How player picks up item.'
         },
-        interactionKey: { type: 'string', description: 'Input action for pickup (if type is Key/Hold).' },
         prompt: commonSchemas.prompt,
-        highlightMaterial: { type: 'string', description: 'Material for highlight effect.' },
         respawnable: commonSchemas.booleanProp,
         respawnTime: commonSchemas.respawnTime,
-        respawnEffect: { type: 'string', description: 'Niagara effect for respawn.' },
-        pickupSound: { type: 'string', description: 'Sound cue for pickup.' },
-        pickupParticle: { type: 'string', description: 'Particle effect on pickup.' },
         bobbing: { type: 'boolean', description: 'Enable bobbing animation.' },
         rotation: { type: 'boolean', description: 'Enable rotation animation.' },
         glowEffect: { type: 'boolean', description: 'Enable glow effect.' },
         slots: {
           type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              name: commonSchemas.stringProp,
-              socketName: commonSchemas.stringProp,
-              allowedCategories: commonSchemas.arrayOfStrings,
-              restrictedCategories: commonSchemas.arrayOfStrings
-            }
-          },
-          description: 'Equipment slot definitions.'
-        },
-        statModifiers: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              attribute: commonSchemas.stringProp,
-              operation: { type: 'string', enum: ['Add', 'Multiply', 'Override'] },
-              value: commonSchemas.numberProp
-            }
-          },
-          description: 'Stat modifiers when equipped.'
-        },
-        abilityGrants: {
-          type: 'array',
           items: commonSchemas.stringProp,
-          description: 'Gameplay abilities granted when equipped.'
+          description: 'Equipment slot names to configure.'
         },
-        passiveEffects: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Passive gameplay effects when equipped.'
-        },
+        statModifiers: { type: 'boolean', description: 'Enable stat modifier support when equipped.' },
+        abilityGrants: { type: 'boolean', description: 'Enable ability grant support when equipped.' },
+        passiveEffects: { type: 'boolean', description: 'Enable passive effect support when equipped.' },
         attachToSocket: { type: 'boolean', description: 'Attach mesh to socket when equipped.' },
-        meshComponent: { type: 'string', description: 'Component name for equipment mesh.' },
-        animationOverrides: {
-          type: 'object',
-          additionalProperties: commonSchemas.stringProp,
-          description: 'Animation overrides (slot -> anim asset).'
-        },
         lootTablePath: commonSchemas.lootTablePath,
         lootWeight: { type: 'number', description: 'Weight for drop chance calculation.' },
         minQuantity: { type: 'number', description: 'Minimum drop quantity.' },
         maxQuantity: { type: 'number', description: 'Maximum drop quantity.' },
-        conditions: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Conditions for loot entry (gameplay tag expressions).'
-        },
         actorPath: { type: 'string', description: 'Path to actor Blueprint for loot drop.' },
         dropCount: { type: 'number', description: 'Number of drops to roll.' },
-        guaranteedDrops: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Item paths that always drop.'
-        },
         dropRadius: { type: 'number', description: 'Radius for scattered drops.' },
-        dropForce: { type: 'number', description: 'Physics force applied to drops.' },
         tiers: {
           type: 'array',
           items: {
             type: 'object',
             properties: {
               name: commonSchemas.stringProp,
-              color: {
-                type: 'object',
-                properties: commonSchemas.colorObject.properties
-              },
-              dropWeight: commonSchemas.numberProp,
-              statMultiplier: commonSchemas.numberProp
+              dropWeight: commonSchemas.numberProp
             }
           },
           description: 'Quality tier definitions.'
@@ -2887,41 +2692,19 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         recipePath: commonSchemas.recipePath,
         outputItemPath: { type: 'string', description: 'Path to item produced by recipe.' },
         outputQuantity: { type: 'number', description: 'Quantity produced.' },
-        ingredients: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              itemPath: commonSchemas.stringProp,
-              quantity: commonSchemas.numberProp
-            }
-          },
-          description: 'Required ingredients with quantities.'
-        },
         craftTime: { type: 'number', description: 'Time in seconds to craft.' },
         ingredientItemPath: commonSchemas.itemDataPath,
         quantity: commonSchemas.numberProp,
         requiredLevel: { type: 'number', description: 'Required player level.' },
-        requiredSkills: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Required skill tags.'
-        },
         requiredStation: { type: 'string', description: 'Required crafting station type.' },
-        unlockConditions: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Conditions to unlock recipe.'
-        },
-        recipes: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Recipe paths for crafting station.'
-        },
         stationPath: commonSchemas.stringProp,
         recipePaths: commonSchemas.arrayOfStrings,
         craftingSpeedMultiplier: commonSchemas.numberProp,
-        stationType: { type: 'string', description: 'Type of crafting station.' }
+        stationType: { type: 'string', description: 'Type of crafting station.' },
+        defaultSocket: commonSchemas.socketName,
+        dropOnDeath: commonSchemas.booleanProp,
+        entryIndex: commonSchemas.numberProp,
+        properties: commonSchemas.objectProp
       },
       required: ['action']
     },
@@ -3007,112 +2790,27 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         actorName: commonSchemas.actorName,
         componentName: commonSchemas.componentName,
         traceType: { type: 'string', enum: ['line', 'sphere', 'box'], description: 'Type of interaction trace.' },
-        traceChannel: commonSchemas.traceChannel,
         traceDistance: commonSchemas.traceDistance,
         traceRadius: commonSchemas.traceRadius,
-        traceFrequency: commonSchemas.traceFrequency,
         widgetClass: commonSchemas.widgetClass,
-        widgetOffset: {
-          type: 'object',
-          properties: commonSchemas.vector3.properties,
-          description: 'Widget offset from actor.'
-        },
         showOnHover: { type: 'boolean', description: 'Show widget when hovering.' },
         showPromptText: { type: 'boolean', description: 'Show interaction prompt text.' },
         promptTextFormat: { type: 'string', description: 'Format string for prompt (e.g., "Press {Key} to {Action}").' },
         doorPath: { type: 'string', description: 'Path to door actor blueprint.' },
-        meshPath: commonSchemas.meshPath,
         openAngle: { type: 'number', description: 'Door open rotation angle in degrees.' },
         openTime: { type: 'number', description: 'Time to open/close door in seconds.' },
-        openDirection: { type: 'string', enum: ['push', 'pull', 'auto'], description: 'Door open direction.' },
-        pivotOffset: {
-          type: 'object',
-          properties: commonSchemas.vector3.properties,
-          description: 'Offset for door pivot point.'
-        },
         locked: commonSchemas.locked,
-        keyItemPath: { type: 'string', description: 'Item required to unlock.' },
-        openSound: { type: 'string', description: 'Sound to play on open.' },
-        closeSound: { type: 'string', description: 'Sound to play on close.' },
         autoClose: { type: 'boolean', description: 'Automatically close after opening.' },
         autoCloseDelay: { type: 'number', description: 'Delay before auto-close in seconds.' },
         requiresKey: { type: 'boolean', description: 'Whether interaction requires a key item.' },
         switchPath: { type: 'string', description: 'Path to switch actor blueprint.' },
         switchType: { type: 'string', enum: ['button', 'lever', 'pressure_plate', 'toggle'], description: 'Type of switch.' },
-        toggleable: { type: 'boolean', description: 'Whether switch can be toggled.' },
-        oneShot: { type: 'boolean', description: 'Whether switch can only be used once.' },
         resetTime: { type: 'number', description: 'Time to reset switch in seconds.' },
-        activateSound: { type: 'string', description: 'Sound on activation.' },
-        deactivateSound: { type: 'string', description: 'Sound on deactivation.' },
-        targetActors: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Actors affected by this switch.'
-        },
         chestPath: { type: 'string', description: 'Path to chest actor blueprint.' },
-        lidMeshPath: { type: 'string', description: 'Path to lid mesh.' },
         lootTablePath: commonSchemas.lootTablePath,
-        respawnable: commonSchemas.booleanProp,
-        respawnTime: commonSchemas.respawnTime,
-        leverType: { type: 'string', enum: ['rotate', 'translate'], description: 'Lever movement type.' },
-        moveDistance: { type: 'number', description: 'Distance for translation lever.' },
-        moveTime: { type: 'number', description: 'Time for lever movement.' },
-        fractureMode: { type: 'string', enum: ['voronoi', 'uniform', 'radial', 'custom'], description: 'Fracture pattern type.' },
-        fracturePieces: { type: 'number', description: 'Number of fracture pieces.' },
-        enablePhysics: { type: 'boolean', description: 'Enable physics on destruction.' },
-        levels: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              damageThreshold: commonSchemas.numberProp,
-              meshIndex: commonSchemas.numberProp,
-              enablePhysics: commonSchemas.booleanProp,
-              removeAfterTime: commonSchemas.numberProp
-            }
-          },
-          description: 'Destruction level definitions.'
-        },
-        destroySound: { type: 'string', description: 'Sound on destruction.' },
-        destroyParticle: { type: 'string', description: 'Particle effect on destruction.' },
-        debrisPhysicsMaterial: { type: 'string', description: 'Physics material for debris.' },
-        debrisLifetime: { type: 'number', description: 'Debris lifetime in seconds.' },
-        maxHealth: { type: 'number', description: 'Maximum health before destruction.' },
-        damageThresholds: {
-          type: 'array',
-          items: commonSchemas.numberProp,
-          description: 'Damage thresholds for destruction levels.'
-        },
-        impactDamageMultiplier: { type: 'number', description: 'Multiplier for impact damage.' },
-        radialDamageMultiplier: { type: 'number', description: 'Multiplier for radial damage.' },
-        autoDestroy: { type: 'boolean', description: 'Automatically destroy at zero health.' },
         triggerPath: { type: 'string', description: 'Path to trigger actor blueprint.' },
         triggerShape: { type: 'string', enum: ['box', 'sphere', 'capsule'], description: 'Shape of trigger volume.' },
-        size: {
-          type: 'object',
-          properties: commonSchemas.vector3.properties,
-          description: 'Size of trigger volume.'
-        },
-        filterByTag: { type: 'string', description: 'Actor tag filter for trigger.' },
-        filterByClass: { type: 'string', description: 'Actor class filter for trigger.' },
-        filterByInterface: { type: 'string', description: 'Interface filter for trigger.' },
-        ignoreClasses: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Classes to ignore in trigger.'
-        },
-        ignoreTags: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Tags to ignore in trigger.'
-        },
-        onEnterEvent: { type: 'string', description: 'Event dispatcher name for enter.' },
-        onExitEvent: { type: 'string', description: 'Event dispatcher name for exit.' },
-        onStayEvent: { type: 'string', description: 'Event dispatcher name for stay.' },
-        stayInterval: { type: 'number', description: 'Interval for stay events in seconds.' },
-        responseType: { type: 'string', enum: ['once', 'repeatable', 'toggle'], description: 'How trigger responds.' },
-        cooldown: commonSchemas.cooldown,
-        maxActivations: { type: 'number', description: 'Maximum number of activations (0 = unlimited).' }
+        canToggle: commonSchemas.booleanProp
       },
       required: ['action']
     },
@@ -3224,9 +2922,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           ],
           description: 'Net dormancy mode.'
         },
-        nodeClass: commonSchemas.nodeClass,
-        spatialBias: { type: 'number', description: 'Spatial bias for replication graph.' },
-        defaultSettingsClass: { type: 'string', description: 'Default replication settings class.' },
         functionName: commonSchemas.functionName,
         rpcType: {
           type: 'string',
@@ -3234,19 +2929,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           description: 'Type of RPC.'
         },
         reliable: commonSchemas.reliable,
-        parameters: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              name: commonSchemas.stringProp,
-              type: commonSchemas.stringProp
-            }
-          },
-          description: 'RPC function parameters.'
-        },
-        returnType: { type: 'string', description: 'RPC return type (usually void).' },
-        validationFunctionName: { type: 'string', description: 'Name of validation function.' },
         withValidation: { type: 'boolean', description: 'Enable RPC validation.' },
         ownerActorName: { type: 'string', description: 'Name of owner actor (null to clear).' },
         isAutonomousProxy: { type: 'boolean', description: 'Configure as autonomous proxy.' },
@@ -3255,32 +2937,14 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         alwaysRelevant: { type: 'boolean', description: 'Always relevant to all clients.' },
         onlyRelevantToOwner: { type: 'boolean', description: 'Only relevant to owner.' },
         structName: { type: 'string', description: 'Name of struct for custom serialization.' },
-        useNetSerialize: { type: 'boolean', description: 'Use custom NetSerialize.' },
         usePushModel: { type: 'boolean', description: 'Use push-model replication.' },
-        propertyNames: {
-          type: 'array',
-          items: commonSchemas.stringProp,
-          description: 'Properties for push model.'
-        },
         enablePrediction: { type: 'boolean', description: 'Enable client-side prediction.' },
-        predictionKey: { type: 'string', description: 'Prediction key identifier.' },
         correctionThreshold: { type: 'number', description: 'Server correction threshold.' },
         smoothingRate: { type: 'number', description: 'Smoothing rate for corrections.' },
         dataType: {
           type: 'string',
-          enum: ['InputCmd', 'SyncState', 'AuxState'],
+          enum: ['Transform', 'Vector', 'Rotator', 'Float'],
           description: 'Network prediction data type.'
-        },
-        properties: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              name: commonSchemas.stringProp,
-              type: commonSchemas.stringProp
-            }
-          },
-          description: 'Predicted properties.'
         },
         networkSmoothingMode: {
           type: 'string',
@@ -3298,26 +2962,13 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           description: 'Net role.'
         },
         replicateMovement: { type: 'boolean', description: 'Replicate movement.' },
-        replicatedMovementMode: {
-          type: 'string',
-          enum: ['Default', 'SkipPhysics', 'FullMovement'],
-          description: 'Replicated movement mode.'
-        },
-        locationQuantizationLevel: {
-          type: 'string',
-          enum: ['RoundWholeNumber', 'RoundOneDecimal', 'RoundTwoDecimals'],
-          description: 'Location quantization level.'
-        },
         // Additional params for C++ handler alignment (NetworkingHandlers.cpp)
         spatiallyLoaded: { type: 'boolean', description: 'Spatially loaded for replication graph.' },
         netLoadOnClient: { type: 'boolean', description: 'Net load on client for replication graph.' },
         replicationPolicy: { type: 'string', description: 'Replication policy for replication graph.' },
         customSerialization: { type: 'boolean', description: 'Use custom serialization.' },
         predictionThreshold: { type: 'number', description: 'Prediction threshold for client prediction.' },
-        removeAll: { type: 'boolean', description: 'Remove all foliage instances.' }
-      ,
         sessionName: commonSchemas.sessionName,
-        sessionId: commonSchemas.sessionId,
         maxPlayers: commonSchemas.numberProp,
         bIsLANMatch: { type: 'boolean', description: 'Whether this is a LAN match.' },
         bAllowJoinInProgress: { type: 'boolean', description: 'Allow joining games in progress.' },
@@ -3372,7 +3023,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         name: commonSchemas.name,
         path: commonSchemas.directoryPathForCreation,
         gameModeBlueprint: { type: 'string', description: 'Path to GameMode blueprint to configure.' },
-        levelPath: commonSchemas.levelPath,
         parentClass: commonSchemas.parentClass,
         pawnClass: { type: 'string', description: 'Pawn class to use.' },
         defaultPawnClass: { type: 'string', description: 'Default pawn class for GameMode.' },
@@ -3381,10 +3031,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         playerStateClass: { type: 'string', description: 'PlayerState class path.' },
         spectatorClass: { type: 'string', description: 'Spectator pawn class.' },
         hudClass: { type: 'string', description: 'HUD class path.' },
-        timeLimit: commonSchemas.numberProp,
-        scoreLimit: commonSchemas.numberProp,
         bDelayedStart: { type: 'boolean', description: 'Whether to delay match start.' },
-        startPlayersNeeded: commonSchemas.numberProp,
         states: {
                   type: 'array',
                   items: {
@@ -3419,23 +3066,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                   enum: ['PlayerStart', 'LastDeath', 'TeamBase'],
                   description: 'Where players respawn.'
                 },
-        respawnConditions: {
-                  type: 'array',
-                  items: commonSchemas.stringProp,
-                  description: 'Conditions for respawn (e.g., "RoundEnd", "Manual").'
-                },
         usePlayerStarts: { type: 'boolean', description: 'Use PlayerStart actors.' },
-        location: {
-                  type: 'object',
-                  properties: commonSchemas.vector3.properties,
-                  description: 'Spawn location.'
-                },
-        rotation: {
-                  type: 'object',
-                  properties: commonSchemas.rotation.properties,
-                  description: 'Spawn rotation.'
-                },
-        bPlayerOnly: { type: 'boolean', description: 'Restrict to players only.' },
         allowSpectating: { type: 'boolean', description: 'Allow spectator mode.' },
         spectatorViewMode: {
                   type: 'string',
@@ -3450,7 +3081,18 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         modifierType: commonSchemas.stringProp,
         assetPath: commonSchemas.assetPath,
         priority: { type: 'number', description: 'Priority for input mapping context (default: 0).' },
-        timeoutMs: commonSchemas.numberProp},
+        timeoutMs: commonSchemas.numberProp,
+        canRespawn: commonSchemas.booleanProp,
+        executeTravel: commonSchemas.booleanProp,
+        forceRespawn: commonSchemas.booleanProp,
+        localPlayerNum: commonSchemas.numberProp,
+        maxRespawns: commonSchemas.numberProp,
+        respawnLives: commonSchemas.numberProp,
+        scorePerDeath: commonSchemas.numberProp,
+        systemWide: commonSchemas.booleanProp,
+        variableName: commonSchemas.variableName,
+        winScore: commonSchemas.numberProp
+      },
       required: ['action']
     },
     outputSchema: {
@@ -3528,7 +3170,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         levelName: commonSchemas.stringProp,
         levelPath: commonSchemas.levelPath,
         parentLevel: commonSchemas.parentLevel,
-        templateLevel: commonSchemas.templateLevel,
         bCreateWorldPartition: { type: 'boolean', description: 'Create with World Partition enabled.' },
         bUseExternalActors: { type: 'boolean', description: 'Enable One File Per Actor (OFPA/External Actors) for Data Layer compatibility. Automatically enabled when bCreateWorldPartition is true.' },
         sublevelName: commonSchemas.sublevelName,
@@ -3567,7 +3208,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         gridCellSize: { type: 'number', description: 'World Partition grid cell size.' },
         loadingRange: { type: 'number', description: 'Loading range for grid cells.' },
         dataLayerName: commonSchemas.dataLayerName,
-        dataLayerLabel: { type: 'string', description: 'Display label for the data layer.' },
         bIsInitiallyVisible: { type: 'boolean', description: 'Data layer initially visible.' },
         bIsInitiallyLoaded: { type: 'boolean', description: 'Data layer initially loaded.' },
         dataLayerType: {
@@ -3638,7 +3278,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         bPackStaticMeshes: { type: 'boolean', description: 'Include static meshes in packed level.' },
         save: commonSchemas.save
       ,
-        volumePath: commonSchemas.volumePath,
         // For add_*_volume actions that attach to existing actors
                 location: {
                   type: 'object',
@@ -3670,16 +3309,14 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                     x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
                   },
                   description: 'Extent for box trigger volumes.'
-                },
+        },
         bPainCausing: { type: 'boolean', description: 'Whether the volume causes pain/damage.' },
         damagePerSec: { type: 'number', description: 'Damage per second for pain volumes.' },
-        damageType: { type: 'string', description: 'Damage type class path for pain volumes.' },
         bWaterVolume: { type: 'boolean', description: 'Whether this is a water volume.' },
         fluidFriction: { type: 'number', description: 'Fluid friction for physics volumes.' },
         terminalVelocity: { type: 'number', description: 'Terminal velocity in the volume.' },
         priority: commonSchemas.priority,
         bEnabled: { type: 'boolean', description: 'Whether the audio volume is enabled.' },
-        reverbEffect: { type: 'string', description: 'Reverb effect asset path.' },
         reverbVolume: { type: 'number', description: 'Volume level for reverb (0.0-1.0).' },
         fadeTime: commonSchemas.fadeTime,
         cullDistances: {
@@ -3693,17 +3330,17 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                   },
                   description: 'Array of size/distance pairs for cull distance volumes.'
                 },
-        areaClass: commonSchemas.areaClass,
-        bDynamicModifier: { type: 'boolean', description: 'Whether nav modifier updates dynamically.' },
         bUnbound: { type: 'boolean', description: 'Whether post process volume affects entire world.' },
         blendRadius: { type: 'number', description: 'Blend radius for post process volume.' },
         blendWeight: { type: 'number', description: 'Blend weight (0.0-1.0) for post process.' },
-        properties: {
-                  type: 'object',
-                  description: 'Additional volume-specific properties as key-value pairs.'
-                },
         filter: commonSchemas.filter,
-        volumeType: { type: 'string', description: 'Type filter for get_volumes_info (e.g., "Trigger", "Physics").' }},
+        volumeType: { type: 'string', description: 'Type filter for get_volumes_info (e.g., "Trigger", "Physics").' },
+        bBlockOnSlowStreaming: commonSchemas.booleanProp,
+        bounds: commonSchemas.objectProp,
+        createIfMissing: commonSchemas.booleanProp,
+        gridName: commonSchemas.stringProp,
+        layerType: commonSchemas.stringProp
+      },
       required: ['action']
     },
     outputSchema: {

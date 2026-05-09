@@ -759,15 +759,18 @@ export interface AudioArgs extends HandlerArgs {
     size?: Vector3;
     reverbEffect?: string;
     fadeTime?: number;
+    fadeInTime?: number;
+    fadeOutTime?: number;
     enabled?: boolean;
-    fftSize?: number;
+    enable?: boolean;
+    analysisType?: string;
+    windowSize?: number;
     outputType?: string;
     soundName?: string;
     targetVolume?: number;
     fadeType?: string;
-    scale?: number;
     lowPassFilterFrequency?: number;
-    volumeAttenuation?: number;
+    looping?: boolean;
     settings?: Record<string, unknown>;
 }
 
@@ -799,7 +802,6 @@ export interface GameFrameworkArgs extends HandlerArgs {
     path?: string;
     gameModeBlueprint?: string;
     blueprintPath?: string;
-    levelPath?: string;
     
     // Class assignments
     parentClass?: string;
@@ -812,10 +814,7 @@ export interface GameFrameworkArgs extends HandlerArgs {
     hudClass?: string;
     
     // Game rules
-    timeLimit?: number;
-    scoreLimit?: number;
     bDelayedStart?: boolean;
-    startPlayersNeeded?: number;
     
     // Match states
     states?: MatchStateDefinition[];
@@ -841,13 +840,7 @@ export interface GameFrameworkArgs extends HandlerArgs {
     spawnSelectionMethod?: 'Random' | 'RoundRobin' | 'FarthestFromEnemies';
     respawnDelay?: number;
     respawnLocation?: 'PlayerStart' | 'LastDeath' | 'TeamBase';
-    respawnConditions?: string[];
     usePlayerStarts?: boolean;
-    
-    // PlayerStart configuration
-    location?: Vector3;
-    rotation?: Rotator;
-    bPlayerOnly?: boolean;
     
     // Spectating
     allowSpectating?: boolean;
@@ -967,7 +960,6 @@ export interface VoiceSettings {
 export interface SessionsArgs extends HandlerArgs {
     // Session identification
     sessionName?: string;
-    sessionId?: string;
     
     // Local session settings
     maxPlayers?: number;

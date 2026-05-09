@@ -135,7 +135,7 @@ function registerDefaultHandlers() {
     const action = getToolAction(args);
     if (materialAuthoringActionSet.has(action)) return await handleMaterialAuthoringTools(action, args, tools);
     if (textureActionSet.has(action)) return await handleTextureTools(action, args, tools);
-    if (['create_render_target', 'nanite_rebuild_mesh'].includes(action)) {
+    if (action === 'nanite_rebuild_mesh') {
       const payload = { ...args, subAction: action };
       return cleanObject(await executeAutomationRequest(tools, 'manage_render', payload, `Automation bridge not available for ${action}`));
     }
@@ -210,8 +210,9 @@ function registerDefaultHandlers() {
       if (!/^[A-Za-z0-9_-]+$/.test(categoryName)) {
         return { success: false, error: 'INVALID_CATEGORY_NAME', message: 'Category names may only contain letters, numbers, underscores, and hyphens.' };
       }
-      const res = await handleConsoleCommand({ command: `GameplayDebuggerCategory ${categoryName}` }, tools);
-      return cleanObject({ ...res, action, categoryName });
+      const payload = { ...(args as Record<string, unknown>), subAction: action, categoryName };
+      const res = await executeAutomationRequest(tools, 'manage_debug', payload, 'Bridge unavailable') as Record<string, unknown>;
+      return cleanObject(Object.assign({}, res, { action, categoryName }));
     }
     if (action === 'start_session') {
       const channels = typeof args.channels === 'string' ? args.channels.trim() : '';
