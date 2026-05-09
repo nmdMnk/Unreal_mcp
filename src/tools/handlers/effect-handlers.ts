@@ -147,7 +147,9 @@ function sanitizeEffectPaths(args: Record<string, unknown>): void {
     'assetPath',
     'systemPath',
     'emitterPath',
+    'material',
     'materialPath',
+    'mesh',
     'meshPath',
     'skeletalMeshPath',
     'staticMeshPath',
@@ -232,6 +234,33 @@ export async function handleEffectTools(action: string, args: HandlerArgs, tools
   const rawParamType = (mutableArgs.paramType as string | undefined);
   if (rawParamType && !(mutableArgs.parameterType as string | undefined)) {
     mutableArgs.parameterType = rawParamType;
+  }
+
+  // Existing public aliases → native Niagara field names.
+  const rawMaterial = (mutableArgs.material as string | undefined);
+  if (rawMaterial && !(mutableArgs.materialPath as string | undefined)) {
+    mutableArgs.materialPath = rawMaterial;
+  }
+
+  const rawMesh = (mutableArgs.mesh as string | undefined);
+  if (rawMesh && !(mutableArgs.meshPath as string | undefined)) {
+    mutableArgs.meshPath = rawMesh;
+  }
+
+  if (typeof mutableArgs.count === 'number' && mutableArgs.burstCount === undefined) {
+    mutableArgs.burstCount = mutableArgs.count;
+  }
+
+  if (typeof mutableArgs.unitsPerSpawn === 'number' && mutableArgs.spawnPerUnit === undefined) {
+    mutableArgs.spawnPerUnit = mutableArgs.unitsPerSpawn;
+  }
+
+  if (typeof mutableArgs.strength === 'number' && mutableArgs.forceStrength === undefined) {
+    mutableArgs.forceStrength = mutableArgs.strength;
+  }
+
+  if (typeof mutableArgs.offsetAmount === 'number' && mutableArgs.cameraOffset === undefined) {
+    mutableArgs.cameraOffset = mutableArgs.offsetAmount;
   }
 
   // type → parameterType (for set_niagara_parameter)

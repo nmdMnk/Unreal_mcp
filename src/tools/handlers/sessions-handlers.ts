@@ -25,7 +25,7 @@ export async function handleSessionsTools(
   tools: ITools
 ): Promise<Record<string, unknown>> {
   const argsRecord = args as Record<string, unknown>;
-  const timeoutMs = getTimeoutMs();
+  const timeoutMs = typeof argsRecord.timeoutMs === 'number' ? argsRecord.timeoutMs : getTimeoutMs();
 
   // All actions are dispatched to C++ via automation bridge
   const sendRequest = async (subAction: string): Promise<Record<string, unknown>> => {

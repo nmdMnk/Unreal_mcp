@@ -26,6 +26,8 @@ export async function handleCharacterTools(
 ): Promise<Record<string, unknown>> {
   const argsRecord = normalizePathFields(args as Record<string, unknown>, [
     'blueprintPath',
+    'skeletalMeshPath',
+    'animBlueprintPath',
     'meshPath',
     'animationBlueprintPath',
     'skeletonPath'

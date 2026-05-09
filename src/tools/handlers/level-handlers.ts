@@ -27,7 +27,7 @@ function normalizeLevelArgs(args: LevelArgs): LevelArgs {
     levelName: (raw.level_name as string | undefined) ?? args.levelName,
     savePath: (raw.save_path as string | undefined) ?? args.savePath,
     destinationPath: (raw.destination_path as string | undefined) ?? args.destinationPath,
-    subLevelPath: (raw.sub_level_path as string | undefined) ?? args.subLevelPath,
+    subLevelPath: (raw.sublevelPath as string | undefined) ?? (raw.sub_level_path as string | undefined) ?? args.subLevelPath,
     parentLevel: (raw.parent_level as string | undefined) ?? args.parentLevel,
     parentPath: (raw.parent_path as string | undefined) ?? args.parentPath,
     streamingMethod: (raw.streaming_method as 'Blueprint' | 'AlwaysLoaded' | undefined) ?? args.streamingMethod,
@@ -113,14 +113,43 @@ export async function handleLevelTools(action: string, args: HandlerArgs, tools:
     case 'create_level': {
       const levelPathStr = typeof argsTyped.levelPath === 'string' ? argsTyped.levelPath : '';
       const levelName = requireNonEmptyString(argsTyped.levelName || levelPathStr.split('/').pop() || '', 'levelName', 'Missing required parameter: levelName');
-      // CRITICAL: Pass useWorldPartition to C++ - default to false to avoid 20+ second freeze during World Partition uninitialize
-      // World Partition levels cause permanent hang when unloaded via GEditor->NewMap()
-      const res = await executeAutomationRequest(tools, 'create_new_level', {
-        levelPath: argsTyped.savePath || argsTyped.levelPath || `/Game/Maps/${levelName}`,
+      // Use the inactive-world creation path, then load the saved level so
+      // manage_level create_level preserves its historical "create and open"
+      // behavior without calling the UE 5.7-crashy GEditor->NewMap path.
+      const levelParentPath = argsTyped.savePath || argsTyped.levelPath || '/Game/Maps';
+      const createRes = await executeAutomationRequest(tools, 'manage_level_structure', {
+        subAction: 'create_level',
+        levelPath: levelParentPath,
         levelName,
-        useWorldPartition: argsTyped.useWorldPartition ?? false
+        bCreateWorldPartition: argsTyped.useWorldPartition ?? false,
+        save: true
       }) as Record<string, unknown>;
-      return cleanObject(res);
+      if (createRes.success !== true) {
+        return cleanObject(createRes);
+      }
+
+      const result = createRes.result && typeof createRes.result === 'object' && !Array.isArray(createRes.result)
+        ? createRes.result as Record<string, unknown>
+        : {};
+      const createdLevelPath = typeof result.levelPath === 'string'
+        ? result.levelPath
+        : `${String(levelParentPath).replace(/\/+$/, '')}/${levelName}`;
+
+      const loadRes = await executeAutomationRequest(tools, 'manage_level', {
+        action: 'load',
+        levelPath: createdLevelPath
+      }) as Record<string, unknown>;
+      if (loadRes.success !== true) {
+        return cleanObject(loadRes);
+      }
+
+      return cleanObject({
+        ...createRes,
+        result: {
+          ...result,
+          loaded: true
+        }
+      });
     }
     case 'add_sublevel': {
       const subLevelPath = requireNonEmptyString(argsTyped.subLevelPath || argsTyped.levelPath, 'subLevelPath', 'Missing required parameter: subLevelPath');
@@ -203,19 +232,30 @@ export async function handleLevelTools(action: string, args: HandlerArgs, tools:
           action
         });
       }
-      // CRITICAL FIX: Normalize 'type' to 'lightType' for C++ handler compatibility
-      // The C++ handler checks for 'lightType' field, not 'type'
-      const normalizedArgs = {
-        ...args,
-        lightType: lightType,
-        // Remove 'type' to avoid confusion
-        type: undefined
-      };
-      // Remove undefined fields
-      const cleanNormalizedArgs = Object.fromEntries(
-        Object.entries(normalizedArgs).filter(([, v]) => v !== undefined)
-      );
-      const res = await executeAutomationRequest(tools, 'manage_level', cleanNormalizedArgs);
+      const properties: Record<string, unknown> = {};
+      if (typeof argsTyped.intensity === 'number') {
+        properties.intensity = argsTyped.intensity;
+      }
+      const color = (argsTyped as Record<string, unknown>).color;
+      if (Array.isArray(color) && color.length >= 3) {
+        properties.color = {
+          r: Number(color[0]),
+          g: Number(color[1]),
+          b: Number(color[2]),
+          a: color.length > 3 ? Number(color[3]) : 1
+        };
+      } else if (color && typeof color === 'object') {
+        properties.color = color;
+      }
+
+      const res = await executeAutomationRequest(tools, 'manage_lighting', {
+        action: 'create_light',
+        lightType,
+        name: argsTyped.name,
+        location: argsTyped.location,
+        rotation: argsTyped.rotation,
+        properties: Object.keys(properties).length > 0 ? properties : undefined
+      });
       return cleanObject(res) as Record<string, unknown>;
     }
     case 'spawn_light': {

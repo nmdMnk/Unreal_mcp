@@ -47,9 +47,6 @@ const IDEMPOTENT_ACTIONS = new Set([
  * NOTE: Includes both original and normalized action names for proper validation.
  */
 const ACTION_REQUIRED_PARAMS: Record<string, string[]> = {
-  'open_asset': ['assetPath'],
-  'close_asset': ['assetPath'],
-  'open_level': ['levelPath'],
   'focus_actor': ['actorName'],
   'focus': ['actorName'],  // Normalized alias for focus_actor
   'possess': ['actorName'],
@@ -92,7 +89,7 @@ const ACTION_ALLOWED_PARAMS: Record<string, string[]> = {
   'set_game_speed': ['speed'],
   'set_fixed_delta_time': ['deltaTime'],
   'screenshot': ['filename', 'resolution'],
-  'set_preferences': ['category', 'preferences', 'section', 'key', 'value'],
+  'set_preferences': ['category', 'preferences'],
   'execute_command': ['command'],
   'console_command': ['command'],
   'undo': [],
@@ -109,7 +106,7 @@ const ACTION_ALLOWED_PARAMS: Record<string, string[]> = {
   'start_recording': ['filename', 'name', 'frameRate', 'durationSeconds', 'metadata'],
   'stop_recording': [],
   'set_viewport_realtime': ['enabled', 'realtime'],
-  'simulate_input': ['key', 'action', 'inputAction', 'axis', 'value'],
+  'simulate_input': ['key', 'action', 'inputAction'],
 };
 
 /**
@@ -184,11 +181,11 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
       return await executeAutomationRequest(tools, 'control_editor', args);
     }
     case 'pause': {
-      const res = await executeAutomationRequest(tools, 'console_command', { command: 'pause' }) as Record<string, unknown>;
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'pause' }) as Record<string, unknown>;
       return cleanObject(res);
     }
     case 'resume': {
-      const res = await executeAutomationRequest(tools, 'console_command', { command: 'pause' }) as Record<string, unknown>;
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'resume' }) as Record<string, unknown>;
       return cleanObject(res);
     }
     case 'screenshot': {
@@ -205,7 +202,8 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
     }
     case 'start_recording': {
       // Use console command as fallback if bridge doesn't support it
-      const filename = args.filename || 'TestRecording';
+      const name = typeof args.name === 'string' ? args.name : undefined;
+      const filename = args.filename || name || 'TestRecording';
       const frameRate = typeof args.frameRate === 'number' ? args.frameRate : undefined;
       const durationSeconds = typeof args.durationSeconds === 'number' ? args.durationSeconds : undefined;
       const metadata = args.metadata;
@@ -239,26 +237,26 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
       }
     }
     case 'stop_recording': {
-      await executeAutomationRequest(tools, 'console_command', { command: 'DemoStop' });
-      return { success: true, message: 'Stopped recording', action: 'stop_recording' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'stop_recording' }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'step_frame': {
       // Support stepping multiple frames
       const steps = typeof args.steps === 'number' && args.steps > 0 ? args.steps : 1;
       for (let i = 0; i < steps; i++) {
-        await executeAutomationRequest(tools, 'console_command', { command: 'r.SingleFrameAdvance 1' });
+        await executeAutomationRequest(tools, 'control_editor', { action: 'step_frame' });
       }
       return { success: true, message: `Stepped ${steps} frame(s)`, action: 'step_frame', steps };
     }
     case 'create_bookmark': {
-      const idx = parseInt(args.bookmarkName ?? '0') || 0;
-      await executeAutomationRequest(tools, 'console_command', { command: `r.SetBookmark ${idx}` });
-      return { success: true, message: `Created bookmark ${idx}`, action: 'create_bookmark' };
+      const idx = typeof args.id === 'number' ? Math.trunc(args.id) : (parseInt(args.bookmarkName ?? '0') || 0);
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'create_bookmark', index: idx }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'jump_to_bookmark': {
-      const idx = parseInt(args.bookmarkName ?? '0') || 0;
-      await executeAutomationRequest(tools, 'console_command', { command: `r.JumpToBookmark ${idx}` });
-      return { success: true, message: `Jumped to bookmark ${idx}`, action: 'jump_to_bookmark' };
+      const idx = typeof args.id === 'number' ? Math.trunc(args.id) : (parseInt(args.bookmarkName ?? '0') || 0);
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'jump_to_bookmark', index: idx }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'set_preferences': {
       const res = await executeAutomationRequest(tools, 'control_editor', { action: 'set_preferences', category: args.category ?? '', preferences: args.preferences ?? {} }) as Record<string, unknown>;
@@ -277,14 +275,14 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
     case 'set_camera_fov': {
       const safeFov = sanitizeCommandArgument(String(args.fov));
       if (!safeFov) return { success: false, error: 'FOV is required after sanitization', action: 'set_camera_fov' };
-      await executeAutomationRequest(tools, 'console_command', { command: `fov ${safeFov}` });
-      return { success: true, message: `Set FOV to ${safeFov}`, action: 'set_camera_fov' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'set_camera_fov', fov: Number(safeFov) }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'set_game_speed': {
       const safeSpeed = sanitizeCommandArgument(String(args.speed));
       if (!safeSpeed) return { success: false, error: 'Speed is required after sanitization', action: 'set_game_speed' };
-      await executeAutomationRequest(tools, 'console_command', { command: `slomo ${safeSpeed}` });
-      return { success: true, message: `Set game speed to ${safeSpeed}`, action: 'set_game_speed' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'set_game_speed', speed: Number(safeSpeed) }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'set_view_mode': {
       const viewMode = requireNonEmptyString(args.viewMode, 'viewMode');
@@ -296,8 +294,8 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
       if (!validModes.includes(viewMode)) {
         throw new Error(`unknown_viewmode: ${viewMode}. Must be one of: ${validModes.join(', ')}`);
       }
-      await executeAutomationRequest(tools, 'console_command', { command: `viewmode ${viewMode}` });
-      return { success: true, message: `Set view mode to ${viewMode}`, action: 'set_view_mode' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'set_view_mode', viewMode }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'set_viewport_resolution': {
       const width = Number(args.width);
@@ -310,14 +308,13 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
           action: 'set_viewport_resolution'
         };
       }
-      await executeAutomationRequest(tools, 'console_command', { command: `r.SetRes ${width}x${height}` });
-      return { success: true, message: `Set viewport resolution to ${width}x${height}`, action: 'set_viewport_resolution' };
+      const res = await executeAutomationRequest(tools, 'console_command', { command: `r.SetRes ${width}x${height}` }) as Record<string, unknown>;
+      return cleanObject({ ...res, action: 'set_viewport_resolution', width, height });
     }
     case 'set_viewport_realtime': {
       const enabled = args.enabled !== undefined ? args.enabled : (args.realtime !== false);
-      // Use console command since interface doesn't have setViewportRealtime
-      await executeAutomationRequest(tools, 'console_command', { command: `r.ViewportRealtime ${enabled ? 1 : 0}` });
-      return { success: true, message: `Set viewport realtime to ${enabled}`, action: 'set_viewport_realtime' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'set_viewport_realtime', enabled, realtime: enabled }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     // Additional handlers for test compatibility
     case 'close_asset': {
@@ -330,12 +327,12 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
       return cleanObject(res);
     }
     case 'undo': {
-      await executeAutomationRequest(tools, 'console_command', { command: 'Undo' });
-      return { success: true, message: 'Undo executed', action: 'undo' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'undo' }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'redo': {
-      await executeAutomationRequest(tools, 'console_command', { command: 'Redo' });
-      return { success: true, message: 'Redo executed', action: 'redo' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'redo' }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'set_editor_mode': {
       const mode = requireNonEmptyString(args.mode, 'mode');
@@ -343,28 +340,27 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
       return cleanObject(res);
     }
     case 'show_stats': {
-      await executeAutomationRequest(tools, 'console_command', { command: 'Stat FPS' });
-      await executeAutomationRequest(tools, 'console_command', { command: 'Stat Unit' });
-      return { success: true, message: 'Stats displayed', action: 'show_stats' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'show_stats', stat: args.stat }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'hide_stats': {
-      await executeAutomationRequest(tools, 'console_command', { command: 'Stat None' });
-      return { success: true, message: 'Stats hidden', action: 'hide_stats' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'hide_stats', stat: args.stat }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'set_game_view': {
       const enabled = args.enabled !== false;
-      await executeAutomationRequest(tools, 'console_command', { command: `ToggleGameView ${enabled ? 1 : 0}` });
-      return { success: true, message: `Game view ${enabled ? 'enabled' : 'disabled'}`, action: 'set_game_view' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'set_game_view', enabled }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'set_immersive_mode': {
       const enabled = args.enabled !== false;
-      await executeAutomationRequest(tools, 'console_command', { command: `ToggleImmersion ${enabled ? 1 : 0}` });
-      return { success: true, message: `Immersive mode ${enabled ? 'enabled' : 'disabled'}`, action: 'set_immersive_mode' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'set_immersive_mode', enabled }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'set_fixed_delta_time': {
       const deltaTime = typeof args.deltaTime === 'number' ? args.deltaTime : 0.01667;
-      await executeAutomationRequest(tools, 'console_command', { command: `r.FixedDeltaTime ${deltaTime}` });
-      return { success: true, message: `Fixed delta time set to ${deltaTime}`, action: 'set_fixed_delta_time' };
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'set_fixed_delta_time', deltaTime }) as Record<string, unknown>;
+      return cleanObject(res);
     }
     case 'open_level': {
       // Accept 'assetPath' as alias since users commonly think of level paths as asset paths
@@ -374,7 +370,7 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
     }
     case 'simulate_input': {
       // CRITICAL: Validation runs in validateEditorActionArgs before reaching here.
-      // Allowed params are defined in ACTION_ALLOWED_PARAMS: ['key', 'action', 'axis', 'value']
+      // Allowed params are defined in ACTION_ALLOWED_PARAMS: ['key', 'action', 'inputAction']
       // This ensures unknown params like 'invalidExtraParam' are rejected.
       
       // CRITICAL FIX: Read from 'inputAction' field to avoid conflict with routing 'action' field.
@@ -400,9 +396,7 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
       const res = await executeAutomationRequest(tools, 'control_editor', { 
         action: 'simulate_input',
         type: mappedType,
-        key: args.key,
-        axis: args.axis,
-        value: args.value
+        key: args.key
       });
       return cleanObject(res);
     }

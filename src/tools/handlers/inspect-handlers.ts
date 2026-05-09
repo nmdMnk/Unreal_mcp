@@ -188,7 +188,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
     objectPath: args.object_path ?? args.objectPath ?? args.path,
     componentName: args.component_name ?? args.componentName,
     componentNames: args.component_names ?? args.componentNames,
-    propertyName: args.property_name ?? args.propertyName,
+    propertyName: args.property_name ?? args.propertyName ?? args.propertyPath,
     propertyNames: args.property_names ?? args.propertyNames,
   };
   
@@ -308,6 +308,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       }
 
       const payload: Record<string, unknown> = {
+        ...args,
         action: 'get_property',
         propertyName,
       };
@@ -609,14 +610,9 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
     case 'export': {
       const actorName = await resolveObjectPath(args, tools);
       if (!actorName) throw new Error('actorName may be required for export depending on context (exporting actor requires it)');
-      const params = normalizeArgs(args, [
-        { key: 'destinationPath', aliases: ['outputPath'] }
-      ]);
-      const destinationPath = extractOptionalString(params, 'destinationPath');
       return cleanObject(await executeAutomationRequest(tools, 'control_actor', {
         action: 'export',
-        actorName: actorName || '',
-        destinationPath
+        actorName: actorName || ''
       }) as Record<string, unknown>);
     }
     case 'delete_object': {
@@ -671,7 +667,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
     case 'runtime_report': {
       const inspectArgs = normalizedArgs as InspectArgs;
       return cleanObject(await executeAutomationRequest(tools, 'inspect', {
-        action: 'runtime_report',
+        action: originalAction === 'pie_report' ? 'pie_report' : 'runtime_report',
         filter: inspectArgs.filter,
         actorName: inspectArgs.actorName || inspectArgs.name,
         componentName: inspectArgs.componentName,

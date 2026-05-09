@@ -149,6 +149,12 @@ async function handleBlueprintGraph(action: string, args: GraphArgs, tools: IToo
     if (processedRecord.defaultValue !== undefined && processedRecord.value === undefined) {
         processedRecord.value = processedRecord.defaultValue;
     }
+    if (processedRecord.x === undefined && typeof processedRecord.posX === 'number') {
+        processedRecord.x = processedRecord.posX;
+    }
+    if (processedRecord.y === undefined && typeof processedRecord.posY === 'number') {
+        processedRecord.y = processedRecord.posY;
+    }
 
     if (action === 'connect_pins') {
         // Map source

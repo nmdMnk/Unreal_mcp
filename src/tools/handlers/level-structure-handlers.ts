@@ -63,7 +63,7 @@ export async function handleLevelStructureTools(
   const argsRecord = normalizePathFields(
     args as Record<string, unknown>,
     [
-      'levelPath', 'sublevelPath', 'levelAssetPath', 'hlodLayerPath', 'templateLevel',
+      'levelPath', 'sublevelPath', 'levelAssetPath', 'hlodLayerPath',
       'actorPath', 'parentLevel', 'dataLayerAssetPath'
     ]
   );

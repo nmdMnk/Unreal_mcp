@@ -33,4 +33,25 @@ describe('handleNetworkingTools path normalization', () => {
       timeoutMs: 120000
     });
   });
+
+  it('honors per-call timeoutMs before dispatch', async () => {
+    const { tools, sendAutomationRequest } = createTools();
+
+    await handleNetworkingTools('set_property_replicated', {
+      action: 'set_property_replicated',
+      blueprintPath: '/Game/Blueprints/BP_NetActor',
+      propertyName: 'Health',
+      timeoutMs: 250000
+    }, tools);
+
+    expect(sendAutomationRequest).toHaveBeenCalledWith('manage_networking', {
+      action: 'set_property_replicated',
+      blueprintPath: '/Game/Blueprints/BP_NetActor',
+      propertyName: 'Health',
+      subAction: 'set_property_replicated'
+    }, {
+      timeoutMs: 250000
+    });
+  });
+
 });

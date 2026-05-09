@@ -29,7 +29,6 @@ function normalizeParamNames(args: Record<string, unknown>): Record<string, unkn
   const result = { ...args };
   const paramMappings: Record<string, string> = {
     'volume_name': 'volumeName',
-    'volume_path': 'volumePath',
     'box_extent': 'boxExtent',
     'sphere_radius': 'sphereRadius',
     'capsule_radius': 'capsuleRadius',
@@ -56,7 +55,7 @@ export async function handleVolumeTools(
   // Normalize path fields and parameter names before sending to C++
   const argsRecord = normalizeParamNames(normalizePathFields(
     args as Record<string, unknown>,
-    ['volumePath', 'reverbEffect', 'damageType', 'areaClass']
+    []
   ));
   const timeoutMs = getTimeoutMs();
 

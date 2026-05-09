@@ -36,8 +36,7 @@ export async function handleAnimationTools(action: string, args: HandlerArgs, to
   // This catches injected malicious paths regardless of which parameter they're in
   const allPathParams = [
     'path', 'savePath', 'skeletonPath', 'skeletalMeshPath', 'sourceSkeleton', 'targetSkeleton',
-    'assetPath', 'animationPath', 'blueprintPath', 'retargeterPath', 'meshPath', 'montagePath',
-    'animSequencePath', 'animPath', 'animAssetPath', 'animMontagePath', 'blendSpacePath', 'rigPath'
+    'assetPath', 'animationPath', 'blueprintPath', 'retargeterPath', 'meshPath', 'montagePath'
   ];
   
   for (const param of allPathParams) {
@@ -297,6 +296,46 @@ export async function handleAnimationTools(action: string, args: HandlerArgs, to
         enableFootPlacement: mutableArgs.enableFootPlacement
       })) as Record<string, unknown>;
     }
+    case 'create_pose_library': {
+      if (!mutableArgs.name) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_ARGUMENT',
+          message: 'name is required for create_pose_library'
+        });
+      }
+
+      if (!mutableArgs.skeletonPath || typeof mutableArgs.skeletonPath !== 'string') {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_ARGUMENT',
+          message: 'skeletonPath is required for create_pose_library'
+        });
+      }
+
+      let savePath: string;
+      let skeletonPath: string;
+      try {
+        const rawPath = String(mutableArgs.path || mutableArgs.savePath || '/Game/Animations/PoseLibraries');
+        savePath = sanitizePath(rawPath);
+        skeletonPath = sanitizePath(mutableArgs.skeletonPath);
+      } catch (e) {
+        return cleanObject({
+          success: false,
+          error: 'SECURITY_VIOLATION',
+          message: e instanceof Error ? e.message : 'Invalid path: path traversal or illegal characters detected'
+        });
+      }
+
+      return cleanObject(await executeAutomationRequest(tools, 'animation_physics', {
+        action: 'create_pose_library',
+        name: mutableArgs.name,
+        path: savePath,
+        savePath,
+        skeletonPath,
+        save: mutableArgs.save !== false
+      })) as Record<string, unknown>;
+    }
   case 'create_procedural_anim': {
     const params = normalizeArgs(args, [
       { key: 'name', required: true },
@@ -503,20 +542,6 @@ export async function handleAnimationTools(action: string, args: HandlerArgs, to
         });
       }
 
-      let meshPath: string | undefined;
-      try {
-        const rawMeshPath = mutableArgs.meshPath;
-        if (rawMeshPath && typeof rawMeshPath === 'string') {
-          meshPath = sanitizePath(rawMeshPath);
-        }
-      } catch (e) {
-        return cleanObject({
-          success: false,
-          error: 'SECURITY_VIOLATION',
-          message: e instanceof Error ? e.message : 'Invalid meshPath: path traversal or illegal characters detected'
-        });
-      }
-
       let skeletonPath: string | undefined;
       try {
         const rawSkeletonPath = mutableArgs.skeletonPath;
@@ -531,25 +556,39 @@ export async function handleAnimationTools(action: string, args: HandlerArgs, to
         });
       }
 
-      // Support both meshPath/skeletonPath and actorName parameters
+      let skeletalMeshPath: string | undefined;
+      try {
+        const rawSkeletalMeshPath = mutableArgs.skeletalMeshPath;
+        if (rawSkeletalMeshPath && typeof rawSkeletalMeshPath === 'string') {
+          skeletalMeshPath = sanitizePath(rawSkeletalMeshPath);
+        }
+      } catch (e) {
+        return cleanObject({
+          success: false,
+          error: 'SECURITY_VIOLATION',
+          message: e instanceof Error ? e.message : 'Invalid skeletalMeshPath: path traversal or illegal characters detected'
+        });
+      }
+
+      // Support skeletonPath, skeletalMeshPath, and actorName parameters
       const payload: Record<string, unknown> = {
-        meshPath,
         skeletonPath,
+        skeletalMeshPath,
         physicsAssetName: mutableArgs.physicsAssetName,
         savePath
       };
 
-      // If actorName is provided but no meshPath, resolve the skeletal mesh from the actor
-      if (mutableArgs.actorName && !meshPath && !skeletonPath) {
+      // If actorName is provided but no direct asset path, resolve the skeletal mesh from the actor
+      if (mutableArgs.actorName && !skeletonPath && !skeletalMeshPath) {
         payload.actorName = mutableArgs.actorName;
       }
 
       // Ensure at least one source is provided
-      if (!payload.meshPath && !payload.skeletonPath && !payload.actorName) {
+      if (!payload.skeletonPath && !payload.skeletalMeshPath && !payload.actorName) {
         return cleanObject({
           success: false,
           error: 'INVALID_ARGUMENT',
-          message: 'setup_physics_simulation requires meshPath, skeletonPath, or actorName parameter'
+          message: 'setup_physics_simulation requires skeletonPath, skeletalMeshPath, or actorName parameter'
         });
       }
 

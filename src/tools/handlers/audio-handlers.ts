@@ -30,7 +30,7 @@ async function createSoundCue(tools: ITools, args: AudioArgs): Promise<Record<st
     attenuationPath: toStringValue(args.settings?.attenuationSettings),
     volume: explicitVolume === undefined ? undefined : validatedAudio.volume,
     pitch: explicitPitch === undefined ? undefined : validatedAudio.pitch,
-    looping: toBoolean(args.settings?.looping)
+    looping: toBoolean(args.looping ?? args.settings?.looping)
   };
 
   return (await executeAutomationRequest(tools, TOOL_ACTIONS.CREATE_SOUND_CUE, payload)) as Record<string, unknown>;

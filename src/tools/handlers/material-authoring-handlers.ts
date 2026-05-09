@@ -104,7 +104,7 @@ export async function handleMaterialAuthoringTools(
       // Set the blend mode on a material (Opaque, Translucent, Masked, etc.)
       case 'set_blend_mode': {
         const params = normalizeArgs(args, [
-          { key: 'assetPath', aliases: ['materialPath'], required: true },
+          { key: 'assetPath', aliases: ['materialPath', 'instancePath'], required: true },
           { key: 'blendMode', required: true },
           { key: 'save', default: true },
         ]);
@@ -129,7 +129,7 @@ export async function handleMaterialAuthoringTools(
       // Set the shading model (DefaultLit, Unlit, Subsurface, etc.)
       case 'set_shading_model': {
         const params = normalizeArgs(args, [
-          { key: 'assetPath', aliases: ['materialPath'], required: true },
+          { key: 'assetPath', aliases: ['materialPath', 'instancePath'], required: true },
           { key: 'shadingModel', required: true },
           { key: 'save', default: true },
         ]);
@@ -508,16 +508,22 @@ export async function handleMaterialAuthoringTools(
         if (inputs != null) {
           payload.inputs = inputs;
         }
-if (additionalOutputs != null) {
-  payload.outputs = additionalOutputs;
-}
+        if (additionalOutputs != null) {
+          payload.additionalOutputs = additionalOutputs;
+        }
 
         const res = (await executeAutomationRequest(tools, TOOL_ACTIONS.MANAGE_MATERIAL_AUTHORING, payload)) as AutomationResponse;
 
         if (res.success === false) {
           return ResponseFactory.error(res.error ?? 'Failed to add custom expression', res.errorCode);
         }
-        return ResponseFactory.success(res, res.message ?? 'Custom HLSL expression added');
+        const response = ResponseFactory.success(res, res.message ?? 'Custom HLSL expression added');
+        const result = res.result;
+        if (result && typeof result === 'object' && !Array.isArray(result)) {
+          const nodeId = (result as Record<string, unknown>).nodeId;
+          if (typeof nodeId === 'string') response.nodeId = nodeId;
+        }
+        return response;
       }
 
       // Connect two material expression nodes via their pins
@@ -1035,7 +1041,7 @@ if (additionalOutputs != null) {
       // Set a static switch parameter value on a material
       case 'set_static_switch_parameter_value': {
         const params = normalizeArgs(args, [
-          { key: 'assetPath', aliases: ['materialPath'], required: true },
+          { key: 'assetPath', aliases: ['materialPath', 'instancePath'], required: true },
           { key: 'parameterName', required: true },
           { key: 'value', required: true },
           { key: 'save', default: true },
@@ -1166,8 +1172,8 @@ if (additionalOutputs != null) {
         const hasCode = code !== undefined && code !== null;
         const hasDescription = description !== undefined && description !== null;
         const hasOutputType = outputType !== undefined && outputType !== null;
-  const hasInputs = inputs !== undefined && inputs !== null;
-  const hasAdditionalOutputs = additionalOutputs !== undefined && additionalOutputs !== null;
+        const hasInputs = inputs !== undefined && inputs !== null;
+        const hasAdditionalOutputs = additionalOutputs !== undefined && additionalOutputs !== null;
         if (!hasCode && !hasDescription && !hasOutputType && !hasInputs && !hasAdditionalOutputs) {
           return ResponseFactory.error(
             'manage_material_authoring.update_custom_expression: provide at least one field to update',
@@ -1178,7 +1184,7 @@ if (additionalOutputs != null) {
         if (hasDescription) payload.description = description;
         if (hasOutputType) payload.outputType = outputType;
         if (hasInputs) payload.inputs = inputs;
-        if (hasAdditionalOutputs) payload.outputs = additionalOutputs;
+        if (hasAdditionalOutputs) payload.additionalOutputs = additionalOutputs;
 
         const res = (await executeAutomationRequest(tools, TOOL_ACTIONS.MANAGE_MATERIAL_AUTHORING, payload)) as AutomationResponse;
 
@@ -1284,8 +1290,8 @@ if (additionalOutputs != null) {
                          extractOptionalString(rawArgs, 'materialPath') ?? '';
         const nodeType = extractOptionalString(rawArgs, 'nodeType') ?? 
                         extractOptionalString(rawArgs, 'type') ?? '';
-        const x = extractOptionalNumber(rawArgs, 'x') ?? 0;
-        const y = extractOptionalNumber(rawArgs, 'y') ?? 0;
+        const x = extractOptionalNumber(rawArgs, 'x') ?? extractOptionalNumber(rawArgs, 'posX') ?? 0;
+        const y = extractOptionalNumber(rawArgs, 'y') ?? extractOptionalNumber(rawArgs, 'posY') ?? 0;
         
         if (!assetPath) {
           return ResponseFactory.error('manage_material_authoring.add_material_node: missing required argument assetPath', 'MISSING_ASSET_PATH');

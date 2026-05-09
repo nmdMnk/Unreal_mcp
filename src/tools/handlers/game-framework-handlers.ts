@@ -36,7 +36,7 @@ export async function handleGameFrameworkTools(
     'blueprintPath',
     'gameModeBlueprint'
   ]);
-  const timeoutMs = getTimeoutMs();
+  const timeoutMs = typeof argsRecord.timeoutMs === 'number' ? argsRecord.timeoutMs : getTimeoutMs();
 
   // All actions are dispatched to C++ via automation bridge
   const sendRequest = async (subAction: string): Promise<Record<string, unknown>> => {
@@ -143,8 +143,8 @@ export async function handleGameFrameworkTools(
     case 'configure_game_rules': {
       const gmPath = getGameModePath(argsRecord);
       requireNonEmptyString(gmPath, 'gameModeBlueprint', 'Missing required parameter: gameModeBlueprint or blueprintPath');
-      // Configures game rules like friendly fire, time limits, score limits
-      // Optional: friendlyFire, timeLimit, scoreLimit, bDelayedStart, startPlayersNeeded
+      // Configures supported GameMode rule flags
+      // Optional: bDelayedStart
       return sendRequest('configure_game_rules');
     }
 
@@ -180,7 +180,7 @@ export async function handleGameFrameworkTools(
       const gmPath = getGameModePath(argsRecord);
       requireNonEmptyString(gmPath, 'gameModeBlueprint', 'Missing required parameter: gameModeBlueprint or blueprintPath');
       // Configures scoring mechanics
-      // Optional: scorePerKill, scorePerAssist, scorePerObjective, scoreLimit
+      // Optional: scorePerKill, scorePerAssist, scorePerObjective, winScore, scorePerDeath
       return sendRequest('configure_scoring_system');
     }
 
@@ -200,7 +200,7 @@ export async function handleGameFrameworkTools(
       // Requires blueprintPath to identify context
       const bpPath = argsRecord.blueprintPath ?? argsRecord.gameModeBlueprint;
       requireNonEmptyString(bpPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
-      // Optional: teamIndex, location, rotation, bPlayerOnly
+      // Optional: teamIndex
       return sendRequest('configure_player_start');
     }
 
@@ -208,7 +208,7 @@ export async function handleGameFrameworkTools(
       const gmPath = getGameModePath(argsRecord);
       requireNonEmptyString(gmPath, 'gameModeBlueprint', 'Missing required parameter: gameModeBlueprint or blueprintPath');
       // Configures respawn behavior
-      // Optional: respawnDelay, respawnLocation, respawnConditions
+      // Optional: respawnDelay, respawnLocation, forceRespawn, respawnLives
       return sendRequest('set_respawn_rules');
     }
 
@@ -226,7 +226,7 @@ export async function handleGameFrameworkTools(
 
     case 'get_game_framework_info': {
       // Returns game framework info for a level or game mode
-      // Optional: levelPath, gameModeBlueprint, blueprintPath
+      // Optional: gameModeBlueprint, blueprintPath
       return sendRequest('get_game_framework_info');
     }
 

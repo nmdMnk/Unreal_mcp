@@ -28,7 +28,7 @@ export async function handleNetworkingTools(
   tools: ITools
 ): Promise<Record<string, unknown>> {
   const argsRecord = normalizePathFields(args as Record<string, unknown>, ['blueprintPath']);
-  const timeoutMs = getTimeoutMs();
+  const timeoutMs = typeof argsRecord.timeoutMs === 'number' ? argsRecord.timeoutMs : getTimeoutMs();
 
   // All actions are dispatched to C++ via automation bridge
   const sendRequest = async (subAction: string): Promise<Record<string, unknown>> => {
@@ -88,7 +88,7 @@ export async function handleNetworkingTools(
     case 'configure_replication_graph': {
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       // Configures replication graph settings
-      // Optional: nodeClass, spatialBias, defaultSettingsClass
+      // Optional: spatiallyLoaded, netLoadOnClient, replicationPolicy
       return sendRequest('configure_replication_graph');
     }
 
@@ -101,7 +101,7 @@ export async function handleNetworkingTools(
       requireNonEmptyString(argsRecord.functionName, 'functionName', 'Missing required parameter: functionName');
       requireNonEmptyString(argsRecord.rpcType, 'rpcType', 'Missing required parameter: rpcType');
       // Creates an RPC function (Server, Client, NetMulticast)
-      // Optional: reliable (bool), parameters (array), returnType
+      // Optional: reliable (bool)
       return sendRequest('create_rpc_function');
     }
 
@@ -109,7 +109,7 @@ export async function handleNetworkingTools(
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       requireNonEmptyString(argsRecord.functionName, 'functionName', 'Missing required parameter: functionName');
       // Configures RPC validation function
-      // Optional: validationFunctionName, withValidation (bool)
+      // Optional: withValidation (bool)
       return sendRequest('configure_rpc_validation');
     }
 
@@ -185,7 +185,7 @@ export async function handleNetworkingTools(
     case 'configure_net_serialization': {
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       // Configures custom net serialization for a struct
-      // Optional: structName, useNetSerialize (bool)
+      // Optional: structName, customSerialization (bool)
       return sendRequest('configure_net_serialization');
     }
 
@@ -200,7 +200,7 @@ export async function handleNetworkingTools(
     case 'configure_push_model': {
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       // Configures push-model replication for properties
-      // Optional: usePushModel (bool), propertyNames (array)
+      // Optional: usePushModel (bool)
       return sendRequest('configure_push_model');
     }
 
@@ -211,7 +211,7 @@ export async function handleNetworkingTools(
     case 'configure_client_prediction': {
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       // Configures client-side prediction settings
-      // Optional: enablePrediction (bool), predictionKey (string)
+      // Optional: enablePrediction (bool), predictionThreshold (number)
       return sendRequest('configure_client_prediction');
     }
 
@@ -226,7 +226,7 @@ export async function handleNetworkingTools(
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       requireNonEmptyString(argsRecord.dataType, 'dataType', 'Missing required parameter: dataType');
       // Adds network prediction data structure
-      // Optional: properties (array of predicted properties)
+      // Optional: variableName
       return sendRequest('add_network_prediction_data');
     }
 
@@ -257,7 +257,7 @@ export async function handleNetworkingTools(
     case 'configure_replicated_movement': {
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       // Configures replicated movement settings
-      // Optional: replicateMovement (bool), replicatedMovementMode, locationQuantizationLevel
+      // Optional: replicateMovement (bool)
       return sendRequest('configure_replicated_movement');
     }
 
