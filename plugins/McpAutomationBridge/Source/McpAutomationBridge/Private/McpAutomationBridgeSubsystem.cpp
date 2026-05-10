@@ -6,19 +6,23 @@
 
 #include "McpAutomationBridgeSubsystem.h"
 #include "MCP/McpNativeTransport.h"
+#include "HAL/PlatformTLS.h"
 #include "Interfaces/IPluginManager.h"
 
 // =============================================================================
 // FMcpRequestErrorDevice - Custom log device for per-request error capture
 // =============================================================================
 
+static constexpr int32 MaxCapturedRequestMessages = 32;
+static constexpr int32 MaxCapturedRequestMessageChars = 1024;
+
 /**
  * Custom output device that captures errors and warnings during request processing.
  * This is temporarily attached to GLog during handler execution to detect
  * engine-level errors (like ensure failures) that don't propagate as exceptions.
  * 
- * Note: Uses the subsystem's shared capture with mutex-protected access since
- * GLog may route messages from worker threads.
+ * Note: Uses the subsystem's shared capture with mutex-protected access and
+ * only records messages from the request thread that enabled capture.
  */
 class FMcpRequestErrorDevice : public FOutputDevice
 {
@@ -37,21 +41,46 @@ public:
             {
                 return;
             }
-            
-            FString Message = FString::Printf(TEXT("[%s] %s"), *Category.ToString(), V);
-            
+
             // Thread-safe access to shared capture
             FScopeLock Lock(&Subsystem->ErrorCaptureMutex);
             auto& Capture = Subsystem->CurrentErrorCapture;
-            
+            if (!Capture.bActive ||
+                Capture.CapturingThreadId != FPlatformTLS::GetCurrentThreadId())
+            {
+                return;
+            }
+
+            FString Message = FString::Printf(TEXT("[%s] %s"), *Category.ToString(), V);
+            if (Message.Len() > MaxCapturedRequestMessageChars)
+            {
+                Message = Message.Left(MaxCapturedRequestMessageChars) + TEXT("[TRUNCATED]");
+            }
+
             if (Verbosity == ELogVerbosity::Error)
             {
-                Capture.ErrorMessages.Add(Message);
+                ++Capture.ErrorCount;
+                if (Capture.ErrorMessages.Num() < MaxCapturedRequestMessages)
+                {
+                    Capture.ErrorMessages.Add(Message);
+                }
+                else
+                {
+                    Capture.bErrorMessagesTruncated = true;
+                }
                 Capture.bHasErrors = true;
             }
             else
             {
-                Capture.WarningMessages.Add(Message);
+                ++Capture.WarningCount;
+                if (Capture.WarningMessages.Num() < MaxCapturedRequestMessages)
+                {
+                    Capture.WarningMessages.Add(Message);
+                }
+                else
+                {
+                    Capture.bWarningMessagesTruncated = true;
+                }
                 Capture.bHasWarnings = true;
             }
         }
@@ -59,6 +88,16 @@ public:
         // Note: We do not explicitly forward here. When this device is attached to GLog,
         // the engine still routes messages to all other output devices; this class only
         // captures errors and warnings without suppressing normal logging.
+    }
+
+    virtual bool CanBeUsedOnAnyThread() const override
+    {
+        return true;
+    }
+
+    virtual bool CanBeUsedOnMultipleThreads() const override
+    {
+        return true;
     }
 
 private:
@@ -114,6 +153,134 @@ static inline FString SanitizeForLog(const FString &In) {
   }
   if (Out.Len() > 512)
     Out = Out.Left(512) + TEXT("[TRUNCATED]");
+  return Out;
+}
+
+static inline bool IsAllowedUnrealMountPrefixAt(
+    const FString &Value, int32 Index, const TCHAR *Mount) {
+  const int32 MountLen = FCString::Strlen(Mount);
+  if (Index + MountLen > Value.Len()) {
+    return false;
+  }
+
+  if (!Value.Mid(Index, MountLen).Equals(Mount, ESearchCase::CaseSensitive)) {
+    return false;
+  }
+
+  const int32 AfterMount = Index + MountLen;
+  return AfterMount == Value.Len() || Value[AfterMount] == '/';
+}
+
+static inline bool IsAllowedUnrealMountPath(const FString &Value, int32 Index) {
+  return IsAllowedUnrealMountPrefixAt(Value, Index, TEXT("/Game")) ||
+         IsAllowedUnrealMountPrefixAt(Value, Index, TEXT("/Engine")) ||
+         IsAllowedUnrealMountPrefixAt(Value, Index, TEXT("/Script")) ||
+         IsAllowedUnrealMountPrefixAt(Value, Index, TEXT("/Temp")) ||
+         IsAllowedUnrealMountPrefixAt(Value, Index, TEXT("/Niagara"));
+}
+
+static inline bool IsResponsePathChar(TCHAR C) {
+  return FChar::IsAlnum(C) || C == '/' || C == '\\' || C == '.' ||
+         C == '_' || C == '-' || C == ':' || C == '(' || C == ')' ||
+         C == '+' || C == '~' || C == ' ';
+}
+
+static inline bool IsUnrealMountPathChar(TCHAR C) {
+  return FChar::IsAlnum(C) || C == '/' || C == '.' || C == '_' ||
+         C == '-' || C == ':';
+}
+
+static FString RedactFilesystemPathsForResponse(const FString &Input) {
+  FString Output;
+  Output.Reserve(Input.Len());
+
+  for (int32 Index = 0; Index < Input.Len();) {
+    const bool bAllowedUnrealPath = Input[Index] == '/' &&
+                                    IsAllowedUnrealMountPath(Input, Index);
+    const bool bUnixPath = Input[Index] == '/' && !bAllowedUnrealPath;
+    const bool bWindowsPath = Index + 2 < Input.Len() &&
+                              FChar::IsAlpha(Input[Index]) &&
+                              Input[Index + 1] == ':' &&
+                              (Input[Index + 2] == '/' || Input[Index + 2] == '\\');
+    const bool bUncPath = Index + 1 < Input.Len() &&
+                          Input[Index] == '\\' && Input[Index + 1] == '\\';
+
+    if (bAllowedUnrealPath) {
+      while (Index < Input.Len() && IsUnrealMountPathChar(Input[Index])) {
+        Output.AppendChar(Input[Index]);
+        ++Index;
+      }
+      continue;
+    }
+
+    if (bUnixPath || bWindowsPath || bUncPath) {
+      Output += TEXT("[path redacted]");
+      while (Index < Input.Len() && IsResponsePathChar(Input[Index])) {
+        ++Index;
+      }
+      continue;
+    }
+
+    Output.AppendChar(Input[Index]);
+    ++Index;
+  }
+
+  return Output;
+}
+
+static void RedactFollowingValueForResponse(FString &Text, const FString &Marker) {
+  const auto IsValueDelimiter = [](TCHAR C) {
+    return C == ';' || C == '&' || C == ',' || C == '\r' || C == '\n';
+  };
+  const auto IsHeaderDelimiter = [](TCHAR C) {
+    return C == ';' || C == '&' || C == '\r' || C == '\n';
+  };
+
+  int32 SearchStart = 0;
+  while (SearchStart < Text.Len()) {
+    const int32 MarkerIndex = Text.Find(
+        Marker, ESearchCase::IgnoreCase, ESearchDir::FromStart, SearchStart);
+    if (MarkerIndex == INDEX_NONE) {
+      return;
+    }
+
+    const int32 ValueStart = MarkerIndex + Marker.Len();
+    const bool bAllowWhitespaceInValue = Marker.EndsWith(TEXT(":"));
+    int32 ValueEnd = ValueStart;
+    if (bAllowWhitespaceInValue) {
+      while (ValueEnd < Text.Len() && FChar::IsWhitespace(Text[ValueEnd]) &&
+             Text[ValueEnd] != '\r' && Text[ValueEnd] != '\n') {
+        ++ValueEnd;
+      }
+      while (ValueEnd < Text.Len() && !IsHeaderDelimiter(Text[ValueEnd])) {
+        ++ValueEnd;
+      }
+    } else {
+      while (ValueEnd < Text.Len() && !IsValueDelimiter(Text[ValueEnd]) &&
+             !FChar::IsWhitespace(Text[ValueEnd])) {
+        ++ValueEnd;
+      }
+    }
+
+    Text = Text.Left(ValueStart) + TEXT("[redacted]") + Text.Mid(ValueEnd);
+    SearchStart = ValueStart + 10;
+  }
+}
+
+static FString SanitizeEngineErrorForResponse(const FString &In) {
+  FString Out = RedactFilesystemPathsForResponse(SanitizeForLog(In));
+  RedactFollowingValueForResponse(Out, TEXT("token="));
+  RedactFollowingValueForResponse(Out, TEXT("capabilitytoken="));
+  RedactFollowingValueForResponse(Out, TEXT("password="));
+  RedactFollowingValueForResponse(Out, TEXT("secret="));
+  RedactFollowingValueForResponse(Out, TEXT("api_key="));
+  RedactFollowingValueForResponse(Out, TEXT("apikey="));
+  RedactFollowingValueForResponse(Out, TEXT("authorization:"));
+  RedactFollowingValueForResponse(Out, TEXT("bearer "));
+
+  if (Out.Len() > 512) {
+    Out = Out.Left(512) + TEXT("[TRUNCATED]");
+  }
   return Out;
 }
 
@@ -305,16 +472,20 @@ UMcpAutomationBridgeSubsystem::FRequestErrorCapture& UMcpAutomationBridgeSubsyst
 
 void UMcpAutomationBridgeSubsystem::BeginErrorCapture()
 {
-    // Clear any previous capture state (thread-safe)
-    FScopeLock Lock(&ErrorCaptureMutex);
-    CurrentErrorCapture.Reset();
-    
     // Create and attach the error capture device if not already
     if (!RequestErrorDevice.IsValid())
     {
         RequestErrorDevice = MakeShared<FMcpRequestErrorDevice>(this);
     }
-    
+
+    {
+        // Clear any previous capture state (thread-safe)
+        FScopeLock Lock(&ErrorCaptureMutex);
+        CurrentErrorCapture.Reset();
+        CurrentErrorCapture.CapturingThreadId = FPlatformTLS::GetCurrentThreadId();
+        CurrentErrorCapture.bActive = true;
+    }
+
     // Attach to GLog to capture errors
     if (GLog && RequestErrorDevice.IsValid())
     {
@@ -332,10 +503,20 @@ TArray<FString> UMcpAutomationBridgeSubsystem::EndErrorCapture()
     
     // Get captured errors (thread-safe)
     FScopeLock Lock(&ErrorCaptureMutex);
-    
+
     TArray<FString> AllMessages;
-    AllMessages.Append(CurrentErrorCapture.ErrorMessages);
-    AllMessages.Append(CurrentErrorCapture.WarningMessages);
+    AllMessages.Reserve(CurrentErrorCapture.ErrorMessages.Num() +
+                        CurrentErrorCapture.WarningMessages.Num());
+    for (const FString& ErrorMessage : CurrentErrorCapture.ErrorMessages)
+    {
+        AllMessages.Add(SanitizeEngineErrorForResponse(ErrorMessage));
+    }
+    for (const FString& WarningMessage : CurrentErrorCapture.WarningMessages)
+    {
+        AllMessages.Add(SanitizeEngineErrorForResponse(WarningMessage));
+    }
+    CurrentErrorCapture.bActive = false;
+    CurrentErrorCapture.CapturingThreadId = 0;
     
     return AllMessages;
 }
@@ -349,7 +530,13 @@ bool UMcpAutomationBridgeSubsystem::HasCapturedErrors() const
 TArray<FString> UMcpAutomationBridgeSubsystem::GetCapturedErrorMessages() const
 {
     FScopeLock Lock(&ErrorCaptureMutex);
-    return CurrentErrorCapture.ErrorMessages;
+    TArray<FString> SanitizedMessages;
+    SanitizedMessages.Reserve(CurrentErrorCapture.ErrorMessages.Num());
+    for (const FString& ErrorMessage : CurrentErrorCapture.ErrorMessages)
+    {
+        SanitizedMessages.Add(SanitizeEngineErrorForResponse(ErrorMessage));
+    }
+    return SanitizedMessages;
 }
 
 /**
@@ -429,6 +616,11 @@ void UMcpAutomationBridgeSubsystem::QueueAutomationRequest(
  * response.
  * @param Result Optional JSON object containing result data; may be null.
  * @param ErrorCode Error code string to include when `bSuccess` is `false`.
+ *
+ * Successful handler responses are converted to ENGINE_ERROR failures when
+ * Unreal logged errors during the active automation request. This keeps tool
+ * results aligned with the editor log instead of reporting success for a
+ * request whose handler triggered engine errors.
  */
 
 void UMcpAutomationBridgeSubsystem::SendAutomationResponse(
@@ -436,13 +628,80 @@ void UMcpAutomationBridgeSubsystem::SendAutomationResponse(
     const bool bSuccess, const FString &Message,
     const TSharedPtr<FJsonObject> &Result, const FString &ErrorCode,
     ERequestOrigin Origin) {
+  bool bEffectiveSuccess = bSuccess;
+  FString EffectiveMessage = Message;
+  FString EffectiveErrorCode = ErrorCode;
+  TSharedPtr<FJsonObject> EffectiveResult = Result;
+
+  if (bSuccess && bProcessingAutomationRequest)
+  {
+    TArray<FString> CapturedErrors;
+    int32 TotalCapturedErrorCount = 0;
+    bool bCapturedErrorsTruncated = false;
+    {
+      FScopeLock Lock(&ErrorCaptureMutex);
+      if (CurrentErrorCapture.bHasErrors.load())
+      {
+        CapturedErrors = CurrentErrorCapture.ErrorMessages;
+        TotalCapturedErrorCount = CurrentErrorCapture.ErrorCount;
+        bCapturedErrorsTruncated = CurrentErrorCapture.bErrorMessagesTruncated;
+      }
+    }
+
+    if (CapturedErrors.Num() > 0)
+    {
+      bEffectiveSuccess = false;
+      EffectiveErrorCode = TEXT("ENGINE_ERROR");
+      const FString FirstError = SanitizeEngineErrorForResponse(CapturedErrors[0]);
+      EffectiveMessage = FString::Printf(
+          TEXT("Handler reported success but Unreal logged errors: %s"),
+          *FirstError.Left(240));
+
+      TSharedPtr<FJsonObject> AugmentedResult = MakeShared<FJsonObject>();
+      if (Result.IsValid())
+      {
+        for (const auto &Pair : Result->Values)
+        {
+          AugmentedResult->SetField(Pair.Key, Pair.Value);
+        }
+      }
+
+      TArray<TSharedPtr<FJsonValue>> ErrorValues;
+      const int32 MaxErrorsInResponse = 3;
+      const int32 ErrorResponseCount = FMath::Min(CapturedErrors.Num(), MaxErrorsInResponse);
+      for (int32 ErrorIndex = 0; ErrorIndex < ErrorResponseCount; ++ErrorIndex)
+      {
+        ErrorValues.Add(MakeShared<FJsonValueString>(
+            SanitizeEngineErrorForResponse(CapturedErrors[ErrorIndex])));
+      }
+      AugmentedResult->SetBoolField(TEXT("success"), false);
+      AugmentedResult->SetNumberField(TEXT("engineErrorCount"), TotalCapturedErrorCount);
+      AugmentedResult->SetArrayField(TEXT("engineErrors"), ErrorValues);
+      if (bCapturedErrorsTruncated || CapturedErrors.Num() > MaxErrorsInResponse)
+      {
+        AugmentedResult->SetBoolField(TEXT("engineErrorsTruncated"), true);
+      }
+
+      TSharedPtr<FJsonObject> ErrorObj = MakeShared<FJsonObject>();
+      ErrorObj->SetStringField(TEXT("code"), EffectiveErrorCode);
+      ErrorObj->SetStringField(TEXT("message"), EffectiveMessage);
+      AugmentedResult->SetObjectField(TEXT("error"), ErrorObj);
+      EffectiveResult = AugmentedResult;
+    }
+  }
+
+  if (!bEffectiveSuccess)
+  {
+    EffectiveMessage = SanitizeEngineErrorForResponse(EffectiveMessage);
+  }
+
   // When handlers omit Origin (default WebSocket), use the stored
   // CurrentRequestOrigin from the active ProcessAutomationRequest call.
   ERequestOrigin EffectiveOrigin = (Origin == ERequestOrigin::WebSocket)
       ? CurrentRequestOrigin : Origin;
   if (EffectiveOrigin == ERequestOrigin::NativeHTTP && NativeTransport)
   {
-    if (!NativeTransport->CompletePendingRequest(RequestId, bSuccess, Message, Result, ErrorCode))
+    if (!NativeTransport->CompletePendingRequest(RequestId, bEffectiveSuccess, EffectiveMessage, EffectiveResult, EffectiveErrorCode))
     {
       UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
         TEXT("Native HTTP response for %s dropped — request already expired or unknown"),
@@ -451,8 +710,8 @@ void UMcpAutomationBridgeSubsystem::SendAutomationResponse(
     return;
   }
   if (ConnectionManager.IsValid()) {
-    ConnectionManager->SendAutomationResponse(TargetSocket, RequestId, bSuccess,
-                                              Message, Result, ErrorCode);
+    ConnectionManager->SendAutomationResponse(TargetSocket, RequestId, bEffectiveSuccess,
+                                              EffectiveMessage, EffectiveResult, EffectiveErrorCode);
   }
 }
 

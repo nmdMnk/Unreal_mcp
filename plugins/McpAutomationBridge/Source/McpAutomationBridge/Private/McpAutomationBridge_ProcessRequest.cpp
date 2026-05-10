@@ -113,9 +113,10 @@ void UMcpAutomationBridgeSubsystem::ProcessAutomationRequest(
                *RequestId, *Action,
                CapturedErrors.Num() > 0 ? *FString::Join(CapturedErrors, TEXT("; ")) : TEXT("unknown"));
         
-        // The handler already sent a response, but we detected errors.
-        // Log a warning - the handler should have checked for errors.
-        // Future improvement: Send an error response if handler claimed success.
+        // The handler response path converts successful responses to
+        // ENGINE_ERROR failures when captured errors exist. Keep this warning as
+        // a secondary audit trail for handlers that returned after logging an
+        // engine error.
       }
       
       bProcessingAutomationRequest = false;
@@ -150,9 +151,9 @@ void UMcpAutomationBridgeSubsystem::ProcessAutomationRequest(
       // Begin Error Capture for this request (inside try block)
       // =========================================================================
       // This captures engine-level errors (like ensure failures) that occur
-      // during handler execution. Captured errors are reported via warnings
-      // and logging; they do not override or force a failure response if a
-      // handler has already reported success.
+      // during handler execution. SendAutomationResponse checks the capture and
+      // turns otherwise successful responses into ENGINE_ERROR failures so tool
+      // responses stay aligned with the Unreal log.
       // Note: BeginErrorCapture is placed inside the try block to avoid
       // capturing our own catch-block error logging.
       BeginErrorCapture();
