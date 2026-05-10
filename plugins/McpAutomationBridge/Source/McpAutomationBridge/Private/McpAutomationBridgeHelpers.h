@@ -48,23 +48,6 @@
 #endif
 
 /**
- * Removes control characters (ASCII codes less than 32) from the input JSON
- * string.
- * @param In Input string that may contain control characters.
- * @returns String with all characters with ASCII value < 32 removed.
- */
-static inline FString SanitizeIncomingJson(const FString &In) {
-  FString Out;
-  Out.Reserve(In.Len());
-  for (int32 i = 0; i < In.Len(); ++i) {
-    const TCHAR C = In[i];
-    if (C >= 32)
-      Out.AppendChar(C);
-  }
-  return Out;
-}
-
-/**
  * Normalize and validate a project-relative asset path.
  *
  * Ensures the returned path is normalized, begins with a leading '/', rejects
@@ -269,13 +252,6 @@ static inline bool McpContainsUnsafeCommandSeparator(const FString &Value) {
          Value.Contains(TEXT("&&")) || Value.Contains(TEXT("||")) ||
          Value.Contains(TEXT(";")) || Value.Contains(TEXT("|")) ||
          Value.Contains(TEXT("`"));
-}
-
-/** Validate a single console argument token, not an arbitrary command line. */
-static inline bool McpIsSafeConsoleArgumentToken(const FString &Value) {
-  const FString Trimmed = Value.TrimStartAndEnd();
-  return !Trimmed.IsEmpty() && !McpContainsUnsafeCommandSeparator(Trimmed) &&
-         !Trimmed.Contains(TEXT(" ")) && !Trimmed.Contains(TEXT("\t"));
 }
 
 /** Match TS-side UBT argument hardening for native-direct MCP requests. */
@@ -1044,66 +1020,6 @@ static inline UClass *ResolveClassByName(const FString &ClassNameOrPath) {
   return BestMatch;
 }
 #endif
-
-/**
- * Extracts top-level JSON objects from a string.
- *
- * @param In The input string that may contain one or more JSON objects mixed
- * with other text.
- * @returns An array of substring FStrings, each containing a complete top-level
- * JSON object in the same order they appear in the input; empty if none are
- * found.
- */
-static inline TArray<FString> ExtractTopLevelJsonObjects(const FString &In) {
-  TArray<FString> Results;
-  int32 Depth = 0;
-  int32 Start = INDEX_NONE;
-  for (int32 i = 0; i < In.Len(); ++i) {
-    const TCHAR C = In[i];
-    if (C == '"') {
-      for (++i; i < In.Len(); ++i) {
-        if (In[i] == '\\') {
-          ++i;
-        } else if (In[i] == '"') {
-          break;
-        }
-      }
-      continue;
-    }
-
-    if (C == '{') {
-      if (Depth == 0)
-        Start = i;
-      Depth++;
-    } else if (C == '}') {
-      Depth--;
-      if (Depth == 0 && Start != INDEX_NONE) {
-        Results.Add(In.Mid(Start, i - Start + 1));
-        Start = INDEX_NONE;
-      }
-    }
-  }
-  return Results;
-}
-
-/**
- * Produce a lowercase hexadecimal representation of the UTF-8 encoding of a
- * string for diagnostic use.
- * @param In The input string to encode as UTF-8 bytes.
- * @returns A lowercase hex string representing the UTF-8 bytes of `In` (two hex
- * characters per byte).
- */
-static inline FString HexifyUtf8(const FString &In) {
-  FTCHARToUTF8 Converter(*In);
-  const uint8 *Bytes = reinterpret_cast<const uint8 *>(Converter.Get());
-  int32 Len = Converter.Length();
-  FString Hex;
-  Hex.Reserve(Len * 2);
-  for (int32 i = 0; i < Len; ++i) {
-    Hex += FString::Printf(TEXT("%02x"), Bytes[i]);
-  }
-  return Hex;
-}
 
 /**
  * Captures log output written to GLog into an in-memory list of lines.

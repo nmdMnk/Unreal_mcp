@@ -146,7 +146,6 @@
 // These helpers provide widget-specific utilities:
 // - GetColorFromJsonWidget: Parse RGBA color from JSON object
 // - GetObjectField/GetArrayField: Optional field access (returns null on missing)
-// - CreateAssetPackage: Create package for new widget assets
 // - LoadWidgetBlueprint: Robust widget blueprint loading with multiple fallbacks
 // - GetVisibility: Convert visibility string to ESlateVisibility enum
 //
@@ -204,21 +203,6 @@ namespace WidgetAuthoringHelpers
         }
         // Fallback: check widgetName (legacy compatibility)
         return GetJsonStringField(Payload, TEXT("widgetName"));
-    }
-
-    // Create package for new asset
-    UPackage* CreateAssetPackage(const FString& AssetPath)
-    {
-        FString PackagePath = AssetPath;
-        if (!PackagePath.StartsWith(TEXT("/Game/")))
-        {
-            PackagePath = TEXT("/Game/") + PackagePath;
-        }
-        
-        // Remove any file extension
-        PackagePath = FPaths::GetBaseFilename(PackagePath, false);
-        
-        return CreatePackage(*PackagePath);
     }
 
     // Load widget blueprint - robust lookup for both in-memory and on-disk assets

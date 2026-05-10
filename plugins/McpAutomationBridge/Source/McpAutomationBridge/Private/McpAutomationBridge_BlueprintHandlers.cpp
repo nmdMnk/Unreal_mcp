@@ -315,24 +315,9 @@ FMcpAutomationBridge_FindExecPin(UEdGraphNode *Node,
 }
 
 static UEdGraphPin *
-FMcpAutomationBridge_FindOutputPin(UEdGraphNode *Node,
-                                   const FName &PinName = NAME_None) {
-  // Delegate to centralized McpBlueprintUtils
-  return McpBlueprintUtils::FindOutputPin(Node, PinName);
-}
-
-static UEdGraphPin *
 FMcpAutomationBridge_FindPreferredEventExec(UEdGraph *Graph) {
   // Delegate to centralized McpBlueprintUtils
   return McpBlueprintUtils::FindPreferredEventExec(Graph);
-}
-
-
-
-static UEdGraphPin *FMcpAutomationBridge_FindInputPin(UEdGraphNode *Node,
-                                                      const FName &PinName) {
-  // Delegate to centralized McpBlueprintUtils
-  return McpBlueprintUtils::FindInputPin(Node, PinName);
 }
 
 static UEdGraphPin *
@@ -772,125 +757,6 @@ static void FMcpAutomationBridge_AnnotateVariableJson(
   if (bIsSCSVariable) {
     Obj->SetBoolField(TEXT("component"), true);
   }
-}
-
-static TSharedPtr<FJsonObject> FMcpAutomationBridge_BuildPropertyVariableJson(
-    UBlueprint *Blueprint, const FName &VariableName, FProperty *Property,
-    bool bIsSCSVariable) {
-  if (!Blueprint || VariableName.IsNone()) {
-    return nullptr;
-  }
-
-  UBlueprint *DeclaringBlueprint = nullptr;
-  const int32 NewVarIndex = FBlueprintEditorUtils::FindNewVariableIndexAndBlueprint(
-      Blueprint, VariableName, DeclaringBlueprint);
-  if (DeclaringBlueprint && NewVarIndex != INDEX_NONE &&
-      DeclaringBlueprint->NewVariables.IsValidIndex(NewVarIndex)) {
-    TSharedPtr<FJsonObject> Obj = FMcpAutomationBridge_BuildVariableJson(
-        DeclaringBlueprint, DeclaringBlueprint->NewVariables[NewVarIndex]);
-    if (Property) {
-      // Get or create metadata object for compatibility path
-      TSharedPtr<FJsonObject> Metadata =
-          Obj->HasField(TEXT("metadata")) ? Obj->GetObjectField(TEXT("metadata"))
-                                          : MakeShared<FJsonObject>();
-      bool bMetadataChanged = false;
-
-      const FText Tooltip = Property->GetToolTipText();
-      if (!Tooltip.IsEmpty()) {
-        Obj->SetStringField(TEXT("tooltip"), Tooltip.ToString());
-        Metadata->SetStringField(TEXT("tooltip"), Tooltip.ToString());
-        bMetadataChanged = true;
-      }
-      const FString DisplayName = Property->IsNative()
-                                      ? Property->GetDisplayNameText().ToString()
-                                      : VariableName.ToString();
-      if (!DisplayName.IsEmpty() &&
-          !DisplayName.Equals(VariableName.ToString(), ESearchCase::CaseSensitive)) {
-        Obj->SetStringField(TEXT("displayName"), DisplayName);
-        Metadata->SetStringField(TEXT("displayName"), DisplayName);
-        bMetadataChanged = true;
-      }
-
-      if (bMetadataChanged) {
-        Obj->SetObjectField(TEXT("metadata"), Metadata);
-      }
-    }
-    FMcpAutomationBridge_AnnotateVariableJson(Obj, Blueprint, DeclaringBlueprint,
-                                              bIsSCSVariable);
-    return Obj;
-  }
-
-  TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
-  Obj->SetStringField(TEXT("name"), VariableName.ToString());
-  Obj->SetBoolField(TEXT("component"), bIsSCSVariable);
-
-  if (Property) {
-    const FString PropertyType =
-        FMcpAutomationBridge_DescribePropertyType(Property);
-    if (!PropertyType.IsEmpty()) {
-      Obj->SetStringField(TEXT("type"), PropertyType);
-    }
-    Obj->SetBoolField(TEXT("replicated"),
-                      Property->HasAnyPropertyFlags(CPF_Net));
-    Obj->SetBoolField(TEXT("public"),
-                      !Property->HasAnyPropertyFlags(CPF_BlueprintReadOnly));
-
-    const FText CategoryText =
-        FBlueprintEditorUtils::GetBlueprintVariableCategory(Blueprint,
-                                                            VariableName, nullptr);
-    const FString Category = CategoryText.IsEmpty() ? FString() : CategoryText.ToString();
-    if (!Category.IsEmpty() && !Category.Equals(Blueprint->GetName())) {
-      Obj->SetStringField(TEXT("category"), Category);
-    }
-
-    TSharedPtr<FJsonObject> Metadata = MakeShared<FJsonObject>();
-    bool bHasMetadata = false;
-
-    // Add DisplayName to metadata if present and different from variable name
-    const FString DisplayName = Property->IsNative()
-                                    ? Property->GetDisplayNameText().ToString()
-                                    : VariableName.ToString();
-    if (!DisplayName.IsEmpty() &&
-        !DisplayName.Equals(VariableName.ToString(), ESearchCase::CaseSensitive)) {
-      Obj->SetStringField(TEXT("displayName"), DisplayName);
-      Metadata->SetStringField(TEXT("displayName"), DisplayName);
-      bHasMetadata = true;
-    }
-
-    // Add Tooltip to metadata if present
-    const FText Tooltip = Property->GetToolTipText();
-    if (!Tooltip.IsEmpty()) {
-      Obj->SetStringField(TEXT("tooltip"), Tooltip.ToString());
-      Metadata->SetStringField(TEXT("tooltip"), Tooltip.ToString());
-      bHasMetadata = true;
-    }
-
-    // Copy any additional metadata from the property
-    if (const TMap<FName, FString> *MetaMap = Property->GetMetaDataMap()) {
-      for (const TPair<FName, FString> &Pair : *MetaMap) {
-        if (!Pair.Value.IsEmpty()) {
-          Metadata->SetStringField(Pair.Key.ToString(), Pair.Value);
-          bHasMetadata = true;
-        }
-      }
-    }
-    if (bHasMetadata) {
-      Obj->SetObjectField(TEXT("metadata"), Metadata);
-    }
-
-    if (!DeclaringBlueprint) {
-      if (const UClass *OwnerClass = Property->GetOwnerClass()) {
-        DeclaringBlueprint = UBlueprint::GetBlueprintFromClass(OwnerClass);
-      }
-    }
-  } else {
-    Obj->SetBoolField(TEXT("replicated"), false);
-    Obj->SetBoolField(TEXT("public"), true);
-  }
-
-  FMcpAutomationBridge_AnnotateVariableJson(Obj, Blueprint, DeclaringBlueprint,
-                                            bIsSCSVariable);
-  return Obj;
 }
 
 static TSharedPtr<FJsonObject>
