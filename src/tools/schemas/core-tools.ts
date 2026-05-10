@@ -214,7 +214,9 @@ export const coreToolDefinitions: ToolDefinition[] = [
         newName: commonSchemas.newName,
         tag: commonSchemas.tagName,
         variables: commonSchemas.objectProp,
-        snapshotName: commonSchemas.stringProp
+        snapshotName: commonSchemas.stringProp,
+        limit: commonSchemas.numberProp,
+        filter: commonSchemas.stringProp
       },
       required: ['action']
     },
@@ -235,6 +237,23 @@ export const coreToolDefinitions: ToolDefinition[] = [
             }
           }
         },
+        actors: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: commonSchemas.stringProp,
+              name: commonSchemas.stringProp,
+              path: commonSchemas.stringProp,
+              class: commonSchemas.stringProp
+            }
+          }
+        },
+        count: commonSchemas.numberProp,
+        totalCount: commonSchemas.numberProp,
+        isPieWorld: commonSchemas.booleanProp,
+        worldName: commonSchemas.stringProp,
+        filter: commonSchemas.stringProp,
         data: commonSchemas.nullableObjectProp
       }
     }
@@ -295,7 +314,12 @@ export const coreToolDefinitions: ToolDefinition[] = [
         preferences: commonSchemas.objectProp,
         key: commonSchemas.stringProp,
         // simulate_input parameters
-        inputAction: commonSchemas.stringProp
+        type: commonSchemas.stringProp,
+        inputType: commonSchemas.stringProp,
+        inputAction: commonSchemas.stringProp,
+        x: commonSchemas.numberProp,
+        y: commonSchemas.numberProp,
+        button: commonSchemas.stringProp
       },
       required: ['action']
     },

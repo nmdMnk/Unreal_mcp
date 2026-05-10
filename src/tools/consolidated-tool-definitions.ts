@@ -673,6 +673,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         collisionEnabled: commonSchemas.booleanProp,
         functionName: commonSchemas.functionName,
         limit: commonSchemas.numberProp,
+        filter: commonSchemas.stringProp,
         name: commonSchemas.name,
         offset: commonSchemas.location,
         propertyName: commonSchemas.propertyName,
@@ -697,6 +698,23 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             }
           }
         },
+        actors: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: commonSchemas.stringProp,
+              name: commonSchemas.stringProp,
+              path: commonSchemas.stringProp,
+              class: commonSchemas.stringProp
+            }
+          }
+        },
+        count: commonSchemas.numberProp,
+        totalCount: commonSchemas.numberProp,
+        isPieWorld: commonSchemas.booleanProp,
+        worldName: commonSchemas.stringProp,
+        filter: commonSchemas.stringProp,
         data: commonSchemas.nullableObjectProp
       }
     }
@@ -757,7 +775,12 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         preferences: commonSchemas.objectProp,
         key: commonSchemas.stringProp,
         // simulate_input parameters
+        type: commonSchemas.stringProp,
+        inputType: commonSchemas.stringProp,
         inputAction: commonSchemas.stringProp,
+        x: commonSchemas.numberProp,
+        y: commonSchemas.numberProp,
+        button: commonSchemas.stringProp,
         id: commonSchemas.stringProp
       },
       required: ['action']

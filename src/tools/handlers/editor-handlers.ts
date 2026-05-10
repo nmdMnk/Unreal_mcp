@@ -57,7 +57,6 @@ const ACTION_REQUIRED_PARAMS: Record<string, string[]> = {
   'set_camera_fov': ['fov'],
   'set_game_speed': ['speed'],
   'set_fixed_delta_time': ['deltaTime'],
-  'screenshot': ['filename'],
   'set_preferences': ['category', 'preferences'],
   'execute_command': ['command'],
   'console_command': ['command'],
@@ -88,7 +87,7 @@ const ACTION_ALLOWED_PARAMS: Record<string, string[]> = {
   'set_camera_fov': ['fov'],
   'set_game_speed': ['speed'],
   'set_fixed_delta_time': ['deltaTime'],
-  'screenshot': ['filename', 'resolution'],
+  'screenshot': ['filename', 'path', 'resolution'],
   'set_preferences': ['category', 'preferences'],
   'execute_command': ['command'],
   'console_command': ['command'],
@@ -106,8 +105,19 @@ const ACTION_ALLOWED_PARAMS: Record<string, string[]> = {
   'start_recording': ['filename', 'name', 'frameRate', 'durationSeconds', 'metadata'],
   'stop_recording': [],
   'set_viewport_realtime': ['enabled', 'realtime'],
-  'simulate_input': ['key', 'action', 'inputAction'],
+  'simulate_input': ['key', 'type', 'inputType', 'inputAction', 'x', 'y', 'button'],
 };
+
+const INPUT_TYPE_ALIASES: Record<string, string> = {
+  pressed: 'key_down',
+  down: 'key_down',
+  released: 'key_up',
+  up: 'key_up',
+  click: 'mouse_click',
+  move: 'mouse_move',
+};
+
+const SUPPORTED_INPUT_TYPES = new Set(['key_down', 'key_up', 'mouse_click', 'mouse_move']);
 
 /**
  * Normalize editor action names for test compatibility
@@ -146,6 +156,21 @@ function validateEditorActionArgs(
   if (allowedParams !== undefined) {
     validateExpectedParams(args, allowedParams, `control_editor:${action}`);
   }
+}
+
+function getInputType(args: EditorArgs): string {
+  const inputTypeValue = args.type ?? args.inputType ?? args.inputAction;
+  if (typeof inputTypeValue !== 'string' || inputTypeValue.trim() === '') {
+    throw new Error('Missing required parameters for control_editor:simulate_input: [type|inputType|inputAction]');
+  }
+
+  const normalized = inputTypeValue.trim().toLowerCase();
+  const mappedType = INPUT_TYPE_ALIASES[normalized] ?? normalized;
+  if (!SUPPORTED_INPUT_TYPES.has(mappedType)) {
+    throw new Error(`Unknown input type: ${inputTypeValue}. Supported: key_down, key_up, mouse_click, mouse_move`);
+  }
+
+  return mappedType;
 }
 
 export async function handleEditorTools(action: string, args: EditorArgs, tools: ITools) {
@@ -189,7 +214,8 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
       return cleanObject(res);
     }
     case 'screenshot': {
-      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'screenshot', filename: args.filename, resolution: args.resolution }) as Record<string, unknown>;
+      const filename = args.filename ?? args.path;
+      const res = await executeAutomationRequest(tools, 'control_editor', { action: 'screenshot', filename, resolution: args.resolution }) as Record<string, unknown>;
       return cleanObject(res);
     }
     case 'console_command': {
@@ -369,34 +395,15 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
       return cleanObject(res);
     }
     case 'simulate_input': {
-      // CRITICAL: Validation runs in validateEditorActionArgs before reaching here.
-      // Allowed params are defined in ACTION_ALLOWED_PARAMS: ['key', 'action', 'inputAction']
-      // This ensures unknown params like 'invalidExtraParam' are rejected.
-      
-      // CRITICAL FIX: Read from 'inputAction' field to avoid conflict with routing 'action' field.
-      // The test generator spreads {...b, action:a} where a='simulate_input', which overwrites
-      // any 'action' field in b. So tests must use 'inputAction' for the input type.
-      // C++ handler also accepts 'inputAction' as an alternative to 'type'.
-      const inputActionValue = args.inputAction ?? args.action ?? '';
-      const inputType = typeof inputActionValue === 'string' ? inputActionValue.toLowerCase() : '';
-      let mappedType = inputType;
-      
-      // Map action values to C++ expected type values
-      if (inputType === 'pressed' || inputType === 'down') {
-        mappedType = 'key_down';
-      } else if (inputType === 'released' || inputType === 'up') {
-        mappedType = 'key_up';
-      } else if (inputType === 'click') {
-        mappedType = 'mouse_click';
-      } else if (inputType === 'move') {
-        mappedType = 'mouse_move';
-      }
-      // If inputType already matches expected values (key_down, key_up, mouse_click, mouse_move), keep it
+      const mappedType = getInputType(args);
       
       const res = await executeAutomationRequest(tools, 'control_editor', { 
         action: 'simulate_input',
         type: mappedType,
-        key: args.key
+        key: args.key,
+        x: args.x,
+        y: args.y,
+        button: args.button
       });
       return cleanObject(res);
     }

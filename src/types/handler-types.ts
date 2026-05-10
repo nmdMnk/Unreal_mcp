@@ -232,6 +232,13 @@ export interface EditorArgs extends HandlerArgs {
     command?: string;
     filename?: string;
     resolution?: string;
+    type?: string;
+    inputType?: string;
+    inputAction?: string;
+    key?: string;
+    x?: number;
+    y?: number;
+    button?: string;
     location?: Vector3;
     rotation?: Rotator;
     fov?: number;
