@@ -1,4 +1,4 @@
-import http from 'http';
+import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { HealthMonitor } from './health-monitor.js';
 import { AutomationBridge } from '../automation/index.js';

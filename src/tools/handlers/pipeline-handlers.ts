@@ -2,10 +2,10 @@ import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { PipelineArgs } from '../../types/handler-types.js';
 import { executeAutomationRequest } from './common-handlers.js';
-import { spawn, exec } from 'child_process';
-import path from 'path';
-import fs from 'fs';
-import util from 'util';
+import { spawn, exec } from 'node:child_process';
+import path from 'node:path';
+import fs from 'node:fs';
+import util from 'node:util';
 
 /** Promisified child_process.exec for async shell commands. */
 const execAsync = util.promisify(exec);
