@@ -98,7 +98,12 @@ public:
 			.String(TEXT("category"), TEXT(""))
 			.FreeformObject(TEXT("preferences"), TEXT(""))
 			.String(TEXT("key"), TEXT(""))
+			.String(TEXT("type"), TEXT("Input event type for simulate_input, e.g. key_down, key_up, mouse_click, mouse_move."))
+			.String(TEXT("inputType"), TEXT("Alias for type used by simulate_input."))
 			.String(TEXT("inputAction"), TEXT(""))
+			.Number(TEXT("x"), TEXT("Mouse X coordinate for simulate_input."))
+			.Number(TEXT("y"), TEXT("Mouse Y coordinate for simulate_input."))
+			.String(TEXT("button"), TEXT("Mouse button for simulate_input."))
 			.Required({TEXT("action")})
 			.Build();
 	}

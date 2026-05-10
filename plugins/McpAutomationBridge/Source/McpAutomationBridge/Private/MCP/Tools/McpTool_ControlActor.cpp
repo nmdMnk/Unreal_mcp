@@ -109,6 +109,7 @@ public:
 			.FreeformObject(TEXT("variables"), TEXT(""))
 			.String(TEXT("snapshotName"), TEXT(""))
 			.Integer(TEXT("limit"), TEXT("Maximum number of actors to return."))
+			.String(TEXT("filter"), TEXT("Optional actor label/name filter for list."))
 			.Bool(TEXT("collisionEnabled"), TEXT("Whether actor collision is enabled."))
 			.String(TEXT("functionName"), TEXT("Name of the function."))
 			.Array(TEXT("arguments"), TEXT("Arguments to pass to an actor function."))

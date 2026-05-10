@@ -4312,26 +4312,65 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorList(
     const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
     TSharedPtr<FMcpBridgeWebSocket> Socket) {
 #if WITH_EDITOR
-  FString Filter;
-  Payload->TryGetStringField(TEXT("filter"), Filter);
-
-  UEditorActorSubsystem *ActorSS =
-      GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
-  if (!ActorSS) {
-    SendStandardErrorResponse(this, Socket, RequestId, TEXT("SUBSYSTEM_MISSING"),
-                              TEXT("EditorActorSubsystem unavailable"), nullptr);
+  if (!GEditor) {
+    SendStandardErrorResponse(this, Socket, RequestId, TEXT("EDITOR_NOT_AVAILABLE"),
+                              TEXT("Editor not available"), nullptr);
     return true;
   }
 
-  const TArray<AActor *> &AllActors = ActorSS->GetAllLevelActors();
+  FString Filter;
+  Payload->TryGetStringField(TEXT("filter"), Filter);
+
+  double LimitValue = 0.0;
+  Payload->TryGetNumberField(TEXT("limit"), LimitValue);
+  const int32 Limit = LimitValue > 0.0
+      ? FMath::Max(1, static_cast<int32>(LimitValue))
+      : 0;
+
+  TArray<AActor *> AllActors;
+  UWorld *SourceWorld = nullptr;
+  bool bUsingPieWorld = false;
+
+  if (GEditor->PlayWorld) {
+    SourceWorld = GEditor->PlayWorld.Get();
+    bUsingPieWorld = true;
+    if (!SourceWorld) {
+      SendStandardErrorResponse(this, Socket, RequestId, TEXT("WORLD_NOT_FOUND"),
+                                TEXT("PIE world unavailable"), nullptr);
+      return true;
+    }
+
+    for (TActorIterator<AActor> It(SourceWorld); It; ++It) {
+      AllActors.Add(*It);
+    }
+  } else {
+    SourceWorld = GEditor->GetEditorWorldContext().World();
+    UEditorActorSubsystem *ActorSS =
+        GEditor->GetEditorSubsystem<UEditorActorSubsystem>();
+    if (!ActorSS) {
+      SendStandardErrorResponse(this, Socket, RequestId, TEXT("SUBSYSTEM_MISSING"),
+                                TEXT("EditorActorSubsystem unavailable"), nullptr);
+      return true;
+    }
+
+    AllActors = ActorSS->GetAllLevelActors();
+  }
+
   TArray<TSharedPtr<FJsonValue>> ActorsArray;
+  int32 TotalCount = 0;
 
   for (AActor *Actor : AllActors) {
     if (!Actor)
       continue;
     const FString Label = Actor->GetActorLabel();
     const FString Name = Actor->GetName();
-    if (!Filter.IsEmpty() && !Label.Contains(Filter) && !Name.Contains(Filter))
+    if (!Filter.IsEmpty() &&
+        !Label.Contains(Filter, ESearchCase::IgnoreCase) &&
+        !Name.Contains(Filter, ESearchCase::IgnoreCase))
+      continue;
+    ++TotalCount;
+
+    if (Limit > 0 && ActorsArray.Num() >= Limit)
       continue;
 
     TSharedPtr<FJsonObject> Entry = McpHandlerUtils::CreateResultObject();
@@ -4347,10 +4386,13 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorList(
   TSharedPtr<FJsonObject> Data = McpHandlerUtils::CreateResultObject();
   Data->SetArrayField(TEXT("actors"), ActorsArray);
   Data->SetNumberField(TEXT("count"), ActorsArray.Num());
+  Data->SetNumberField(TEXT("totalCount"), TotalCount);
+  Data->SetBoolField(TEXT("isPieWorld"), bUsingPieWorld);
+  if (SourceWorld)
+    Data->SetStringField(TEXT("worldName"), SourceWorld->GetName());
   if (!Filter.IsEmpty())
     Data->SetStringField(TEXT("filter"), Filter);
-  SendStandardSuccessResponse(this, Socket, RequestId, TEXT("Actors listed"),
-                              Data);
+  SendAutomationResponse(Socket, RequestId, true, TEXT("Actors listed"), Data);
   return true;
 #else
   return false;
