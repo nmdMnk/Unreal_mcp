@@ -218,7 +218,10 @@ inline bool McpSafeAssetSave(UObject* Asset)
 
     TArray<UPackage*> PackagesToSave;
     PackagesToSave.Add(Package);
-    const bool bPromptSaveSucceeded = FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
+    const FEditorFileUtils::EPromptReturnCode PromptSaveResult =
+        FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
+    const bool bPromptSaveSucceeded =
+        PromptSaveResult == FEditorFileUtils::PR_Success;
     const bool bExistsOnDisk = PackageExistsOnDisk();
 
     if (bPromptSaveSucceeded || bExistsOnDisk)

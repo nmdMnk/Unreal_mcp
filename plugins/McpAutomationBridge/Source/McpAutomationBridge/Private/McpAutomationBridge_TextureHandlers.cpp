@@ -283,7 +283,10 @@ static bool SaveTextureAsset(UTexture2D* Texture)
     // verify persistence on disk instead of falling back to UEditorAssetLibrary.
     TArray<UPackage*> PackagesToSave;
     PackagesToSave.Add(Package);
-    const bool bPromptSaveSucceeded = FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
+    const FEditorFileUtils::EPromptReturnCode PromptSaveResult =
+        FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
+    const bool bPromptSaveSucceeded =
+        PromptSaveResult == FEditorFileUtils::PR_Success;
     FString PackageFilename;
     const bool bHasFilename = FPackageName::TryConvertLongPackageNameToFilename(
         Package->GetName(), PackageFilename, FPackageName::GetAssetPackageExtension());
