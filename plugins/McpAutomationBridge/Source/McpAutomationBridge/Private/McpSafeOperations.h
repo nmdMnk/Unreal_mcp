@@ -17,9 +17,8 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeLock.h"
-#include "Runtime/Launch/Resources/Version.h"
 
-// Include version compatibility macros FIRST before other engine includes
+// Include version compatibility macros before version-specific checks
 #include "McpVersionCompatibility.h"
 
 #if WITH_EDITOR
@@ -1645,16 +1644,16 @@ TArray<FAssetData> OtherFileBackedAssets;
 
 for (const FAssetData& AssetData : FileBackedAssets)
 {
-const FString ClassName = MCP_ASSET_DATA_GET_CLASS_PATH(AssetData);
-if (ClassName.Contains(TEXT("AnimBlueprint")))
-{
-AnimBlueprintAssets.Add(AssetData);
-}
-else if (ClassName.Contains(TEXT("ControlRigBlueprint")))
-{
-ControlRigBlueprintAssets.Add(AssetData);
-}
-else if (ClassName.Contains(TEXT("Blueprint")))
+        const FString ClassName = MCP_ASSET_DATA_GET_CLASS_PATH(AssetData);
+        if (ClassName.Contains(TEXT("AnimBlueprint")))
+        {
+            AnimBlueprintAssets.Add(AssetData);
+        }
+        else if (ClassName.Contains(TEXT("ControlRigBlueprint")))
+        {
+            ControlRigBlueprintAssets.Add(AssetData);
+        }
+        else if (ClassName.Contains(TEXT("Blueprint")))
         {
             GenericBlueprintAssets.Add(AssetData);
         }
