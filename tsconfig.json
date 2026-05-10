@@ -40,7 +40,8 @@
     
     // Performance
     "skipLibCheck": true,
-  "incremental": false,
+    "incremental": true,
+    "tsBuildInfoFile": "tsconfig.tsbuildinfo",
     
     "types": ["node"],
     "noEmitOnError": false

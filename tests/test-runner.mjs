@@ -13,6 +13,27 @@ const reportsDir = path.join(__dirname, 'reports');
 // CRITICAL: Include both singular and plural forms for flexible matching
 const failureKeywords = ['failed', 'error', 'exception', 'invalid', 'not found', 'not_found', 'missing', 'timed out', 'timeout', 'unsupported', 'unknown', 'not implemented', 'not_implemented', 'traversal', 'blocked', 'denied', 'forbidden', 'security', 'violation', 'invalid_path', 'object_not_found', 'actor_not_found', 'actors not found', 'not exist'];
 const successKeywords = ['success', 'created', 'updated', 'deleted', 'completed', 'done', 'ok', 'skipped', 'handled'];
+const bridgeDisconnectedIndicators = [
+  'unreal engine is not connected',
+  'automation bridge connection failed',
+  'automation bridge connection timeout',
+  'automation bridge not connected',
+  'ue_not_connected',
+  'bridge disconnected',
+  'connection lost',
+  'econnrefused',
+  'econnreset',
+  'socket hang up'
+];
+const infrastructureErrorCodes = [
+  'no_navmesh', 'no_nav_sys', 'no_world', 'no_component', 'no_smart_link',
+  'not_found', 'invalid_class', 'create_failed', 'spawn_failed', 'already_exists',
+  'asset_exists', 'invalid_bp', 'cdo_failed', 'level_already_exists', 'asset_not_found',
+  'texture_error', 'invalid_texture', 'source_invalid', 'lock_failed', 'node_not_found',
+  'physics_failed', 'function_not_found'
+];
+const baseCrashIndicators = ['1006', 'econnreset', 'socket hang up', 'connection lost', 'bridge disconnected', 'ue_not_connected', 'automation bridge not connected'];
+const crashIndicatorsWithDisconnect = [...baseCrashIndicators, 'disconnect'];
 // Defaults for spawning the MCP server.
 let serverCommand = process.env.UNREAL_MCP_SERVER_CMD ?? 'node';
 let serverArgs = process.env.UNREAL_MCP_SERVER_ARGS ? process.env.UNREAL_MCP_SERVER_ARGS.split(',') : [path.join(repoRoot, 'dist', 'cli.js')];
@@ -160,11 +181,12 @@ const explicitFailureAlternatives = [
   'not_partitioned',
   'sc_disabled'
 ];
+const normalizedExplicitFailureAlternatives = explicitFailureAlternatives.map(normalizeConditionText);
 
 function isExplicitFailureAlternative(condition) {
   const normalizedCondition = normalizeConditionText(condition);
-  return explicitFailureAlternatives.some((alternative) => {
-    const normalizedAlternative = normalizeConditionText(alternative);
+  return explicitFailureAlternatives.some((alternative, index) => {
+    const normalizedAlternative = normalizedExplicitFailureAlternatives[index];
     return condition.includes(alternative) || normalizedCondition.includes(normalizedAlternative);
   });
 }
@@ -199,19 +221,7 @@ export function getResponseOutcome(response) {
 function isBridgeDisconnectedSignal(value) {
   const text = collectResponseText(value).toLowerCase();
   if (!text) return false;
-  const indicators = [
-    'unreal engine is not connected',
-    'automation bridge connection failed',
-    'automation bridge connection timeout',
-    'automation bridge not connected',
-    'ue_not_connected',
-    'bridge disconnected',
-    'connection lost',
-    'econnrefused',
-    'econnreset',
-    'socket hang up'
-  ];
-  return indicators.some((indicator) => text.includes(indicator));
+  return bridgeDisconnectedIndicators.some((indicator) => text.includes(indicator));
 }
 
 function formatResultLine(testCase, status, detail, durationMs) {
@@ -353,13 +363,6 @@ export function evaluateExpectation(testCase, response) {
   // even when the engine returns NO_NAVMESH, NOT_FOUND, NO_COMPONENT, etc.
   // Note: 'actor_not_found' is a valid error for negative tests - do NOT add it here
   // as that would fail tests that expect actor_not_found as the error.
-  const infrastructureErrorCodes = [
-    'no_navmesh', 'no_nav_sys', 'no_world', 'no_component', 'no_smart_link',
-    'not_found', 'invalid_class', 'create_failed', 'spawn_failed', 'already_exists',
-    'asset_exists', 'invalid_bp', 'cdo_failed', 'level_already_exists', 'asset_not_found',
-    'texture_error', 'invalid_texture', 'source_invalid', 'lock_failed', 'node_not_found',
-    'physics_failed', 'function_not_found'
-  ];
   const hasInfrastructureError = infrastructureErrorCodes.some(code => 
     errorStr === code || errorStr.includes(code) || messageStr.includes(code)
   );
@@ -380,7 +383,6 @@ export function evaluateExpectation(testCase, response) {
   // FIX: Only check for crash indicators if response is NOT a success (success: true)
   // This prevents false positives where "Node disconnection partial" (a valid success message)
   // incorrectly matches "disconnect" as a substring.
-  const baseCrashIndicators = ['1006', 'econnreset', 'socket hang up', 'connection lost', 'bridge disconnected', 'ue_not_connected', 'automation bridge not connected'];
   // Word-boundary checks for ambiguous terms
   const hasDisconnect = /\bdisconnect(ed)?\b/i.test(errorStr) || /\bdisconnect(ed)?\b/i.test(messageStr);
   const hasConnectionLost = /\bconnection lost\b/i.test(errorStr) || /\bconnection lost\b/i.test(messageStr);
@@ -388,7 +390,7 @@ export function evaluateExpectation(testCase, response) {
   
   // Only include 'disconnect' as crash indicator when response indicates FAILURE
   // This fixes false positives for disconnect_nodes action that returns "Disconnect operation completed."
-  const crashIndicators = actualSuccess ? baseCrashIndicators : [...baseCrashIndicators, 'disconnect'];
+  const crashIndicators = actualSuccess ? baseCrashIndicators : crashIndicatorsWithDisconnect;
   const hasCrashIndicator = (crashIndicators.some(ind => 
     errorStr.includes(ind) || messageStr.includes(ind) || combined.includes(ind)
   )) || hasDisconnect || hasConnectionLost || hasNotConnected;

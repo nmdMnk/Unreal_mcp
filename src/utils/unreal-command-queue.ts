@@ -30,15 +30,14 @@ export class UnrealCommandQueue {
    */
   async execute<T>(command: () => Promise<T>, priority: number = 5): Promise<T> {
     return new Promise((resolve, reject) => {
-      this.queue.push({
+      const item: CommandQueueItem = {
         command: command as () => Promise<unknown>,
         resolve: resolve as (value: unknown) => void,
         reject,
         priority
-      });
+      };
 
-      // Sort by priority (lower number = higher priority)
-      this.queue.sort((a, b) => a.priority - b.priority);
+      this.enqueue(item);
 
       // Process queue if not already processing
       if (!this.isProcessing) {
@@ -119,6 +118,20 @@ export class UnrealCommandQueue {
     }
 
     this.isProcessing = false;
+  }
+
+  private enqueue(item: CommandQueueItem): void {
+    let low = 0;
+    let high = this.queue.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (this.queue[mid].priority <= item.priority) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    this.queue.splice(low, 0, item);
   }
 
   private calculateDelay(priority: number): number {

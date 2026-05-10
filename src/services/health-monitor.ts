@@ -18,6 +18,7 @@ export class HealthMonitor {
   public metrics: PerformanceMetrics;
   private healthCheckTimer: NodeJS.Timeout | undefined;
   private lastHealthSuccessAt = 0;
+  private responseTimeTotal = 0;
   private readonly HEALTH_CHECK_INTERVAL_MS = 30000;
 
   constructor(logger: Logger) {
@@ -46,12 +47,13 @@ export class HealthMonitor {
 
     // Keep last 100 response times for average calculation
     this.metrics.responseTimes.push(responseTime);
+    this.responseTimeTotal += responseTime;
     if (this.metrics.responseTimes.length > 100) {
-      this.metrics.responseTimes.shift();
+      const removed = this.metrics.responseTimes.shift();
+      if (removed !== undefined) this.responseTimeTotal -= removed;
     }
 
-    // Calculate average
-    this.metrics.averageResponseTime = this.metrics.responseTimes.reduce((a, b) => a + b, 0) / this.metrics.responseTimes.length;
+    this.metrics.averageResponseTime = this.responseTimeTotal / this.metrics.responseTimes.length;
   }
 
   recordError(errorResponse: Record<string, unknown>) {

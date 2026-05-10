@@ -602,8 +602,10 @@ export class ToolRegistry {
                     this.logger.warn(`Tool ${name} completed with errors in ${durationMs}ms`);
                 }
 
-                const responsePreview = JSON.stringify(wrappedResult).substring(0, 100);
-                this.logger.debug(`Returning response to MCP client: ${responsePreview}...`);
+                if (this.logger.isEnabled('debug')) {
+                    const responsePreview = JSON.stringify(wrappedResult).substring(0, 100);
+                    this.logger.debug(`Returning response to MCP client: ${responsePreview}...`);
+                }
 
                 return wrappedResult;
             } catch (error) {

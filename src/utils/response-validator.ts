@@ -4,6 +4,8 @@ import { cleanObject } from './safe-json.js';
 import { isRecord } from './type-guards.js';
 const log = new Logger('ResponseValidator');
 
+const SUMMARY_SKIP_KEYS = new Set(['requestId', 'type', 'data', 'result', 'warnings']);
+
 type AjvModuleWithDefault = typeof Ajv & { default?: typeof Ajv.default };
 
 function normalizeText(text: string): string {
@@ -44,9 +46,6 @@ function buildSummaryText(toolName: string, payload: unknown): string {
 
   const parts: string[] = [];
   const addedKeys = new Set<string>();
-
-  // Keys to skip (internal/redundant)
-  const skipKeys = new Set(['requestId', 'type', 'data', 'result', 'warnings']);
 
   const scalarToText = (value: unknown): string | undefined => {
     if (typeof value === 'string') return value;
@@ -143,7 +142,7 @@ function buildSummaryText(toolName: string, payload: unknown): string {
   let hasArrays = false;
   for (const [key, val] of Object.entries(effectivePayload)) {
     if (addedKeys.has(key)) continue;
-    if (skipKeys.has(key)) continue;
+    if (SUMMARY_SKIP_KEYS.has(key)) continue;
     if (val === undefined || val === null) continue;
     if (typeof val === 'string' && val.trim() === '') continue;
 
