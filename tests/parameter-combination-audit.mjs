@@ -357,7 +357,9 @@ function buildAudit() {
     }
   }
 
-  const live = liveReportCases(suites);
+  const live = staticOnly
+    ? { cases: [], missingReports: [], failedCases: [], handledFailureCases: [], reports: [] }
+    : liveReportCases(suites);
   const cases = staticOnly ? staticCases : live.cases;
   const parameterCoverageCases = staticOnly
     ? cases

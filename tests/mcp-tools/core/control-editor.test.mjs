@@ -58,6 +58,8 @@ const testCases = [
 
   // === INPUT / LEVEL / ACTOR FOCUS ===
   { scenario: 'ACTION: simulate_input', toolName: 'control_editor', arguments: { action: 'simulate_input', inputAction: 'pressed', key: 'K' }, expected: 'success' },
+  { scenario: 'ACTION: simulate_input mouse move', toolName: 'control_editor', arguments: { action: 'simulate_input', inputType: 'move', x: 320, y: 180 }, expected: 'success' },
+  { scenario: 'ACTION: simulate_input mouse click', toolName: 'control_editor', arguments: { action: 'simulate_input', type: 'mouse_click', x: 320, y: 180, button: 'left' }, expected: 'success' },
   { scenario: 'ACTION: focus_actor', toolName: 'control_editor', arguments: { action: 'focus_actor', actorName: FOCUS_ACTOR }, expected: 'success' },
 
   // === EDITOR DISPLAY / MODE / HISTORY ===
