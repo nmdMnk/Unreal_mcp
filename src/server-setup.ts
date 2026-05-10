@@ -1,16 +1,14 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-// import { ListPromptsRequestSchema, GetPromptRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { UnrealBridge } from './unreal-bridge.js';
 import { AutomationBridge } from './automation/index.js';
 import { Logger } from './utils/logger.js';
 import { HealthMonitor } from './services/health-monitor.js';
-// import { prompts } from './prompts/index.js';
 import { AssetResources } from './resources/assets.js';
 import { ActorResources } from './resources/actors.js';
 import { LevelResources } from './resources/levels.js';
 import { ResourceRegistry } from './server/resource-registry.js';
 import { ToolRegistry } from './server/tool-registry.js';
-import fs from 'fs';
+import fs from 'node:fs';
 
 export class ServerSetup {
   private server: Server;
@@ -72,30 +70,31 @@ export class ServerSetup {
       ensureConnected
     );
     toolRegistry.register();
-
-    // this.registerPrompts();
   }
 
   private validateEnvironment() {
-    const projectPath = process.env.UE_PROJECT_PATH;
-    if (projectPath) {
-      if (!fs.existsSync(projectPath)) {
-        this.logger.warn(`UE_PROJECT_PATH is set to '${projectPath}' but the path does not exist.`);
-      } else {
-        this.logger.info(`UE_PROJECT_PATH validated: ${projectPath}`);
+    this.validateConfiguredPath(
+      'UE_PROJECT_PATH',
+      process.env.UE_PROJECT_PATH,
+      'UE_PROJECT_PATH is not set. Offline project settings fallback will be disabled.'
+    );
+    this.validateConfiguredPath('UE_ENGINE_PATH', process.env.UE_ENGINE_PATH || process.env.UNREAL_ENGINE_PATH);
+  }
+
+  private validateConfiguredPath(envName: string, configuredPath: string | undefined, notSetMessage?: string) {
+    if (!configuredPath) {
+      if (notSetMessage) {
+        this.logger.info(notSetMessage);
       }
-    } else {
-      this.logger.info('UE_PROJECT_PATH is not set. Offline project settings fallback will be disabled.');
+      return;
     }
 
-    const enginePath = process.env.UE_ENGINE_PATH || process.env.UNREAL_ENGINE_PATH;
-    if (enginePath) {
-      if (!fs.existsSync(enginePath)) {
-        this.logger.warn(`UE_ENGINE_PATH is set to '${enginePath}' but the path does not exist.`);
-      } else {
-        this.logger.info(`UE_ENGINE_PATH validated: ${enginePath}`);
-      }
+    if (!fs.existsSync(configuredPath)) {
+      this.logger.warn(`${envName} is set to '${configuredPath}' but the path does not exist.`);
+      return;
     }
+
+    this.logger.info(`${envName} validated: ${configuredPath}`);
   }
 
   private async ensureConnectedOnDemand(): Promise<boolean> {

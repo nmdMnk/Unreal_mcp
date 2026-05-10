@@ -20,6 +20,7 @@ export class HealthMonitor {
   private lastHealthSuccessAt = 0;
   private responseTimeTotal = 0;
   private readonly HEALTH_CHECK_INTERVAL_MS = 30000;
+  private readonly HEALTH_CHECK_PAUSE_AFTER_MS = 5 * 60 * 1000;
 
   constructor(logger: Logger) {
     this.logger = logger;
@@ -102,8 +103,7 @@ export class HealthMonitor {
       if (!bridge.isConnected) {
         this.markDisconnected();
         // Optionally pause fully after 5 minutes of no success
-        const FIVE_MIN_MS = 5 * 60 * 1000;
-        if (!this.lastHealthSuccessAt || Date.now() - this.lastHealthSuccessAt > FIVE_MIN_MS) {
+        if (!this.lastHealthSuccessAt || Date.now() - this.lastHealthSuccessAt > this.HEALTH_CHECK_PAUSE_AFTER_MS) {
           if (this.healthCheckTimer) {
             clearInterval(this.healthCheckTimer);
             this.healthCheckTimer = undefined;
@@ -115,8 +115,7 @@ export class HealthMonitor {
 
       await this.performHealthCheck(bridge);
       // Stop sending echoes if we haven't had a successful response in > 5 minutes
-      const FIVE_MIN_MS = 5 * 60 * 1000;
-      if (!this.lastHealthSuccessAt || Date.now() - this.lastHealthSuccessAt > FIVE_MIN_MS) {
+      if (!this.lastHealthSuccessAt || Date.now() - this.lastHealthSuccessAt > this.HEALTH_CHECK_PAUSE_AFTER_MS) {
         if (this.healthCheckTimer) {
           clearInterval(this.healthCheckTimer);
           this.healthCheckTimer = undefined;
