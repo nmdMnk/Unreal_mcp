@@ -1075,14 +1075,8 @@ if (SubAction == TEXT("create_metasound"))
 			}
 		});
 #else
-		const FMetasoundFrontendDocument& DocN = Builder.GetConstDocument();
-		for (const FMetasoundFrontendNode& Node : DocN.RootGraph.Nodes)
-		{
-			TSharedPtr<FJsonObject> NodeObj = McpHandlerUtils::CreateResultObject();
-			NodeObj->SetStringField(TEXT("nodeId"), Node.GetID().ToString());
-			NodeObj->SetStringField(TEXT("name"), Node.Name.ToString());
-			NodeIdArray.Add(MakeShared<FJsonValueObject>(NodeObj));
-		}
+		// UE 5.4 and earlier: GetConstDocument()/RootGraph.Nodes not available on FMetaSoundFrontendDocumentBuilder
+		UE_LOG(LogTemp, Verbose, TEXT("MetaSound node enumeration requires UE 5.5+ FrontendDocumentBuilder API"));
 #endif
 		if (NodeIdArray.Num() > 0)
 		{

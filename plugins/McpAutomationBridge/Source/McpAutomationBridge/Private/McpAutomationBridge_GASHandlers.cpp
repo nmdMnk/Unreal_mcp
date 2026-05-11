@@ -1976,10 +1976,13 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
         {
             EffectCDO->StackDurationRefreshPolicy = EGameplayEffectStackingDurationPolicy::NeverRefresh;
         }
+
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5)
         else if (StackDurationRefreshPolicyToken == TEXT("extendduration"))
         {
             EffectCDO->StackDurationRefreshPolicy = EGameplayEffectStackingDurationPolicy::ExtendDuration;
         }
+#endif
 
         FString StackPeriodResetPolicy = GetStringFieldGAS(Payload, TEXT("stackPeriodResetPolicy"));
         const FString StackPeriodResetPolicyToken = NormalizeGASToken(StackPeriodResetPolicy);

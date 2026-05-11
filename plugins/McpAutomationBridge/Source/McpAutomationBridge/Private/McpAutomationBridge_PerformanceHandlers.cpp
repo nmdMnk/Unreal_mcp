@@ -58,9 +58,14 @@
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMeshActor.h"
+#if __has_include("MeshMerge/MeshMergingSettings.h") && __has_include("MeshMergeModule.h") && __has_include("IMeshMergeUtilities.h")
 #include "MeshMerge/MeshMergingSettings.h"
 #include "MeshMergeModule.h"
 #include "IMeshMergeUtilities.h"
+#define MCP_HAS_MESH_MERGE 1
+#else
+#define MCP_HAS_MESH_MERGE 0
+#endif
 #include "Misc/PackageName.h"
 #include "StaticMeshCompiler.h"
 #include "Containers/Ticker.h"
@@ -555,6 +560,7 @@ bool UMcpAutomationBridgeSubsystem::HandlePerformanceAction(
       return true;
     }
 
+#if MCP_HAS_MESH_MERGE
     IMeshMergeModule &MeshMergeModule = FModuleManager::LoadModuleChecked<IMeshMergeModule>(TEXT("MeshMergeUtilities"));
     const IMeshMergeUtilities &MeshMergeUtilities = MeshMergeModule.GetUtilities();
 
@@ -665,6 +671,12 @@ bool UMcpAutomationBridgeSubsystem::HandlePerformanceAction(
                            TEXT("Actors merged to static mesh"), Resp,
                            FString());
     return true;
+#else
+    SendAutomationResponse(RequestingSocket, RequestId, false,
+                           TEXT("merge_actors not available: MeshMergeUtilities module not found in this engine version"),
+                           nullptr, TEXT("NOT_SUPPORTED"));
+    return true;
+#endif
   }
   // ===========================================================================
   // run_benchmark - Start performance benchmark
