@@ -1,11 +1,12 @@
 import Ajv, { ValidateFunction } from 'ajv';
 import { Logger } from './logger.js';
 import { cleanObject } from './safe-json.js';
+import { isRecord } from './type-guards.js';
 const log = new Logger('ResponseValidator');
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
+const SUMMARY_SKIP_KEYS = new Set(['requestId', 'type', 'data', 'result', 'warnings']);
+
+type AjvModuleWithDefault = typeof Ajv & { default?: typeof Ajv.default };
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
@@ -46,8 +47,43 @@ function buildSummaryText(toolName: string, payload: unknown): string {
   const parts: string[] = [];
   const addedKeys = new Set<string>();
 
-  // Keys to skip (internal/redundant)
-  const skipKeys = new Set(['requestId', 'type', 'data', 'result', 'warnings']);
+  const scalarToText = (value: unknown): string | undefined => {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+    return undefined;
+  };
+
+  const formatNestedValue = (value: unknown): string => {
+    const scalar = scalarToText(value);
+    if (scalar !== undefined) return scalar;
+    if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? '' : 's'}`;
+    if (isRecord(value)) return '{...}';
+    if (value === null) return 'null';
+    return String(value);
+  };
+
+  const formatRecordListItem = (record: Record<string, unknown>): string => {
+    const pinName = scalarToText(record.pinName);
+    if (pinName !== undefined) {
+      const pinParts = [`pinName=${pinName}`];
+      for (const key of ['direction', 'pinType', 'defaultValue']) {
+        const value = scalarToText(record[key]);
+        if (value !== undefined) pinParts.push(`${key}=${value}`);
+      }
+      if (Array.isArray(record.linkedTo)) pinParts.push(`linkedTo=${record.linkedTo.length}`);
+      return `{ ${pinParts.join(', ')} }`;
+    }
+
+    for (const key of ['name', 'path', 'id', 'nodeId', 'nodeName', 'className', 'displayName', 'type', 'assetPath', 'objectPath']) {
+      const value = scalarToText(record[key]);
+      if (value !== undefined && value.trim() !== '') return value;
+    }
+
+    const entries = Object.entries(record).filter(([, value]) => value !== undefined && value !== null).slice(0, 4);
+    if (entries.length === 0) return '{}';
+    const suffix = Object.keys(record).length > entries.length ? ' ...' : '';
+    return `{ ${entries.map(([key, value]) => `${key}=${formatNestedValue(value)}`).join(', ')}${suffix} }`;
+  };
 
   // Helper to format a value for display
   const formatValue = (val: unknown): string => {
@@ -60,10 +96,7 @@ function buildSummaryText(toolName: string, payload: unknown): string {
       if (val.length === 0) return '[] (0)';
       const items = val.slice(0, 30).map(v => {
         if (isRecord(v)) {
-          // Try common identifier fields
-          return v.name || v.path || v.id || v.nodeId || v.nodeName || v.className ||
-            v.displayName || v.type || v.assetPath || v.objectPath ||
-            JSON.stringify(v).slice(0, 50);
+          return formatRecordListItem(v);
         }
         return String(v);
       });
@@ -84,7 +117,7 @@ function buildSummaryText(toolName: string, payload: unknown): string {
       // Generic object - show key=value pairs
       const entries = Object.entries(val).slice(0, 8);
       const formatted = entries.map(([k, v]) => {
-        const vStr = typeof v === 'object' ? JSON.stringify(v).slice(0, 40) : String(v);
+        const vStr = formatNestedValue(v);
         return `${k}=${vStr}`;
       });
       return `{ ${formatted.join(', ')}${keys.length > 8 ? ' ...' : ''} }`;
@@ -109,7 +142,7 @@ function buildSummaryText(toolName: string, payload: unknown): string {
   let hasArrays = false;
   for (const [key, val] of Object.entries(effectivePayload)) {
     if (addedKeys.has(key)) continue;
-    if (skipKeys.has(key)) continue;
+    if (SUMMARY_SKIP_KEYS.has(key)) continue;
     if (val === undefined || val === null) continue;
     if (typeof val === 'string' && val.trim() === '') continue;
 
@@ -165,7 +198,7 @@ export class ResponseValidator {
 
   constructor() {
     // Ajv exports differ between ESM and CJS - handle both patterns
-    const AjvClass = (Ajv as unknown as { default: typeof Ajv.default }).default ?? Ajv.default;
+    const AjvClass = (Ajv as AjvModuleWithDefault).default ?? Ajv.default;
     this.ajv = new AjvClass({
       allErrors: true,
       verbose: true,
@@ -209,15 +242,14 @@ export class ResponseValidator {
 
     // Extract structured content from response
     let structuredContent = response;
-    const responseObj = response as Record<string, unknown> | null;
+    const responseObj = isRecord(response) ? response : null;
 
     // If response has MCP format with content array
     if (responseObj && responseObj.content && Array.isArray(responseObj.content)) {
       // Try to extract structured data from text content
-      const textContent = responseObj.content.find((c: unknown) => {
-        const cObj = c as Record<string, unknown> | null;
-        return cObj?.type === 'text';
-      }) as Record<string, unknown> | undefined;
+      const textContent = responseObj.content.find((c: unknown): c is Record<string, unknown> =>
+        isRecord(c) && c.type === 'text'
+      );
       if (textContent?.text) {
         const rawText = String(textContent.text);
         const trimmed = rawText.trim();
@@ -277,7 +309,7 @@ export class ResponseValidator {
       safeResponse = cleanObject(response);
     }
 
-    const responseObj = safeResponse as Record<string, unknown> | null;
+    const responseObj = isRecord(safeResponse) ? safeResponse : null;
 
     // If handler already returned MCP content, keep it as-is (still validate)
     const alreadyMcpShaped = responseObj && typeof responseObj === 'object' && Array.isArray(responseObj.content);
@@ -298,20 +330,25 @@ export class ResponseValidator {
           responseObj.structuredContent = structuredPayload && typeof structuredPayload === 'object'
             ? cleanObject(structuredPayload)
             : structuredPayload;
-        } catch { }
+        } catch (error) {
+          log.debug(`Unable to attach structured content for ${toolName}`, error);
+        }
       }
       // Promote failure semantics to top-level isError when obvious
-      try {
-        const sc = (responseObj.structuredContent || structuredPayload || {}) as Record<string, unknown>;
+      const structuredContent = responseObj.structuredContent ?? structuredPayload;
+      if (isRecord(structuredContent)) {
+        const sc = structuredContent;
         const hasExplicitFailure = (typeof sc.success === 'boolean' && sc.success === false) || (typeof sc.error === 'string' && (sc.error as string).length > 0);
         if (hasExplicitFailure && responseObj.isError !== true) {
           responseObj.isError = true;
         }
-      } catch { }
+      }
       if (!validation.valid) {
         try {
           responseObj._validation = { valid: false, errors: validation.errors };
-        } catch { }
+        } catch (error) {
+          log.debug(`Unable to attach validation metadata for ${toolName}`, error);
+        }
       }
       return responseObj;
     }
@@ -331,15 +368,11 @@ export class ResponseValidator {
 
     // Surface a top-level success flag when available so clients and test
     // harnesses do not have to infer success from the absence of isError.
-    try {
-      const structPayloadObj = structuredPayload as Record<string, unknown> | null;
-      const safeResponseObj = safeResponse as Record<string, unknown> | null;
-      if (structPayloadObj && typeof structPayloadObj.success === 'boolean') {
-        wrapped.success = Boolean(structPayloadObj.success);
-      } else if (safeResponseObj && typeof safeResponseObj.success === 'boolean') {
-        wrapped.success = Boolean(safeResponseObj.success);
-      }
-    } catch { }
+    if (isRecord(structuredPayload) && typeof structuredPayload.success === 'boolean') {
+      wrapped.success = Boolean(structuredPayload.success);
+    } else if (isRecord(safeResponse) && typeof safeResponse.success === 'boolean') {
+      wrapped.success = Boolean(safeResponse.success);
+    }
 
     if (structuredPayload !== undefined) {
       try {
@@ -358,13 +391,13 @@ export class ResponseValidator {
     }
 
     // Promote failure semantics to top-level isError when obvious
-    try {
-      const sc = (wrapped.structuredContent || {}) as Record<string, unknown>;
+    if (isRecord(wrapped.structuredContent)) {
+      const sc = wrapped.structuredContent;
       const hasExplicitFailure = (typeof sc.success === 'boolean' && sc.success === false) || (typeof sc.error === 'string' && (sc.error as string).length > 0);
       if (hasExplicitFailure) {
         wrapped.isError = true;
       }
-    } catch { }
+    }
 
     if (!validation.valid) {
       wrapped._validation = { valid: false, errors: validation.errors };
@@ -372,12 +405,10 @@ export class ResponseValidator {
 
     // Mark explicit error when success is false to avoid false positives in
     // clients that check only for the absence of isError.
-    try {
-      const s = wrapped.success;
-      if (typeof s === 'boolean' && s === false) {
-        wrapped.isError = true;
-      }
-    } catch { }
+    const success = wrapped.success;
+    if (typeof success === 'boolean' && success === false) {
+      wrapped.isError = true;
+    }
 
     return wrapped;
   }

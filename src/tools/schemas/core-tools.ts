@@ -1,8 +1,7 @@
 /**
- * Core Tool Schemas - Essential MCP tools for pipeline, asset, actor, editor, level control
+ * Core Tool Schemas - Essential MCP tools for asset, actor, editor, level, system, and introspection control
  * 
  * Tools included:
- * - manage_pipeline: Build automation and pipeline control
  * - manage_tools: Dynamic MCP tool management
  * - manage_asset: Asset creation, import, manipulation
  * - control_actor: Actor spawn, transform, physics, components
@@ -16,7 +15,7 @@ import { commonSchemas } from '../tool-definition-utils.js';
 
 /** MCP Tool Definition type for explicit annotation to avoid TS7056 */
 export interface ToolDefinition {
-  category?: 'core' | 'world' | 'authoring' | 'gameplay' | 'utility';
+  category?: 'core' | 'world' | 'gameplay' | 'utility';
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
@@ -26,32 +25,8 @@ export interface ToolDefinition {
 
 export const coreToolDefinitions: ToolDefinition[] = [
   {
-    name: 'manage_pipeline',
-    description: 'Build automation and pipeline control. Actions: run_ubt (compile targets), list_categories (show tool categories), get_status (bridge status). Routes to system_control internally.',
-    category: 'core',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['run_ubt', 'list_categories', 'get_status'], description: 'run_ubt: compile with UnrealBuildTool. list_categories: show available tool categories. get_status: get bridge status.' },
-        target: { type: 'string', description: 'Build target name (e.g., MyProjectEditor)' },
-        platform: { type: 'string', description: 'Target platform (Win64, Linux, Mac)' },
-        configuration: { type: 'string', description: 'Build configuration (Development, Shipping, Debug)' },
-        arguments: { type: 'string', description: 'Additional UBT arguments' }
-      },
-      required: ['action']
-    },
-    outputSchema: {
-      type: 'object',
-      properties: {
-        ...commonSchemas.outputBase,
-        output: { type: 'string', description: 'Build output' },
-        command: { type: 'string', description: 'Executed command' }
-      }
-    }
-  },
-  {
     name: 'manage_tools',
-    description: 'Dynamic MCP tool management. Enable/disable tools and categories at runtime. Actions: list_tools, list_categories, enable_tools, disable_tools, enable_category, disable_category, get_status, reset.',
+    description: 'Dynamic MCP tool management. List canonical tools, view category counts, and enable/disable tools or categories at runtime.',
     category: 'core',
     inputSchema: {
       type: 'object',
@@ -59,10 +34,10 @@ export const coreToolDefinitions: ToolDefinition[] = [
         action: { 
           type: 'string', 
           enum: ['list_tools', 'list_categories', 'enable_tools', 'disable_tools', 'enable_category', 'disable_category', 'get_status', 'reset'],
-          description: 'list_tools: show all tools with status. list_categories: show categories. enable/disable_tools: toggle specific tools. enable/disable_category: toggle category. get_status: current state. reset: restore defaults.'
+          description: 'list_tools: show canonical tools with status. list_categories: show category counts. enable/disable_tools: toggle specific tools. enable/disable_category: toggle category. get_status: current state. reset: restore defaults.'
         },
         tools: { type: 'array', items: commonSchemas.stringProp, description: 'Tool names to enable/disable' },
-        category: { type: 'string', description: 'Category name to enable/disable (core, world, authoring, gameplay, utility, all)' }
+        category: { type: 'string', description: 'Category name to enable/disable (core, world, gameplay, utility, all)' }
       },
       required: ['action']
     },
@@ -80,7 +55,7 @@ export const coreToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_asset',
     category: 'core',
-    description: 'Create, import, duplicate, rename, delete assets. Edit Material graphs and instances. Analyze dependencies.',
+    description: 'Create/import/manage assets, material graphs, material instances, procedural textures, render targets, and dependency analysis.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -239,7 +214,9 @@ export const coreToolDefinitions: ToolDefinition[] = [
         newName: commonSchemas.newName,
         tag: commonSchemas.tagName,
         variables: commonSchemas.objectProp,
-        snapshotName: commonSchemas.stringProp
+        snapshotName: commonSchemas.stringProp,
+        limit: commonSchemas.numberProp,
+        filter: commonSchemas.stringProp
       },
       required: ['action']
     },
@@ -260,6 +237,23 @@ export const coreToolDefinitions: ToolDefinition[] = [
             }
           }
         },
+        actors: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: commonSchemas.stringProp,
+              name: commonSchemas.stringProp,
+              path: commonSchemas.stringProp,
+              class: commonSchemas.stringProp
+            }
+          }
+        },
+        count: commonSchemas.numberProp,
+        totalCount: commonSchemas.numberProp,
+        isPieWorld: commonSchemas.booleanProp,
+        worldName: commonSchemas.stringProp,
+        filter: commonSchemas.stringProp,
         data: commonSchemas.nullableObjectProp
       }
     }
@@ -318,12 +312,14 @@ export const coreToolDefinitions: ToolDefinition[] = [
         stat: commonSchemas.stringProp,
         category: commonSchemas.stringProp,
         preferences: commonSchemas.objectProp,
-        section: commonSchemas.stringProp,
         key: commonSchemas.stringProp,
-        value: commonSchemas.value,
         // simulate_input parameters
+        type: commonSchemas.stringProp,
+        inputType: commonSchemas.stringProp,
         inputAction: commonSchemas.stringProp,
-        axis: commonSchemas.stringProp
+        x: commonSchemas.numberProp,
+        y: commonSchemas.numberProp,
+        button: commonSchemas.stringProp
       },
       required: ['action']
     },
@@ -414,7 +410,7 @@ export const coreToolDefinitions: ToolDefinition[] = [
   {
     name: 'system_control',
     category: 'core',
-    description: 'Run profiling, set quality/CVars, execute console commands, run UBT, and manage widgets.',
+    description: 'Control the project runtime: profiling, benchmarks, scalability/LOD/Nanite settings, CVars, console commands, Python scripts, UBT, tests, logs, and widgets.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -462,7 +458,7 @@ export const coreToolDefinitions: ToolDefinition[] = [
   {
     name: 'inspect',
     category: 'core',
-    description: 'Inspect any UObject: read/write properties, list components, export snapshots, and query class info.',
+    description: 'Inspect any UObject: read/write properties, list components, export snapshots, and query class info. Actions: inspect_cdo (Blueprint CDO properties + all components without spawning an actor; use blueprintPath, optional detailed/componentName/propertyNames), inspect_class (class metadata), inspect_object (world actor), get_property/set_property, get_components, list_objects, find_by_class, find_by_tag, runtime_report.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -473,7 +469,7 @@ export const coreToolDefinitions: ToolDefinition[] = [
             'get_texture_details', 'get_material_details', 'get_level_details', 'get_component_details',
             'set_property', 'get_property',
             'get_components', 'get_component_property', 'set_component_property',
-            'inspect_class', 'list_objects',
+            'inspect_class', 'inspect_cdo', 'runtime_report', 'pie_report', 'list_objects',
             'get_metadata', 'add_tag', 'find_by_tag',
             'create_snapshot', 'restore_snapshot', 'export', 'delete_object', 'find_by_class', 'get_bounding_box',
             'get_project_settings', 'get_world_settings', 'get_viewport_info', 'get_selected_actors',
@@ -493,9 +489,10 @@ export const coreToolDefinitions: ToolDefinition[] = [
         tag: commonSchemas.tagName,
         filter: commonSchemas.stringProp,
         snapshotName: commonSchemas.stringProp,
-        destinationPath: commonSchemas.destinationPath,
-        outputPath: commonSchemas.outputPath,
-        format: commonSchemas.stringProp
+        blueprintPath: commonSchemas.blueprintPath,
+        detailed: commonSchemas.booleanProp,
+        propertyNames: commonSchemas.arrayOfStrings,
+        componentNames: commonSchemas.arrayOfStrings
       },
       required: ['action']
     },
@@ -503,7 +500,20 @@ export const coreToolDefinitions: ToolDefinition[] = [
       type: 'object',
       properties: {
         ...commonSchemas.outputBase,
-        value: commonSchemas.value
+        value: commonSchemas.value,
+        blueprintPath: commonSchemas.blueprintPath,
+        className: commonSchemas.stringProp,
+        classPath: commonSchemas.stringProp,
+        parentClass: commonSchemas.stringProp,
+        cdoProperties: commonSchemas.objectProp,
+        components: commonSchemas.arrayOfObjects,
+        componentCount: commonSchemas.numberProp,
+        componentName: commonSchemas.componentName,
+        templateObjectName: commonSchemas.stringProp,
+        componentClass: commonSchemas.stringProp,
+        count: commonSchemas.numberProp,
+        objects: commonSchemas.arrayOfObjects,
+        actors: commonSchemas.arrayOfObjects
       }
     }
   }

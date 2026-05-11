@@ -1195,7 +1195,7 @@ static bool HandleCreatePostProcessVolume(
     float BlendRadius = GetJsonNumberField(Payload, TEXT("blendRadius"), 100.0f);
     float BlendWeight = GetJsonNumberField(Payload, TEXT("blendWeight"), 1.0f);
     bool bEnabled = GetJsonBoolField(Payload, TEXT("enabled"), true);
-    bool bUnbound = GetJsonBoolField(Payload, TEXT("unbound"), false);
+    bool bUnbound = GetJsonBoolField(Payload, TEXT("bUnbound"), false);
 
     UWorld* World = GetEditorWorld();
     if (!World)
@@ -2738,7 +2738,7 @@ static bool HandleAddPostProcessVolume(
     float BlendRadius = GetJsonNumberField(Payload, TEXT("blendRadius"), 100.0f);
     float BlendWeight = GetJsonNumberField(Payload, TEXT("blendWeight"), 1.0f);
     bool bEnabled = GetJsonBoolField(Payload, TEXT("enabled"), true);
-    bool bUnbound = GetJsonBoolField(Payload, TEXT("unbound"), false);
+    bool bUnbound = GetJsonBoolField(Payload, TEXT("bUnbound"), false);
 
     UWorld* World = GetEditorWorld();
     if (!World)

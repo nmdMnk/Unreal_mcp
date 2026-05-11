@@ -215,8 +215,7 @@ void FMcpConnectionManager::AttemptConnection() {
 
   const bool bShouldListen = Settings->bAlwaysListen;
   if (bShouldListen && !IsAnyServerListening()) {
-    const FString PortsStr =
-        bEnvListenPortsSet ? EnvListenPorts : Settings->ListenPorts;
+    const FString PortsStr = EnvListenPorts.IsEmpty() ? Settings->ListenPorts : EnvListenPorts;
     TArray<FString> PortTokens;
     if (!PortsStr.IsEmpty()) {
       PortsStr.ParseIntoArray(PortTokens, TEXT(","), true);
@@ -236,7 +235,7 @@ void FMcpConnectionManager::AttemptConnection() {
         continue;
 
       int32 Port = 0;
-      if (!LexTryParseString(Port, *Trimmed) || Port <= 0)
+      if (!LexTryParseString(Port, *Trimmed) || Port <= 0 || Port > 65535)
         continue;
 
       bool bAlready = false;
@@ -352,6 +351,7 @@ void FMcpConnectionManager::ForceReconnect(const FString &Reason,
     }
   }
   ActiveSockets.Empty();
+  AuthenticatedSockets.Empty();
   {
     FScopeLock Lock(&RateLimitMutex);
     SocketRateLimits.Empty();
@@ -755,14 +755,14 @@ bool FMcpConnectionManager::UpdateRateLimit(FMcpBridgeWebSocket* SocketPtr,
     ++State.AutomationRequestCount;
   }
 
-  if (MaxMessagesPerMinute > 0 && State.MessageCount >= MaxMessagesPerMinute) {
+  if (MaxMessagesPerMinute > 0 && State.MessageCount > MaxMessagesPerMinute) {
     OutReason = FString::Printf(TEXT("message rate %d/%d per minute"),
                                 State.MessageCount, MaxMessagesPerMinute);
     return false;
   }
 
   if (bIncrementAutomation && MaxAutomationRequestsPerMinute > 0 &&
-      State.AutomationRequestCount >= MaxAutomationRequestsPerMinute) {
+      State.AutomationRequestCount > MaxAutomationRequestsPerMinute) {
     OutReason = FString::Printf(TEXT("automation request rate %d/%d per minute"),
                                 State.AutomationRequestCount,
                                 MaxAutomationRequestsPerMinute);

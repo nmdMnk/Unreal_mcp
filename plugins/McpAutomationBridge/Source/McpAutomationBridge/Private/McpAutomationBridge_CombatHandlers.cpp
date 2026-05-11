@@ -44,9 +44,14 @@
 #include "McpHandlerUtils.h"
 
 #include "Dom/JsonObject.h"
+#include "McpAutomationBridgeGlobals.h"
+
+class UProjectileMovementComponent;
+class USphereComponent;
+class UBoxComponent;
+
 #include "McpAutomationBridgeSubsystem.h"
 #include "McpAutomationBridgeHelpers.h"
-#include "McpAutomationBridgeGlobals.h"
 
 #if WITH_EDITOR
 #include "Engine/Blueprint.h"
@@ -57,7 +62,6 @@
 #include "EdGraphSchema_K2.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetToolsModule.h"
-#include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
 #include "HAL/FileManager.h"
 #include "GameFramework/Actor.h"
@@ -904,17 +908,20 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
             CollisionComp->SetCollisionProfileName(TEXT("Projectile"));
         }
 
+        FString ProjectileMeshPath = GetStringFieldCombat(Payload, TEXT("projectileMeshPath"));
+        bool bProjectileMeshLoaded = false;
+
         // Add static mesh for visual
         UStaticMeshComponent* MeshComp = GetOrCreateSCSComponent<UStaticMeshComponent>(Blueprint, TEXT("ProjectileMesh"), TEXT("CollisionComponent"));
         if (MeshComp)
         {
-            FString MeshPath = GetStringFieldCombat(Payload, TEXT("projectileMeshPath"));
-            if (!MeshPath.IsEmpty())
+            if (!ProjectileMeshPath.IsEmpty())
             {
-                UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *MeshPath);
+                UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *ProjectileMeshPath);
                 if (Mesh)
                 {
                     MeshComp->SetStaticMesh(Mesh);
+                    bProjectileMeshLoaded = true;
                 }
             }
         }
@@ -936,6 +943,8 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
 
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("blueprintPath"), Blueprint->GetPathName());
+        Result->SetStringField(TEXT("projectileMeshPath"), ProjectileMeshPath);
+        Result->SetBoolField(TEXT("projectileMeshLoaded"), bProjectileMeshLoaded);
         
         McpHandlerUtils::AddVerification(Result, Blueprint);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Projectile blueprint created successfully."), Result);
@@ -1217,6 +1226,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
         FString BoneName = GetStringFieldCombat(Payload, TEXT("hitboxBoneName"), TEXT(""));
         bool bIsDamageZoneHead = GetBoolFieldCombat(Payload, TEXT("isDamageZoneHead"), false);
         double DamageMultiplier = GetNumberFieldCombat(Payload, TEXT("damageMultiplier"), 1.0);
+        TSharedPtr<FJsonObject> AppliedHitboxSize = MakeShared<FJsonObject>();
 
         // Create appropriate collision component based on type
         if (HitboxType == TEXT("Capsule"))
@@ -1231,6 +1241,8 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
                     double HalfHeight = GetNumberFieldCombat(HitboxSizeObj, TEXT("halfHeight"), 88.0);
                     Hitbox->SetCapsuleRadius(static_cast<float>(Radius));
                     Hitbox->SetCapsuleHalfHeight(static_cast<float>(HalfHeight));
+                    AppliedHitboxSize->SetNumberField(TEXT("radius"), Radius);
+                    AppliedHitboxSize->SetNumberField(TEXT("halfHeight"), HalfHeight);
                 }
             }
         }
@@ -1247,6 +1259,11 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
                     {
                         FVector Extent = GetVectorFromJsonCombat(ExtentObj);
                         Hitbox->SetBoxExtent(Extent);
+                        TSharedPtr<FJsonObject> ExtentResult = MakeShared<FJsonObject>();
+                        ExtentResult->SetNumberField(TEXT("x"), Extent.X);
+                        ExtentResult->SetNumberField(TEXT("y"), Extent.Y);
+                        ExtentResult->SetNumberField(TEXT("z"), Extent.Z);
+                        AppliedHitboxSize->SetObjectField(TEXT("extent"), ExtentResult);
                     }
                 }
             }
@@ -1261,6 +1278,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
                 {
                     double Radius = GetNumberFieldCombat(HitboxSizeObj, TEXT("radius"), 50.0);
                     Hitbox->SetSphereRadius(static_cast<float>(Radius));
+                    AppliedHitboxSize->SetNumberField(TEXT("radius"), Radius);
                 }
             }
         }
@@ -1293,6 +1311,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("blueprintPath"), Blueprint->GetPathName());
         Result->SetStringField(TEXT("hitboxType"), HitboxType);
+        Result->SetObjectField(TEXT("hitboxSize"), AppliedHitboxSize);
         Result->SetBoolField(TEXT("isDamageZoneHead"), bIsDamageZoneHead);
         Result->SetNumberField(TEXT("damageMultiplier"), DamageMultiplier);
         
@@ -1381,6 +1400,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
         Result->SetNumberField(TEXT("magazineSize"), MagazineSize);
         Result->SetNumberField(TEXT("currentAmmo"), MagazineSize);
         Result->SetNumberField(TEXT("reloadTime"), ReloadTime);
+        Result->SetStringField(TEXT("reloadAnimationPath"), ReloadAnimPath);
         Result->SetBoolField(TEXT("reloadAnimationLoaded"), bReloadAnimLoaded);
         
         TArray<TSharedPtr<FJsonValue>> VarsAdded;
@@ -1652,6 +1672,8 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
         Result->SetStringField(TEXT("blueprintPath"), Blueprint->GetPathName());
         Result->SetNumberField(TEXT("switchInTime"), SwitchInTime);
         Result->SetNumberField(TEXT("switchOutTime"), SwitchOutTime);
+        Result->SetStringField(TEXT("equipAnimationPath"), EquipAnimPath);
+        Result->SetStringField(TEXT("unequipAnimationPath"), UnequipAnimPath);
         Result->SetBoolField(TEXT("equipAnimationLoaded"), bEquipAnimLoaded);
         Result->SetBoolField(TEXT("unequipAnimationLoaded"), bUnequipAnimLoaded);
         
@@ -1756,6 +1778,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("blueprintPath"), Blueprint->GetPathName());
         Result->SetStringField(TEXT("particlePath"), ParticlePath);
+        Result->SetStringField(TEXT("soundPath"), SoundPath);
         Result->SetNumberField(TEXT("scale"), Scale);
         Result->SetBoolField(TEXT("particleLoaded"), bParticleLoaded);
         Result->SetBoolField(TEXT("soundLoaded"), bSoundLoaded);
@@ -2291,6 +2314,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
         Result->SetStringField(TEXT("blueprintPath"), Blueprint->GetPathName());
         Result->SetNumberField(TEXT("parryWindowStart"), ParryWindowStart);
         Result->SetNumberField(TEXT("parryWindowEnd"), ParryWindowEnd);
+        Result->SetStringField(TEXT("parryAnimationPath"), ParryAnimPath);
         Result->SetNumberField(TEXT("blockDamageReduction"), BlockDamageReduction);
         Result->SetNumberField(TEXT("blockStaminaCost"), BlockStaminaCost);
         Result->SetBoolField(TEXT("parryAnimationLoaded"), bAnimLoaded);
@@ -2765,6 +2789,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
         Result->SetNumberField(TEXT("shieldAmount"), ShieldAmount);
         Result->SetNumberField(TEXT("maxShield"), MaxShield);
         Result->SetNumberField(TEXT("shieldRegenRate"), ShieldRegenRate);
+        Result->SetNumberField(TEXT("shieldRegenDelay"), ShieldRegenDelay);
         SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Shield system configured."), Result);
         return true;
     }
@@ -2826,4 +2851,3 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
 #undef GetStringFieldCombat
 #undef GetNumberFieldCombat
 #undef GetBoolFieldCombat
-

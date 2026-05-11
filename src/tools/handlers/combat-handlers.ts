@@ -16,12 +16,8 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { requireNonEmptyString, executeAutomationRequest } from './common-handlers.js';
+import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs, normalizePathFields } from './common-handlers.js';
 
-function getTimeoutMs(): number {
-  const envDefault = Number(process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS ?? '120000');
-  return Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 120000;
-}
 
 /**
  * Handles all combat & weapon actions for the manage_combat tool.
@@ -31,7 +27,13 @@ export async function handleCombatTools(
   args: HandlerArgs,
   tools: ITools
 ): Promise<Record<string, unknown>> {
-  const argsRecord = args as Record<string, unknown>;
+  const argsRecord = normalizePathFields(args as Record<string, unknown>, [
+    'blueprintPath',
+    'meshPath',
+    'projectilePath',
+    'damageTypePath',
+    'effectPath'
+  ]);
   const timeoutMs = getTimeoutMs();
 
   // All actions are dispatched to C++ via automation bridge

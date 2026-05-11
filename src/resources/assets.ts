@@ -5,11 +5,21 @@ import { AutomationResponse } from '../types/automation-responses.js';
 import { Logger } from '../utils/logger.js';
 
 const log = new Logger('AssetResources');
+const DEFAULT_ASSET_LIST_TTL_MS = 10000;
+
+function getAssetListTtlMs(): number {
+  const raw = process.env.ASSET_LIST_TTL_MS;
+  if (raw === undefined || raw.trim().length === 0) return DEFAULT_ASSET_LIST_TTL_MS;
+  if (!/^\d+$/.test(raw.trim())) return DEFAULT_ASSET_LIST_TTL_MS;
+
+  const parsed = Number(raw.trim());
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_ASSET_LIST_TTL_MS;
+}
 
 export class AssetResources extends BaseTool implements IAssetResources {
   // Simple in-memory cache for asset listing
   private cache = new Map<string, { timestamp: number; data: unknown }>();
-  private get ttlMs(): number { return Number(process.env.ASSET_LIST_TTL_MS || 10000); }
+  private get ttlMs(): number { return getAssetListTtlMs(); }
   private makeKey(dir: string, recursive: boolean, page?: number) {
     return page !== undefined ? `${dir}::${recursive ? 1 : 0}::${page}` : `${dir}::${recursive ? 1 : 0}`;
   }
@@ -90,7 +100,9 @@ export class AssetResources extends BaseTool implements IAssetResources {
         const cachedData = entry.data as Record<string, unknown>;
         return { success: true, ...cachedData };
       }
-    } catch { }
+    } catch (error) {
+      log.debug('Asset cache lookup failed; continuing with live listing', error);
+    }
 
     // Check if bridge is connected
     if (!this.bridge.isConnected) {
@@ -227,7 +239,9 @@ export class AssetResources extends BaseTool implements IAssetResources {
           this.cache.set(key, { timestamp: Date.now(), data: result });
           return result;
         }
-      } catch { }
+      } catch (error) {
+        log.debug('AssetRegistry list via automation bridge failed', error);
+      }
 
       // No fallback available
     } catch (err: unknown) {

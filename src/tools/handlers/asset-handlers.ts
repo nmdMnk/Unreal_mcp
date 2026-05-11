@@ -1,10 +1,10 @@
 import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, AssetArgs } from '../../types/handler-types.js';
-import { executeAutomationRequest } from './common-handlers.js';
+import { executeAutomationRequest, promoteScalarResultFields } from './common-handlers.js';
 import { normalizeArgs, extractString, extractOptionalString, extractOptionalNumber, extractOptionalBoolean, extractOptionalArray } from './argument-helper.js';
 import { ResponseFactory } from '../../utils/response-factory.js';
-import { sanitizePath } from '../../utils/validation.js';
+import { normalizeAndSanitizeAssetPath } from '../../utils/validation.js';
 
 /**
  * Valid actions for manage_asset tool.
@@ -120,6 +120,46 @@ interface AssetOperationResponse {
   [key: string]: unknown;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function findAutomationFailure(response: unknown): Record<string, unknown> | null {
+  if (!isRecord(response)) return null;
+  if (response.success === false || response.isError === true) return response;
+
+  const resultFailure = findAutomationFailure(response.result);
+  if (resultFailure) return resultFailure;
+
+  const dataFailure = findAutomationFailure(response.data);
+  if (dataFailure) return dataFailure;
+
+  return null;
+}
+
+function getStringField(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function automationFailureResponse(
+  response: Record<string, unknown>,
+  failure: Record<string, unknown>,
+  fallbackMessage: string,
+  extraFields: Record<string, unknown>
+): Record<string, unknown> {
+  const error = getStringField(failure, 'error') ?? getStringField(failure, 'errorCode') ?? 'OPERATION_FAILED';
+  const message = getStringField(failure, 'message') ?? fallbackMessage;
+  return cleanObject({
+    success: false,
+    isError: true,
+    error,
+    message,
+    ...extraFields,
+    data: response
+  });
+}
+
 export async function handleAssetTools(action: string, args: HandlerArgs, tools: ITools): Promise<Record<string, unknown>> {
   try {
     switch (action) {
@@ -133,7 +173,7 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         ]);
 
         let path = extractOptionalString(params, 'path') ?? '/Game';
-        path = sanitizePath(path);
+        path = normalizeAndSanitizeAssetPath(path);
 
         const limit = extractOptionalNumber(params, 'limit') ?? 50;
         const recursive = extractOptionalBoolean(params, 'recursive') ?? false;
@@ -292,11 +332,14 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
 
         if (!destinationPath) throw new Error('Missing destinationPath or newName');
 
-        const res = await executeAutomationRequest(tools, 'manage_asset', {
+        const payload: Record<string, unknown> = {
           sourcePath,
           destinationPath,
           subAction: 'rename'
-        }) as AssetOperationResponse;
+        };
+        if (newName) payload.newName = newName;
+
+        const res = await executeAutomationRequest(tools, 'manage_asset', payload) as AssetOperationResponse;
 
         if (res && res.success === false) {
           const msg = (res.message || '').toLowerCase();
@@ -434,10 +477,6 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         ]);
         const assetPath = extractString(params, 'assetPath');
         const tags = extractOptionalArray<string>(params, 'tags') ?? [];
-
-        if (!assetPath) {
-          return ResponseFactory.error('INVALID_ARGUMENT', 'assetPath is required');
-        }
 
         // Note: Array.isArray check is unnecessary - extractOptionalArray always returns an array
 
@@ -658,22 +697,31 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
           { key: 'packagePath', aliases: ['path'], default: '/Game' },
           { key: 'width' },
           { key: 'height' },
-          { key: 'format' }
+          { key: 'format' },
+          { key: 'save', default: true }
         ]);
         const name = extractString(params, 'name');
         const packagePath = extractOptionalString(params, 'packagePath') ?? '/Game';
         const width = extractOptionalNumber(params, 'width');
         const height = extractOptionalNumber(params, 'height');
         const format = extractOptionalString(params, 'format');
-        const res = await executeAutomationRequest(tools, 'manage_render', {
+        const save = extractOptionalBoolean(params, 'save') ?? true;
+        const rawResponse = await executeAutomationRequest(tools, 'manage_texture', {
           subAction: 'create_render_target',
           name,
-          packagePath,
+          path: packagePath,
           width,
           height,
           format,
-          save: true
+          save
         });
+        const res = rawResponse && typeof rawResponse === 'object' && !Array.isArray(rawResponse)
+          ? promoteScalarResultFields(rawResponse as Record<string, unknown>)
+          : rawResponse;
+        const failure = findAutomationFailure(res);
+        if (failure && isRecord(res)) {
+          return automationFailureResponse(res, failure, 'Failed to create render target', { name, packagePath });
+        }
         return ResponseFactory.success(res, 'Render target created successfully');
       }
       case 'nanite_rebuild_mesh': {
@@ -888,7 +936,18 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         const assetPath = extractString(params, 'assetPath');
         const res = await executeAutomationRequest(tools, 'rebuild_material', {
           assetPath
-        });
+        }) as AssetOperationResponse;
+        if (res && typeof res.success === 'boolean' && res.success === false) {
+          const errorCode = typeof res.error === 'string' ? res.error.toUpperCase() : 'REBUILD_FAILED';
+          const message = typeof res.message === 'string' ? res.message : 'Material rebuild failed';
+          return cleanObject({
+            success: false,
+            error: errorCode,
+            message,
+            assetPath,
+            data: res
+          });
+        }
         return ResponseFactory.success(res, 'Material rebuilt successfully');
       }
       case 'bulk_rename': {
@@ -917,14 +976,22 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         if (!folderPath && (!assetPaths || (Array.isArray(assetPaths) && assetPaths.length === 0))) {
           return ResponseFactory.error('INVALID_ARGUMENT', 'Either folderPath or assetPaths is required for bulk_rename');
         }
+
+        const searchText = typeof argsTyped.searchText === 'string'
+          ? argsTyped.searchText
+          : (typeof argsTyped.pattern === 'string' ? argsTyped.pattern : undefined);
+        const replaceText = typeof argsTyped.replaceText === 'string'
+          ? argsTyped.replaceText
+          : (typeof argsTyped.replacement === 'string' ? argsTyped.replacement : undefined);
         
         const res = await executeAutomationRequest(tools, 'bulk_rename', {
           folderPath,
           assetPaths,
-          searchText: argsTyped.pattern,
-          replaceText: argsTyped.replacement,
+          searchText,
+          replaceText,
           prefix: argsTyped.prefix,
-          suffix: argsTyped.suffix
+          suffix: argsTyped.suffix,
+          checkoutFiles: argsTyped.checkoutFiles
         });
         return ResponseFactory.success(res, 'Bulk rename completed');
       }

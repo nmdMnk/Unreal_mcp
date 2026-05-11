@@ -14,12 +14,8 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { requireNonEmptyString, executeAutomationRequest } from './common-handlers.js';
+import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs, normalizePathFields } from './common-handlers.js';
 
-function getTimeoutMs(): number {
-  const envDefault = Number(process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS ?? '120000');
-  return Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 120000;
-}
 
 /**
  * Handles all Niagara authoring actions for the manage_niagara_authoring tool.
@@ -29,7 +25,7 @@ export async function handleNiagaraAuthoringTools(
   args: HandlerArgs,
   tools: ITools
 ): Promise<Record<string, unknown>> {
-  const argsRecord = args as Record<string, unknown>;
+  let argsRecord = { ...args } as Record<string, unknown>;
   const timeoutMs = getTimeoutMs();
 
   // Normalize parameter aliases - tests may use 'system', 'assetPath' instead of 'systemPath'
@@ -46,6 +42,14 @@ export async function handleNiagaraAuthoringTools(
   if (!argsRecord.assetPath && argsRecord.system) {
     argsRecord.assetPath = argsRecord.system;
   }
+  argsRecord = normalizePathFields(argsRecord, [
+    'systemPath',
+    'assetPath',
+    'emitterPath',
+    'meshPath',
+    'splinePath',
+    'audioPath'
+  ]);
 
   // Map emitterName to name for create_niagara_emitter
   if (!argsRecord.name && argsRecord.emitterName) {

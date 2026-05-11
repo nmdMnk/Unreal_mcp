@@ -14,7 +14,7 @@ import { TOOL_ACTIONS } from '../../utils/action-constants.js';
  */
 async function createSoundCue(tools: ITools, args: AudioArgs): Promise<Record<string, unknown>> {
   requireNonEmptyString(args?.name, 'name', 'Missing required parameter: name');
-  requireNonEmptyString(args?.wavePath ?? args?.soundPath, 'soundPath', 'Missing required parameter: soundPath (or wavePath)');
+  // wavePath/soundPath is optional - C++ accepts cues without a wave (empty cue graph)
 
   const name = args.name ?? '';
   const wavePath = args.wavePath ?? args.soundPath ?? '';
@@ -30,7 +30,7 @@ async function createSoundCue(tools: ITools, args: AudioArgs): Promise<Record<st
     attenuationPath: toStringValue(args.settings?.attenuationSettings),
     volume: explicitVolume === undefined ? undefined : validatedAudio.volume,
     pitch: explicitPitch === undefined ? undefined : validatedAudio.pitch,
-    looping: toBoolean(args.settings?.looping)
+    looping: toBoolean(args.looping ?? args.settings?.looping)
   };
 
   return (await executeAutomationRequest(tools, TOOL_ACTIONS.CREATE_SOUND_CUE, payload)) as Record<string, unknown>;
@@ -116,9 +116,8 @@ async function playSound2D(tools: ITools, args: AudioArgs): Promise<Record<strin
  * Create audio component
  */
 async function createAudioComponent(tools: ITools, args: AudioArgs): Promise<Record<string, unknown>> {
-  requireNonEmptyString(args?.actorName, 'actorName', 'Missing required parameter: actorName');
-  requireNonEmptyString(args?.componentName, 'componentName', 'Missing required parameter: componentName');
   requireNonEmptyString(args?.soundPath, 'soundPath', 'Missing required parameter: soundPath');
+  // actorName/componentName are optional - C++ creates at location if no attach target
 
   const payload = {
     actorName: args.actorName ?? '',
@@ -139,6 +138,8 @@ async function setSoundAttenuation(tools: ITools, args: AudioArgs): Promise<Reco
 
   const payload = {
     name: args.name ?? '',
+    path: toStringValue(args.path ?? args.savePath),
+    save: toBoolean(args.save),
     innerRadius: toNumber(args.innerRadius),
     falloffDistance: toNumber(args.falloffDistance),
     attenuationShape: toStringValue(args.attenuationShape),
@@ -246,11 +247,8 @@ async function createReverbZone(tools: ITools, args: AudioArgs): Promise<Record<
  * Enable audio analysis - Toggle real-time audio analysis
  */
 async function enableAudioAnalysis(tools: ITools, args: AudioArgs): Promise<Record<string, unknown>> {
-  // enable is required
-  const enable = toBoolean(args.enable ?? args.enabled);
-  if (enable === undefined) {
-    throw new Error('Missing required parameter: enable');
-  }
+  // Default to true if not specified - C++ also defaults to false but action intent is "enable"
+  const enable = toBoolean(args.enable ?? args.enabled) ?? true;
 
   const payload = {
     enable,
@@ -383,11 +381,29 @@ export async function handleAudioTools(
     case 'prime_sound':
       return cleanObject(await executeAutomationRequest(tools, TOOL_ACTIONS.PRIME_SOUND, argsRecord)) as Record<string, unknown>;
 
-    case 'fade_sound_in':
-    case 'fade_sound_out':
-      return cleanObject(await executeAutomationRequest(tools, action, argsRecord)) as Record<string, unknown>;
+  case 'fade_sound_in':
+  case 'fade_sound_out':
+    return cleanObject(await executeAutomationRequest(tools, action, argsRecord)) as Record<string, unknown>;
 
-    default:
+  case 'add_source_effect': {
+    // Main C++ handler reads "chainPath" not "assetPath" - remap for compatibility
+    const addEffectPayload: Record<string, unknown> = { ...argsRecord };
+    if (!addEffectPayload.chainPath && addEffectPayload.assetPath) {
+      addEffectPayload.chainPath = addEffectPayload.assetPath;
+      delete addEffectPayload.assetPath;
+    }
+    // C++ uses LoadObject which needs full UE path (e.g., /Game/X/Asset.AssetName)
+    if (addEffectPayload.chainPath && typeof addEffectPayload.chainPath === 'string') {
+      const p = addEffectPayload.chainPath;
+      const last = p.split('/').pop() ?? '';
+      if (!last.includes('.')) {
+        addEffectPayload.chainPath = `${p}.${last}`;
+      }
+    }
+    return cleanObject(await executeAutomationRequest(tools, 'add_source_effect', addEffectPayload as HandlerArgs)) as Record<string, unknown>;
+  }
+
+  default:
       return cleanObject({ success: false, isError: true, error: 'UNKNOWN_ACTION', message: `Unknown audio action: ${action}` });
   }
 }

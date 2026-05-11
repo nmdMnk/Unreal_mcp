@@ -1,32 +1,50 @@
 using UnrealBuildTool;
 using System;
 using System.IO;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using EpicGames.Core;
 
 public class McpAutomationBridge : ModuleRules
 {
-    // ============================================================================
-    // NATIVE WINDOWS API FOR ACTUAL MEMORY DETECTION
-    // ============================================================================
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MEMORYSTATUSEX
+    private static class WindowsMemoryHelper
     {
-        internal uint dwLength;
-        internal uint dwMemoryLoad;
-        internal ulong ullTotalPhys;
-        internal ulong ullAvailPhys;
-        internal ulong ullTotalPageFile;
-        internal ulong ullAvailPageFile;
-        internal ulong ullTotalVirtual;
-        internal ulong ullAvailVirtual;
-        internal ulong ullAvailExtendedVirtual;
-    }
+        // ============================================================================
+        // NATIVE WINDOWS API FOR ACTUAL MEMORY DETECTION
+        // ============================================================================
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MEMORYSTATUSEX
+        {
+            internal uint dwLength;
+            internal uint dwMemoryLoad;
+            internal ulong ullTotalPhys;
+            internal ulong ullAvailPhys;
+            internal ulong ullTotalPageFile;
+            internal ulong ullAvailPageFile;
+            internal ulong ullTotalVirtual;
+            internal ulong ullAvailVirtual;
+            internal ulong ullAvailExtendedVirtual;
+        }
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
+        public static bool TryGetMemoryMB(out long availableMemoryMB, out long totalMemoryMB)
+        {
+            var memStatus = new MEMORYSTATUSEX();
+            memStatus.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+
+            if (GlobalMemoryStatusEx(ref memStatus))
+            {
+                availableMemoryMB = (long)(memStatus.ullAvailPhys / (1024 * 1024));
+                totalMemoryMB = (long)(memStatus.ullTotalPhys / (1024 * 1024));
+                return true;
+            }
+
+            availableMemoryMB = 0;
+            totalMemoryMB = 0;
+            return false;
+        }
+    }
 
     /// <summary>
     /// Configures build rules, dependencies, and compile-time feature definitions for the McpAutomationBridge module based on the provided build target.
@@ -79,13 +97,10 @@ public class McpAutomationBridge : ModuleRules
                         var targetRules = (TargetRules)innerField.GetValue(Target);
                         if (targetRules != null)
                         {
-#pragma warning disable 618  // bUndefinedIdentifierErrors is obsolete in UE5.5+, but we need it for older versions
-                            if (targetRules.bUndefinedIdentifierErrors)
+                            if (TrySetBooleanMember(targetRules, "bUndefinedIdentifierErrors", false, true))
                             {
-                                targetRules.bUndefinedIdentifierErrors = false;
                                 Console.WriteLine("McpAutomationBridge: Disabled bUndefinedIdentifierErrors for UE 5.0-5.2 MSVC build");
                             }
-#pragma warning restore 618
 
                             // Add __has_feature macro to global definitions (affects all compilations, including SharedPCH)
                             // Define as non-variadic macro that discards its argument, e.g., __has_feature(address_sanitizer) -> 0
@@ -98,9 +113,9 @@ public class McpAutomationBridge : ModuleRules
                         }
                     }
                 }
-                catch
+                catch (Exception Ex)
                 {
-                    // Non-fatal; may succeed via alternative mechanisms
+                    Console.WriteLine(string.Format("McpAutomationBridge: WARNING: Could not disable bUndefinedIdentifierErrors for UE 5.{0}: {1}", Target.Version.MinorVersion, Ex.Message));
                 }
                 Console.WriteLine(string.Format("McpAutomationBridge: Applied MSVC __has_feature compatibility for UE 5.{0}", Target.Version.MinorVersion));
             }
@@ -119,13 +134,10 @@ public class McpAutomationBridge : ModuleRules
         // Disable PCH to prevent virtual memory exhaustion
         PCHUsage = PCHUsageMode.NoPCHs;
         
-        // Unity builds enabled - combine files for faster compilation
-        // Note: If you get "compiler out of heap space" errors, install BuildConfiguration.xml
-        // from plugins/McpAutomationBridge/Config/BuildConfiguration.xml to %AppData%\Unreal Engine\UnrealBuildTool\
         bUseUnity = true;
-        Console.WriteLine("McpAutomationBridge: Unity builds enabled");
+        NumIncludedBytesPerUnityCPPOverride = 256 * 1024;
 
-PublicDependencyModuleNames.AddRange(new string[]
+        PublicDependencyModuleNames.AddRange(new string[]
         {
             "Core","CoreUObject","Engine","Json","JsonUtilities",
             "LevelSequence", "MovieScene", "MovieSceneTracks", "GameplayTags",
@@ -149,7 +161,8 @@ PublicDependencyModuleNames.AddRange(new string[]
                 "ApplicationCore","Slate","SlateCore","Projects","InputCore","DeveloperSettings","Settings","EngineSettings",
                 "Sockets","Networking","EditorSubsystem","EditorScriptingUtilities","BlueprintGraph","SSL",
                 "Kismet","KismetCompiler","AssetRegistry","AssetTools","SourceControl",
-                "AudioEditor", "AudioMixer"
+                "AudioEditor", "AudioMixer",
+                // Native MCP uses raw sockets (Sockets/Networking already listed above)
                 // Optional plugins are handled by AddOptionalDynamicModule() below with delay-load
             });
 
@@ -162,7 +175,7 @@ PublicDependencyModuleNames.AddRange(new string[]
                 "AnimGraph","AnimationBlueprintLibrary","Persona","ToolMenus","EditorWidgets","PropertyEditor","LevelEditor",
                 "RigVM","RigVMDeveloper","UMG","UMGEditor","MergeActors",
                 "RenderCore", "RHI", "AutomationController", "GameplayDebugger", "TraceLog", "TraceAnalysis", "AIGraph",
-                "MeshUtilities", "MaterialUtilities", "PhysicsCore", "ClothingSystemRuntimeCommon",
+                "MeshUtilities", "MeshMergeUtilities", "MaterialUtilities", "PhysicsCore", "ClothingSystemRuntimeCommon",
                 "GeometryCore", "GeometryFramework", "DynamicMesh", "MeshDescription", "StaticMeshDescription",
                 "NavigationSystem"
                 // Optional plugins are handled by AddOptionalDynamicModule() below with delay-load
@@ -233,9 +246,11 @@ PublicDependencyModuleNames.AddRange(new string[]
             // DataValidation (optional plugin) - for data validation
             AddOptionalDynamicModule(Target, EngineDir, "DataValidation", "DataValidation");
 
+            // Synthesis (optional plugin) - for source effect presets (EQ, Chorus, Delay, etc.)
+            AddOptionalDynamicModule(Target, EngineDir, "Synthesis", "Synthesis");
+
             // Phase: IKRig and Vehicles (optional plugins)
             AddOptionalDynamicModule(Target, EngineDir, "IKRig", "IKRig");
-            AddOptionalDynamicModule(Target, EngineDir, "IKRigEditor", "IKRigEditor");
             AddOptionalDynamicModule(Target, EngineDir, "ChaosVehicles", "ChaosVehicles");
             AddOptionalDynamicModule(Target, EngineDir, "AnimationData", "AnimationData");
 
@@ -284,7 +299,10 @@ PublicDependencyModuleNames.AddRange(new string[]
                     }
                 }
             }
-            catch {}
+            catch (Exception Ex)
+            {
+                Console.WriteLine(string.Format("McpAutomationBridge: WorldPartition support detection failed: {0}", Ex.Message));
+            }
 
             PublicDefinitions.Add(bHasWPForEach ? "MCP_HAS_WP_FOR_EACH_DATALAYER=1" : "MCP_HAS_WP_FOR_EACH_DATALAYER=0");
 
@@ -294,7 +312,7 @@ PublicDependencyModuleNames.AddRange(new string[]
                 PublicDefinitions.Add("MCP_ENABLE_EDIT_AND_CONTINUE=1");
             }
 
-            // Control Rig Factory Support - detection is handled in source code via __has_include
+            // Control Rig Factory Support - detection is handled in source headers.
             // Do not define MCP_HAS_CONTROLRIG_FACTORY here to avoid redefinition warnings
         }
         else
@@ -310,94 +328,71 @@ PublicDependencyModuleNames.AddRange(new string[]
         // COMPILER WARNING SETTINGS (UE 5.6+ Compatibility)
         // ============================================================================
         // UE 5.6+ treats variable shadowing (C4456, C4458, C4459) as errors by default.
-        // Use ShadowVariableWarningLevel directly on ModuleRules - works in all UE versions.
-        // UE 5.0-5.5: Direct property on ModuleRules
-        // UE 5.6-5.7: Forwarding property to CppCompileWarningSettings.ShadowVariableWarningLevel
-        // This allows compilation while we systematically fix shadowing issues.
+        // Set the shadow warning level through reflection so this rule file remains
+        // warning-clean across UE versions where the public API moved from
+        // ModuleRules.ShadowVariableWarningLevel to CppCompileWarningSettings.
         // TODO: Fix variable shadowing in handler files, then remove this override
         if (Target.Version.MajorVersion == 5 && Target.Version.MinorVersion >= 6)
         {
-            ShadowVariableWarningLevel = WarningLevel.Warning;
+            SetShadowVariableWarningLevel(WarningLevel.Warning);
         }
     }
 
-    /// <summary>
-    /// Determines whether a SubobjectData module or plugin exists under the given engine directory.
-    /// </summary>
-    /// <param name="EngineDir">Absolute path to the engine root directory to inspect.</param>
-    /// <returns>`true` if a SubobjectData directory is found in EngineDir/Source/Runtime/SubobjectData or in known plugin locations; `false` if not found or if an error occurs.</returns>
-    private bool IsSubobjectDataAvailable(string EngineDir)
+    private static bool TrySetBooleanMember(object target, string memberName, bool value, bool onlyIfCurrentlyTrue = false)
     {
-        try
+        const System.Reflection.BindingFlags Flags = System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Instance;
+
+        var property = target.GetType().GetProperty(memberName, Flags);
+        if (property != null && property.PropertyType == typeof(bool) && property.CanWrite)
         {
-            if (string.IsNullOrEmpty(EngineDir)) return false;
-            
-            // Check Runtime module
-            string RuntimeDir = Path.Combine(EngineDir, "Source", "Runtime", "SubobjectData");
-            if (Directory.Exists(RuntimeDir)) return true;
-
-            // Check Editor module (UE 5.7+)
-            string EditorDir = Path.Combine(EngineDir, "Source", "Editor", "SubobjectDataInterface");
-            if (Directory.Exists(EditorDir)) return true;
-
-            // Check known plugin locations with bounded depth search
-            string PluginsDir = Path.Combine(EngineDir, "Plugins");
-            if (Directory.Exists(PluginsDir))
+            var current = (bool)property.GetValue(target);
+            if (!onlyIfCurrentlyTrue || current)
             {
-                // Check common plugin locations first (fast path)
-                string[] KnownPaths = new string[]
-                {
-                    Path.Combine(PluginsDir, "Runtime", "SubobjectData"),
-                    Path.Combine(PluginsDir, "Editor", "SubobjectData"),
-                    Path.Combine(PluginsDir, "Experimental", "SubobjectData")
-                };
-                foreach (string path in KnownPaths)
-                {
-                    if (Directory.Exists(path)) return true;
-                }
+                property.SetValue(target, value);
+                return true;
+            }
+            return false;
+        }
 
-                // Bounded depth search (max 3 levels deep) to avoid slow unbounded recursion
-                if (SearchDirectoryBounded(PluginsDir, "SubobjectData", 3)) return true;
+        var field = target.GetType().GetField(memberName, Flags);
+        if (field != null && field.FieldType == typeof(bool))
+        {
+            var current = (bool)field.GetValue(target);
+            if (!onlyIfCurrentlyTrue || current)
+            {
+                field.SetValue(target, value);
+                return true;
             }
         }
-        catch {}
+
         return false;
     }
 
-    /// <summary>
-    /// Determines whether the current project contains a "SubobjectData" directory inside its Plugins folder by searching upward from the provided module directory for the project root (.uproject).
-    /// </summary>
-    /// <param name="ModuleDir">Path to the module directory used as the starting point to locate the project root.</param>
-    /// <returns>`true` if a "SubobjectData" directory is found under the project's Plugins directory, `false` otherwise.</returns>
-    private bool IsSubobjectDataInProject(string ModuleDir)
+    private void SetShadowVariableWarningLevel(WarningLevel level)
     {
-        try
-        {
-            // Find project root by looking for .uproject
-            string ProjectRoot = null;
-            DirectoryInfo Dir = new DirectoryInfo(ModuleDir);
-            while (Dir != null)
-            {
-                if (Dir.GetFiles("*.uproject").Length > 0) 
-                { 
-                    ProjectRoot = Dir.FullName; 
-                    break; 
-                }
-                Dir = Dir.Parent;
-            }
+        const System.Reflection.BindingFlags Flags = System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Instance;
 
-            if (!string.IsNullOrEmpty(ProjectRoot))
+        var cppSettingsProperty = GetType().GetProperty("CppCompileWarningSettings", Flags);
+        object cppSettings = cppSettingsProperty?.GetValue(this);
+        if (cppSettings != null)
+        {
+            var shadowProperty = cppSettings.GetType().GetProperty("ShadowVariableWarningLevel", Flags);
+            if (shadowProperty != null && shadowProperty.CanWrite)
             {
-                string ProjPlugins = Path.Combine(ProjectRoot, "Plugins");
-                if (Directory.Exists(ProjPlugins))
-                {
-                    // Use bounded depth search (max 3 levels) to avoid slow unbounded recursion
-                    if (SearchDirectoryBounded(ProjPlugins, "SubobjectData", 3)) return true;
-                }
+                shadowProperty.SetValue(cppSettings, level);
+                return;
             }
         }
-        catch {}
-        return false;
+
+        var legacyProperty = GetType().GetProperty("ShadowVariableWarningLevel", Flags);
+        if (legacyProperty != null && legacyProperty.CanWrite)
+        {
+            legacyProperty.SetValue(this, level);
+        }
     }
 
     /// <summary>
@@ -439,13 +434,11 @@ PublicDependencyModuleNames.AddRange(new string[]
             // Try Windows API first (most accurate)
             if (Environment.OSVersion.Platform == PlatformID.Win32NT)
             {
-                var memStatus = new MEMORYSTATUSEX();
-                memStatus.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
-                
-                if (GlobalMemoryStatusEx(ref memStatus))
+                long AvailableMemory;
+                long TotalMemory;
+                if (WindowsMemoryHelper.TryGetMemoryMB(out AvailableMemory, out TotalMemory))
                 {
-                    // Return available physical memory in MB
-                    return (long)(memStatus.ullAvailPhys / (1024 * 1024));
+                    return AvailableMemory;
                 }
             }
         }
@@ -479,16 +472,18 @@ PublicDependencyModuleNames.AddRange(new string[]
         {
             if (Environment.OSVersion.Platform == PlatformID.Win32NT)
             {
-                var memStatus = new MEMORYSTATUSEX();
-                memStatus.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
-                
-                if (GlobalMemoryStatusEx(ref memStatus))
+                long AvailableMemory;
+                long TotalMemory;
+                if (WindowsMemoryHelper.TryGetMemoryMB(out AvailableMemory, out TotalMemory))
                 {
-                    return (long)(memStatus.ullTotalPhys / (1024 * 1024));
+                    return TotalMemory;
                 }
             }
         }
-        catch { }
+        catch (Exception Ex)
+        {
+            Console.WriteLine(string.Format("McpAutomationBridge: Total memory detection failed: {0}", Ex.Message));
+        }
         
         return 8192; // Conservative fallback
     }
@@ -555,22 +550,6 @@ PublicDependencyModuleNames.AddRange(new string[]
         catch { /* Module not available - this is expected for optional modules */ }
 
         return false;
-    }
-
-    /// <summary>
-    /// Adds an optional module conditionally - only if it exists.
-    /// Used for optional AI modules that may not be available in all UE versions (StateTree, SmartObjects, MassEntity).
-    /// </summary>
-    /// <param name="Target">Build target settings.</param>
-    /// <param name="EngineDir">Absolute path to the engine root directory.</param>
-    /// <param name="ModuleName">The module name to add to dependencies if found.</param>
-    /// <param name="SearchName">The directory name to search for in engine/plugin paths.</param>
-    private void TryAddConditionalModule(ReadOnlyTargetRules Target, string EngineDir, string ModuleName, string SearchName)
-    {
-        if (FindOptionalModule(EngineDir, SearchName))
-        {
-            PrivateDependencyModuleNames.Add(ModuleName);
-        }
     }
 
     /// <summary>

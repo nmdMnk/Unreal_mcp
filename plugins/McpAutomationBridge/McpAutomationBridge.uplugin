@@ -137,10 +137,15 @@
       "Enabled": true,
       "Optional": true
     },
-    {
-      "Name": "OnlineSubsystemUtils",
-      "Enabled": true,
-      "Optional": true
-    }
+	{
+		"Name": "OnlineSubsystemUtils",
+		"Enabled": true,
+		"Optional": true
+	},
+	{
+		"Name": "Synthesis",
+		"Enabled": true,
+		"Optional": true
+	}
   ]
 }

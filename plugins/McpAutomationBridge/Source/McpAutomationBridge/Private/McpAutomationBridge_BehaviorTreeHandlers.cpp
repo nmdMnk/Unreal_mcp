@@ -71,6 +71,7 @@
 // BehaviorTreeGraph classes are only exported (BEHAVIORTREEEDITOR_API) starting from UE 5.3
 // UE 5.0-5.2: Class is not exported, cannot use NewObject<UBehaviorTreeGraph>() from outside module
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
+#include "AIGraphTypes.h"
 #include "BehaviorTreeGraph.h"
 #include "BehaviorTreeGraphNode.h"
 #include "BehaviorTreeGraphNode_Composite.h"
@@ -291,6 +292,16 @@ bool UMcpAutomationBridgeSubsystem::HandleBehaviorTreeAction(
     return true;
   }
 
+  auto UpdateBehaviorTreeAsset = [&]() {
+#if MCP_HAS_BEHAVIOR_TREE_GRAPH
+    if (UBehaviorTreeGraph *TypedBTGraph = Cast<UBehaviorTreeGraph>(BTGraph)) {
+      TypedBTGraph->UpdateAsset();
+    }
+#endif
+    BTGraph->NotifyGraphChanged();
+    BT->MarkPackageDirty();
+  };
+
   // ---------------------------------------------------------------------------
   // Helper: Find graph node by GUID or Name
   // ---------------------------------------------------------------------------
@@ -454,7 +465,14 @@ bool UMcpAutomationBridgeSubsystem::HandleBehaviorTreeAction(
         NewNode = static_cast<UBehaviorTreeGraphNode*>(NewNodeObj);
 
         // Initialize the node
+        BT->Modify();
+        BTGraph->Modify();
+        NewNode->Modify();
         NewNode->CreateNewGuid();
+
+        if (NodeInstanceClass) {
+          NewNode->ClassData = FGraphNodeClassData(NodeInstanceClass, TEXT(""));
+        }
         
         // Use provided ID if valid, otherwise keep the generated one
         FGuid NewGuid;
@@ -471,8 +489,15 @@ bool UMcpAutomationBridgeSubsystem::HandleBehaviorTreeAction(
         NewNode->PostPlacedNewNode();
         NewNode->AllocateDefaultPins();
 
-        BTGraph->NotifyGraphChanged();
-        BT->MarkPackageDirty();
+        if (NodeInstanceClass && !NewNode->NodeInstance) {
+          BTGraph->RemoveNode(NewNode);
+          SendAutomationError(RequestingSocket, RequestId,
+                              TEXT("Failed to initialize Behavior Tree node instance."),
+                              TEXT("CREATE_FAILED"));
+          return true;
+        }
+
+        UpdateBehaviorTreeAsset();
 
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("nodeId"), NewNode->NodeGuid.ToString());
@@ -538,8 +563,11 @@ bool UMcpAutomationBridgeSubsystem::HandleBehaviorTreeAction(
 
     if (OutputPin && InputPin) {
       if (BTGraph->GetSchema()->TryCreateConnection(OutputPin, InputPin)) {
-        BTGraph->NotifyGraphChanged();
-        BT->MarkPackageDirty();
+        BT->Modify();
+        BTGraph->Modify();
+        Parent->Modify();
+        Child->Modify();
+        UpdateBehaviorTreeAsset();
         TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
         McpHandlerUtils::AddVerification(Resp, BT);
         SendAutomationResponse(RequestingSocket, RequestId, true,
@@ -572,7 +600,12 @@ bool UMcpAutomationBridgeSubsystem::HandleBehaviorTreeAction(
     UEdGraphNode *TargetNode = FindGraphNodeByIdOrName(NodeId);
 
     if (TargetNode) {
+      BT->Modify();
+      BTGraph->Modify();
+      TargetNode->Modify();
+      BTGraph->GetSchema()->BreakNodeLinks(*TargetNode);
       BTGraph->RemoveNode(TargetNode);
+      UpdateBehaviorTreeAsset();
       TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       McpHandlerUtils::AddVerification(Resp, BT);
       SendAutomationResponse(RequestingSocket, RequestId, true,
@@ -599,7 +632,11 @@ bool UMcpAutomationBridgeSubsystem::HandleBehaviorTreeAction(
     UEdGraphNode *TargetNode = FindGraphNodeByIdOrName(NodeId);
 
     if (TargetNode) {
-      TargetNode->BreakAllNodeLinks();
+      BT->Modify();
+      BTGraph->Modify();
+      TargetNode->Modify();
+      BTGraph->GetSchema()->BreakNodeLinks(*TargetNode);
+      UpdateBehaviorTreeAsset();
       TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       McpHandlerUtils::AddVerification(Resp, BT);
       SendAutomationResponse(RequestingSocket, RequestId, true,
@@ -693,8 +730,10 @@ bool UMcpAutomationBridgeSubsystem::HandleBehaviorTreeAction(
       }
 
       if (bModified) {
-        BTGraph->NotifyGraphChanged();
-        BT->MarkPackageDirty();
+        BT->Modify();
+        BTGraph->Modify();
+        TargetNode->Modify();
+        UpdateBehaviorTreeAsset();
       }
 
       TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();

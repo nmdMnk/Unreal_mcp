@@ -42,12 +42,16 @@
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
   #define MCP_GET_MATERIAL_EXPRESSIONS(Material) \
     (Material)->GetEditorOnlyData()->ExpressionCollection.Expressions
+  #define MCP_GET_FUNCTION_EXPRESSIONS(Function) \
+    (Function)->GetEditorOnlyData()->ExpressionCollection.Expressions
   #define MCP_GET_MATERIAL_INPUT(Material, InputName) \
     (Material)->GetEditorOnlyData()->InputName
   #define MCP_HAS_MATERIAL_EDITOR_ONLY_DATA 1
 #else
   #define MCP_GET_MATERIAL_EXPRESSIONS(Material) \
     (Material)->Expressions
+  #define MCP_GET_FUNCTION_EXPRESSIONS(Function) \
+    (Function)->FunctionExpressions
   #define MCP_GET_MATERIAL_INPUT(Material, InputName) \
     (Material)->InputName
   #define MCP_HAS_MATERIAL_EDITOR_ONLY_DATA 0
@@ -144,7 +148,7 @@
     (Property)->ExportTextItem_Direct(OutText, ValuePtr, DefaultValuePtr, Container, Flags)
 #else
   #define MCP_PROPERTY_EXPORT_TEXT(Property, OutText, ValuePtr, DefaultValuePtr, Container, Flags) \
-    (Property)->ExportText_Direct(OutText, ValuePtr, DefaultValuePtr, Flags, Container)
+    (Property)->ExportText_Direct(OutText, ValuePtr, DefaultValuePtr, Container, Flags, nullptr)
 #endif
 
 // =============================================================================
@@ -256,12 +260,12 @@
 // UE 5.1: WidgetVariableNameToGuidMap exists
 // UE 5.2: WidgetVariableNameToGuidMap does NOT exist (or is private)
 // UE 5.3: WidgetVariableNameToGuidMap does NOT exist (not present in engine)
-// UE 5.4+: Unknown; assume fallback to NewVariables for safety
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 1
+// UE 5.4+: WidgetVariableNameToGuidMap exists again in UMGEditor/Public/WidgetBlueprint.h
+#if ENGINE_MAJOR_VERSION == 5 && (ENGINE_MINOR_VERSION == 1 || ENGINE_MINOR_VERSION >= 4)
     #define MCP_HAS_WIDGET_VARIABLE_GUID_MAP 1
     #define MCP_WIDGET_BP_GET_GUID_MAP(WidgetBP) (WidgetBP)->WidgetVariableNameToGuidMap
 #else
-    // UE 5.0, 5.2, 5.3+: WidgetVariableNameToGuidMap does not exist.
+    // UE 5.0, 5.2, 5.3: WidgetVariableNameToGuidMap does not exist.
     // The macro is never used because MCP_HAS_WIDGET_VARIABLE_GUID_MAP is 0,
     // but we define it to a no-op to avoid "macro redefined" warnings.
     #define MCP_HAS_WIDGET_VARIABLE_GUID_MAP 0

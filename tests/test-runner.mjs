@@ -11,8 +11,29 @@ const repoRoot = path.resolve(__dirname, '..');
 const reportsDir = path.join(__dirname, 'reports');
 
 // CRITICAL: Include both singular and plural forms for flexible matching
-const failureKeywords = ['failed', 'error', 'exception', 'invalid', 'not found', 'not_found', 'missing', 'timed out', 'timeout', 'unsupported', 'unknown', 'traversal', 'blocked', 'denied', 'forbidden', 'security', 'violation', 'invalid_path', 'object_not_found', 'actor_not_found', 'actors not found', 'not exist'];
-const successKeywords = ['success', 'created', 'updated', 'deleted', 'completed', 'done', 'ok', 'skipped', 'handled', 'not_implemented'];
+const failureKeywords = ['failed', 'error', 'exception', 'invalid', 'not found', 'not_found', 'missing', 'timed out', 'timeout', 'unsupported', 'unknown', 'not implemented', 'not_implemented', 'traversal', 'blocked', 'denied', 'forbidden', 'security', 'violation', 'invalid_path', 'object_not_found', 'actor_not_found', 'actors not found', 'not exist'];
+const successKeywords = ['success', 'created', 'updated', 'deleted', 'completed', 'done', 'ok', 'skipped', 'handled'];
+const bridgeDisconnectedIndicators = [
+  'unreal engine is not connected',
+  'automation bridge connection failed',
+  'automation bridge connection timeout',
+  'automation bridge not connected',
+  'ue_not_connected',
+  'bridge disconnected',
+  'connection lost',
+  'econnrefused',
+  'econnreset',
+  'socket hang up'
+];
+const infrastructureErrorCodes = [
+  'no_navmesh', 'no_nav_sys', 'no_world', 'no_component', 'no_smart_link',
+  'not_found', 'invalid_class', 'create_failed', 'spawn_failed', 'already_exists',
+  'asset_exists', 'invalid_bp', 'cdo_failed', 'level_already_exists', 'asset_not_found',
+  'texture_error', 'invalid_texture', 'source_invalid', 'lock_failed', 'node_not_found',
+  'physics_failed', 'function_not_found'
+];
+const baseCrashIndicators = ['1006', 'econnreset', 'socket hang up', 'connection lost', 'bridge disconnected', 'ue_not_connected', 'automation bridge not connected'];
+const crashIndicatorsWithDisconnect = [...baseCrashIndicators, 'disconnect'];
 // Defaults for spawning the MCP server.
 let serverCommand = process.env.UNREAL_MCP_SERVER_CMD ?? 'node';
 let serverArgs = process.env.UNREAL_MCP_SERVER_ARGS ? process.env.UNREAL_MCP_SERVER_ARGS.split(',') : [path.join(repoRoot, 'dist', 'cli.js')];
@@ -79,6 +100,130 @@ function logMcpResponse(toolName, normalizedResponse) {
   console.log(clampString(json, Number.isFinite(maxChars) && maxChars > 0 ? maxChars : DEFAULT_RESPONSE_LOG_MAX_CHARS));
 }
 
+function collectResponseText(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map((entry) => collectResponseText(entry)).join(' ');
+  if (typeof value === 'object') {
+    return Object.values(value).map((entry) => collectResponseText(entry)).join(' ');
+  }
+  return '';
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function findNestedFailure(value) {
+  if (!isRecord(value)) return null;
+  if (value.success === false || value.isError === true) return value;
+
+  const dataFailure = findNestedFailure(value.data);
+  if (dataFailure) return dataFailure;
+
+  const resultFailure = findNestedFailure(value.result);
+  if (resultFailure) return resultFailure;
+
+  return null;
+}
+
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+
+function getExpectedConditions(lowerExpected) {
+  if (lowerExpected.includes(' or ')) return lowerExpected.split(' or ').map((condition) => condition.trim()).filter(Boolean);
+  if (lowerExpected.includes('|')) return lowerExpected.split('|').map((condition) => condition.trim()).filter(Boolean);
+  const trimmed = lowerExpected.trim();
+  return trimmed ? [trimmed] : [];
+}
+
+function normalizeConditionText(value) {
+  return String(value).replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function conditionMatchesResponseText(condition, responseText) {
+  const normalizedCondition = normalizeConditionText(condition);
+  const normalizedResponseText = normalizeConditionText(responseText);
+  if (!normalizedCondition || !normalizedResponseText) return false;
+  if (responseText.includes(condition) || normalizedResponseText.includes(normalizedCondition)) return true;
+  if (normalizedCondition === 'already exists') return /\b(already|asset|level) exists\b/.test(normalizedResponseText);
+  return false;
+}
+
+const explicitFailureAlternatives = [
+  'already exists',
+  'already_exists',
+  'asset exists',
+  'asset_exists',
+  'level already exists',
+  'level_already_exists',
+  'not found',
+  'not_found',
+  'object_not_found',
+  'actor_not_found',
+  'actors not found',
+  'asset_not_found',
+  'node_not_found',
+  'function_not_found',
+  'property_not_found',
+  'component_not_found',
+  'class_not_found',
+  'does not exist',
+  'not exist',
+  'not loaded',
+  'not_loaded',
+  'not partitioned',
+  'not_partitioned',
+  'sc_disabled'
+];
+const normalizedExplicitFailureAlternatives = explicitFailureAlternatives.map(normalizeConditionText);
+
+function isExplicitFailureAlternative(condition) {
+  const normalizedCondition = normalizeConditionText(condition);
+  return explicitFailureAlternatives.some((alternative, index) => {
+    const normalizedAlternative = normalizedExplicitFailureAlternatives[index];
+    return condition.includes(alternative) || normalizedCondition.includes(normalizedAlternative);
+  });
+}
+
+function findMatchedExplicitFailureAlternative(conditions, responseText) {
+  for (const condition of conditions.slice(1)) {
+    if (!isExplicitFailureAlternative(condition)) continue;
+    if (conditionMatchesResponseText(condition, responseText)) return condition;
+  }
+  return null;
+}
+
+export function getResponseOutcome(response) {
+  const structuredContent = isRecord(response?.structuredContent) ? response.structuredContent : {};
+  const nestedFailure = findNestedFailure(structuredContent);
+  const structuredSuccess = nestedFailure
+    ? false
+    : (typeof structuredContent.success === 'boolean' ? structuredContent.success : undefined);
+  const actualSuccess = structuredSuccess ?? !(response?.isError || structuredContent.isError);
+  const errorSource = nestedFailure ?? structuredContent;
+
+  return {
+    structuredContent,
+    nestedFailure,
+    structuredSuccess,
+    actualSuccess,
+    actualError: firstNonEmptyString(errorSource.error, errorSource.errorCode, structuredContent.error),
+    actualMessage: firstNonEmptyString(errorSource.message, structuredContent.message)
+  };
+}
+
+function isBridgeDisconnectedSignal(value) {
+  const text = collectResponseText(value).toLowerCase();
+  if (!text) return false;
+  return bridgeDisconnectedIndicators.some((indicator) => text.includes(indicator));
+}
+
 function formatResultLine(testCase, status, detail, durationMs) {
   const durationText = typeof durationMs === 'number' ? ` (${durationMs.toFixed(1)} ms)` : '';
   return `[${status.toUpperCase()}] ${testCase.scenario}${durationText}${detail ? ` => ${detail}` : ''}`;
@@ -92,9 +237,14 @@ async function persistResults(toolName, results) {
     scenario: result.scenario,
     toolName: result.toolName,
     arguments: result.arguments,
+    expected: result.expected,
     status: result.status,
     durationMs: result.durationMs,
-    detail: result.detail
+    detail: result.detail,
+    responseSuccess: result.responseSuccess,
+    responseIsError: result.responseIsError,
+    responseError: result.responseError,
+    responseMessage: result.responseMessage
   }));
   await fs.writeFile(resultsPath, JSON.stringify({ generatedAt: new Date().toISOString(), toolName, results: serializable }, null, 2));
   return resultsPath;
@@ -117,7 +267,7 @@ function summarize(toolName, results, resultsPath) {
 /**
  * Evaluates whether a test case passed based on expected outcome
  */
-function evaluateExpectation(testCase, response) {
+export function evaluateExpectation(testCase, response) {
   const expectation = testCase.expected;
 
   // Normalize expected into a comparable form. If expected is an object
@@ -136,35 +286,19 @@ function evaluateExpectation(testCase, response) {
   // CRITICAL FIX: Determine PRIMARY intent (first condition in pipe-separated list)
   // Tests like "success|error" should have PRIMARY intent of success, meaning
   // if we get success=false, it should FAIL even though "error" is in the alternatives.
-  const primaryCondition = lowerExpected.split('|')[0].split(' or ')[0].trim();
+  const expectedConditions = getExpectedConditions(lowerExpected);
+  const primaryCondition = expectedConditions[0] ?? '';
   const primaryExpectsSuccess = successKeywords.some((word) => primaryCondition.includes(word));
   const primaryExpectsFailure = failureKeywords.some((word) => primaryCondition.includes(word));
 
-  const structuredSuccess = typeof response.structuredContent?.success === 'boolean'
-    ? response.structuredContent.success
-    : undefined;
-  const actualSuccess = structuredSuccess ?? !(response.isError || response.structuredContent?.isError);
+  const responseOutcome = getResponseOutcome(response);
+  const structuredSuccess = responseOutcome.structuredSuccess;
+  const actualSuccess = responseOutcome.actualSuccess;
+  let actualError = responseOutcome.actualError;
+  let actualMessage = responseOutcome.actualMessage;
 
-  // CRITICAL: If response explicitly indicates an error (isError: true or structuredContent.success: false
-  // or structuredContent.isError: true) and the PRIMARY expectation is success (not just a fallback alternative),
-  // FAIL immediately. This prevents false positives where tests like "success|handled|error" pass even when
-  // the engine returns success: false.
-  if ((response.isError === true || response.structuredContent?.isError === true || structuredSuccess === false) && !primaryExpectsFailure) {
-    const errorReason = response.structuredContent?.error || response.structuredContent?.message || 'Unknown error';
-    return {
-      passed: false,
-      reason: `Response indicates error but test expected success (primary intent: ${primaryCondition}): ${errorReason}`
-    };
-  }
-
-  // Extract actual error/message from response
-  let actualError = null;
-  let actualMessage = null;
-  if (response.structuredContent) {
-    actualError = response.structuredContent.error;
-    actualMessage = response.structuredContent.message;
-  }
-  // Also check top-level message field (MCP errors may not have structuredContent)
+  // Extract actual error/message from response.
+  // Also check top-level message field (MCP errors may not have structuredContent).
   if (!actualMessage && response.message) {
     actualMessage = response.message;
   }
@@ -183,11 +317,45 @@ function evaluateExpectation(testCase, response) {
       .join('\n');
   }
 
-  // Helper to get effective actual strings for matching
+  // Helper to get effective actual strings for matching.
   const messageStr = (actualMessage || '').toString().toLowerCase();
   const errorStr = (actualError || '').toString().toLowerCase();
   const contentStr = contentText.toString().toLowerCase();
   const combined = `${messageStr} ${errorStr} ${contentStr}`;
+  const matchedExplicitFailureAlternative = !actualSuccess && primaryExpectsSuccess
+    ? findMatchedExplicitFailureAlternative(expectedConditions, combined)
+    : null;
+
+  // Object expectations can intentionally assert exact controlled error codes
+  // (for example NOT_PARTITIONED guards). Honor those before the generic
+  // "expected success" rejection below so tests don't need broad `error|...`
+  // strings that can mask unrelated failures.
+  if (typeof expectation === 'object' && expectation !== null && !actualSuccess && expectation.errorPattern) {
+    const pattern = String(expectation.errorPattern).toLowerCase();
+    const serializedResponse = JSON.stringify(response).toLowerCase();
+    if (serializedResponse.includes(pattern)) {
+      return { passed: true, reason: `Error pattern matched: ${expectation.errorPattern}` };
+    }
+  }
+
+  // Pipe alternatives can intentionally allow specific idempotent failure
+  // outcomes such as `success|already exists` and cleanup cases like
+  // `success|not found`. Keep rejecting broad fallbacks like `success|error`.
+  if (matchedExplicitFailureAlternative) {
+    return { passed: true, reason: `Expected explicit failure alternative met: ${matchedExplicitFailureAlternative}` };
+  }
+
+  // CRITICAL: If response explicitly indicates an error (isError: true or structuredContent.success: false
+  // or structuredContent.isError: true) and the PRIMARY expectation is success (not just a fallback alternative),
+  // FAIL immediately. This prevents false positives where tests like "success|handled|error" pass even when
+  // the engine returns success: false.
+  if ((response.isError === true || response.structuredContent?.isError === true || structuredSuccess === false) && !primaryExpectsFailure) {
+    const errorReason = actualError || actualMessage || response.error || response.message || 'Unknown error';
+    return {
+      passed: false,
+      reason: `Response indicates error but test expected success (primary intent: ${primaryCondition}): ${errorReason}`
+    };
+  }
 
   // CRITICAL FIX: Detect infrastructure errors that should FAIL tests even if
   // structuredContent.success is true or the expectation allows success as fallback.
@@ -195,13 +363,6 @@ function evaluateExpectation(testCase, response) {
   // even when the engine returns NO_NAVMESH, NOT_FOUND, NO_COMPONENT, etc.
   // Note: 'actor_not_found' is a valid error for negative tests - do NOT add it here
   // as that would fail tests that expect actor_not_found as the error.
-  const infrastructureErrorCodes = [
-    'no_navmesh', 'no_nav_sys', 'no_world', 'no_component', 'no_smart_link',
-    'not_found', 'invalid_class', 'create_failed', 'spawn_failed', 'already_exists',
-    'asset_exists', 'invalid_bp', 'cdo_failed', 'level_already_exists', 'asset_not_found',
-    'texture_error', 'invalid_texture', 'source_invalid', 'lock_failed', 'node_not_found',
-    'physics_failed', 'function_not_found'
-  ];
   const hasInfrastructureError = infrastructureErrorCodes.some(code => 
     errorStr === code || errorStr.includes(code) || messageStr.includes(code)
   );
@@ -222,7 +383,6 @@ function evaluateExpectation(testCase, response) {
   // FIX: Only check for crash indicators if response is NOT a success (success: true)
   // This prevents false positives where "Node disconnection partial" (a valid success message)
   // incorrectly matches "disconnect" as a substring.
-  const baseCrashIndicators = ['1006', 'econnreset', 'socket hang up', 'connection lost', 'bridge disconnected', 'ue_not_connected', 'automation bridge not connected'];
   // Word-boundary checks for ambiguous terms
   const hasDisconnect = /\bdisconnect(ed)?\b/i.test(errorStr) || /\bdisconnect(ed)?\b/i.test(messageStr);
   const hasConnectionLost = /\bconnection lost\b/i.test(errorStr) || /\bconnection lost\b/i.test(messageStr);
@@ -230,7 +390,7 @@ function evaluateExpectation(testCase, response) {
   
   // Only include 'disconnect' as crash indicator when response indicates FAILURE
   // This fixes false positives for disconnect_nodes action that returns "Disconnect operation completed."
-  const crashIndicators = actualSuccess ? baseCrashIndicators : [...baseCrashIndicators, 'disconnect'];
+  const crashIndicators = actualSuccess ? baseCrashIndicators : crashIndicatorsWithDisconnect;
   const hasCrashIndicator = (crashIndicators.some(ind => 
     errorStr.includes(ind) || messageStr.includes(ind) || combined.includes(ind)
   )) || hasDisconnect || hasConnectionLost || hasNotConnected;
@@ -360,9 +520,9 @@ function evaluateExpectation(testCase, response) {
     return { passed: false, reason: `None of the expected conditions matched: ${expectedCondition}` };
   }
 
-  // Also flag common automation/plugin failure phrases
-  // NOTE: "not_implemented" is acceptable when test expects it (added to successKeywords)
-  const pluginFailureIndicators = ['does not match prefix', 'unknown', 'unavailable', 'unsupported'];
+  // Also flag common automation/plugin failure phrases.
+  // Placeholder/not-implemented responses must never satisfy success tests.
+  const pluginFailureIndicators = ['does not match prefix', 'unknown', 'unavailable', 'unsupported', 'not implemented', 'not_implemented'];
   const hasPluginFailure = pluginFailureIndicators.some(term => combined.includes(term));
 
   if (!containsFailure && hasPluginFailure) {
@@ -475,6 +635,69 @@ function evaluateExpectation(testCase, response) {
   return { passed, reason };
 }
 
+export function summarizeResponseForReport(response) {
+  const outcome = getResponseOutcome(response);
+  return {
+    responseSuccess: typeof outcome.structuredSuccess === 'boolean' ? outcome.structuredSuccess : undefined,
+    responseIsError: response?.isError === true || outcome.structuredContent.isError === true || outcome.nestedFailure !== null,
+    responseError: outcome.actualError ?? undefined,
+    responseMessage: outcome.actualMessage ?? undefined
+  };
+}
+
+function getValueAtPath(source, pathExpression) {
+  if (!pathExpression || typeof pathExpression !== 'string') return undefined;
+  return pathExpression.split('.').reduce((current, part) => {
+    if (current === undefined || current === null) return undefined;
+    if (Array.isArray(current)) {
+      const index = Number.parseInt(part, 10);
+      return Number.isInteger(index) ? current[index] : undefined;
+    }
+    if (typeof current === 'object') {
+      return Object.prototype.hasOwnProperty.call(current, part) ? current[part] : undefined;
+    }
+    return undefined;
+  }, source);
+}
+
+function matchesObjectSubset(candidate, expectedSubset) {
+  if (!candidate || typeof candidate !== 'object' || !expectedSubset || typeof expectedSubset !== 'object') return false;
+  return Object.entries(expectedSubset).every(([key, expectedValue]) => {
+    if (!Object.prototype.hasOwnProperty.call(candidate, key)) return false;
+    const actualValue = candidate[key];
+    if (expectedValue && typeof expectedValue === 'object' && !Array.isArray(expectedValue)) {
+      if ('length' in expectedValue && Array.isArray(actualValue)) return actualValue.length === expectedValue.length;
+      return matchesObjectSubset(actualValue, expectedValue);
+    }
+    return actualValue === expectedValue;
+  });
+}
+
+function evaluateAssertions(testCase, response) {
+  if (!Array.isArray(testCase.assertions) || testCase.assertions.length === 0) return { passed: true };
+
+  for (const assertion of testCase.assertions) {
+    const label = assertion.label || assertion.path || 'assertion';
+    const actual = getValueAtPath(response, assertion.path);
+
+    if (Object.prototype.hasOwnProperty.call(assertion, 'equals') && actual !== assertion.equals) {
+      return { passed: false, reason: `${label}: expected ${JSON.stringify(assertion.equals)}, got ${JSON.stringify(actual)}` };
+    }
+
+    if (Object.prototype.hasOwnProperty.call(assertion, 'length') && (!Array.isArray(actual) || actual.length !== assertion.length)) {
+      return { passed: false, reason: `${label}: expected array length ${assertion.length}, got ${Array.isArray(actual) ? actual.length : typeof actual}` };
+    }
+
+    if (assertion.includesObject) {
+      if (!Array.isArray(actual) || !actual.some((entry) => matchesObjectSubset(entry, assertion.includesObject))) {
+        return { passed: false, reason: `${label}: no array item matched ${JSON.stringify(assertion.includesObject)}` };
+      }
+    }
+  }
+
+  return { passed: true };
+}
+
 /**
  * Main test runner function
  */
@@ -534,7 +757,9 @@ export async function runToolTests(toolName, testCases) {
       const { key, fromField } = testCase.captureResult;
       if (!key || !fromField) return;
       
-      const value = response.structuredContent[fromField];
+      const value = fromField.includes('.')
+        ? getValueAtPath(response.structuredContent, fromField)
+        : response.structuredContent[fromField];
       if (value !== undefined) {
         capturedValues[key] = value;
         console.log(`📦 Captured: ${key} = ${value}`);
@@ -589,7 +814,7 @@ export async function runToolTests(toolName, testCases) {
     try {
       await waitForAnyPort(bridgeHost, envPorts, waitMs);
     } catch (err) {
-      console.warn('Automation bridge did not become available before tests started:', err.message);
+      throw new Error(`Automation bridge did not become available before tests started: ${err.message}`);
     }
 
     // Decide whether to run the built server (dist/cli.js) or to run the
@@ -613,7 +838,9 @@ export async function runToolTests(toolName, testCases) {
               const st = await fs.stat(full);
               const m = st.mtimeMs || 0;
               if (m > latest) latest = m;
-            } catch (_) { }
+            } catch (_) {
+              // Ignore files that disappear while scanning mtimes.
+            }
           }
         }
       } catch (_) {
@@ -853,23 +1080,23 @@ export async function runToolTests(toolName, testCases) {
       await callToolOnce({ name: 'control_actor', arguments: { action: 'delete', actorName: 'SmartNavLink_Test' } }, 5000).catch(() => {});
       
       // Delete test assets (blueprints, materials)
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/BP_Test' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/SplineBP' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestMaterial' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/Parent' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/M_Test' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/ConvertedMesh' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestLandscape' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/BP_Test' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/SplineBP' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/TestMaterial' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/Parent' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/M_Test' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/ConvertedMesh' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/TestLandscape' } }, 10000).catch(() => {});
       // Delete asset test artifacts
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestAsset' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestMesh' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestMat' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/MCPTest/TestInstance' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/TestAsset' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/TestMesh' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/MCPTest/TestMat' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete', path: '/Game/MCPTest/TestInstance', force: true } }, 10000).catch(() => {});
       
       // Delete foliage types
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/Foliage/Grass' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/Foliage/Tree' } }, 10000).catch(() => {});
-      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', assetPath: '/Game/Foliage/Bush' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/Foliage/Grass' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/Foliage/Tree' } }, 10000).catch(() => {});
+      await callToolOnce({ name: 'manage_asset', arguments: { action: 'delete_asset', path: '/Game/Foliage/Bush' } }, 10000).catch(() => {});
       
       // Delete NavMeshBoundsVolume
       await callToolOnce({ name: 'control_actor', arguments: { action: 'delete', actorName: 'NavMeshBoundsVolume' } }, 5000).catch(() => {});
@@ -1091,10 +1318,10 @@ export async function runToolTests(toolName, testCases) {
       }, 15000).catch(err => console.warn('⚠️  TestCylinder may already exist:', err?.message || err));
       // === End Geometry Setup ===
 
-      // === Navigation Setup for manage_navigation tests ===
+      // === Navigation Setup for manage_ai navigation tests ===
       // Create NavMeshBoundsVolume so RecastNavMesh can be generated
       await callToolOnce({
-        name: 'manage_volumes',
+        name: 'manage_level_structure',
         arguments: {
           action: 'create_nav_mesh_bounds_volume',
           volumeName: 'TestNavMeshBounds',
@@ -1105,7 +1332,7 @@ export async function runToolTests(toolName, testCases) {
 
       // Trigger navigation rebuild to generate RecastNavMesh
       await callToolOnce({
-        name: 'manage_navigation',
+        name: 'manage_ai',
         arguments: { action: 'rebuild_navigation' }
       }, 30000).catch(err => console.warn('⚠️  Navigation rebuild may have failed:', err?.message || err));
 
@@ -1117,7 +1344,7 @@ export async function runToolTests(toolName, testCases) {
 
       // Add NavModifier component to BP_Test blueprint
       await callToolOnce({
-        name: 'manage_navigation',
+        name: 'manage_ai',
         arguments: {
           action: 'create_nav_modifier_component',
           blueprintPath: '/Game/MCPTest/BP_Test',
@@ -1134,41 +1361,41 @@ export async function runToolTests(toolName, testCases) {
       }, 15000).catch(err => console.warn('⚠️  NavTestActor may already exist:', err?.message || err));
       // === End Navigation Setup ===
 
-      // === Spline Setup for manage_splines tests ===
+      // === Spline Setup for build_environment spline tests ===
       // Create TestSpline for spline manipulation tests
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_spline_actor', actorName: 'TestSpline', location: {x:0,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestSpline may already exist:', err?.message || err));
 
       // Create template spline actors for specialized spline tests
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_road_spline', actorName: 'TestRoad', location: {x:500,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestRoad may already exist:', err?.message || err));
 
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_river_spline', actorName: 'TestRiver', location: {x:1000,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestRiver may already exist:', err?.message || err));
 
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_fence_spline', actorName: 'TestFence', location: {x:1500,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestFence may already exist:', err?.message || err));
 
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_wall_spline', actorName: 'TestWall', location: {x:2000,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestWall may already exist:', err?.message || err));
 
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_cable_spline', actorName: 'TestCable', location: {x:2500,y:0,z:100} }
       }, 15000).catch(err => console.warn('⚠️  TestCable may already exist:', err?.message || err));
 
       await callToolOnce({
-        name: 'manage_splines',
+        name: 'build_environment',
         arguments: { action: 'create_pipe_spline', actorName: 'TestPipe', location: {x:3000,y:0,z:0} }
       }, 15000).catch(err => console.warn('⚠️  TestPipe may already exist:', err?.message || err));
 
@@ -1265,11 +1492,12 @@ export async function runToolTests(toolName, testCases) {
       const startTime = performance.now();
 
       try {
-        // Log test start to Unreal Engine console
-        const cleanScenario = (testCase.scenario || 'Unknown Test').replace(/"/g, "'");
+        // Log test start to Unreal Engine console without echoing scenario text.
+        // Scenario names can contain words like "delete" that are correctly
+        // blocked by the console command safety validator.
         await callToolOnce({
           name: 'system_control',
-          arguments: { action: 'console_command', command: `Log "---- STARTING TEST: ${cleanScenario} ----"` }
+          arguments: { action: 'console_command', command: `Log Starting MCP test ${i + 1} of ${testCases.length}` }
         }, 5000).catch(() => { });
       } catch (e) { /* ignore */ }
 
@@ -1293,6 +1521,13 @@ export async function runToolTests(toolName, testCases) {
           logMcpResponse(testCase.toolName + " :: " + testCase.scenario, normalizeMcpResponse(normalizedResponse));
         }
         let { passed, reason } = evaluateExpectation(testCase, normalizedResponse);
+        if (passed && testCase.assertions) {
+          const assertionResult = evaluateAssertions(testCase, normalizedResponse);
+          if (!assertionResult.passed) {
+            passed = false;
+            reason = assertionResult.reason;
+          }
+        }
         // Capture results if specified in test case
         if (passed && testCase.captureResult) {
           captureResultValues(testCase, normalizedResponse);
@@ -1306,7 +1541,7 @@ export async function runToolTests(toolName, testCases) {
         // where success=false is the correct expected result.
         const isPerformanceTest = testCase.arguments?.timeoutMs !== undefined || 
                                   testCase.scenario?.includes('performance');
-        const responseSuccess = normalizedResponse?.structuredContent?.success;
+        const responseSuccess = getResponseOutcome(normalizedResponse).structuredSuccess;
         
         // Check PRIMARY intent - if the test EXPECTS failure, success=false is correct
         const lowerExpected = (testCase.expected || '').toString().toLowerCase();
@@ -1325,26 +1560,36 @@ export async function runToolTests(toolName, testCases) {
           reason = `Performance test failed: Operation returned success=false. Error: ${errorMsg}`;
         }
 
+        const responseSummary = summarizeResponseForReport(normalizedResponse);
+
         if (!passed) {
           console.log(`[FAILED] ${testCase.scenario} (${durationMs.toFixed(1)} ms) => ${reason}`);
           results.push({
             scenario: testCase.scenario,
             toolName: testCase.toolName,
             arguments: testCase.arguments,
+            expected: testCase.expected,
             status: 'failed',
             durationMs,
             detail: reason,
+            ...responseSummary,
             response: normalizedResponse
           });
+          if (isBridgeDisconnectedSignal(normalizedResponse) || isBridgeDisconnectedSignal(reason)) {
+            console.log('🛑 Automation bridge is not connected; aborting remaining tests to avoid wasting time.');
+            break;
+          }
         } else {
           console.log(`[PASSED] ${testCase.scenario} (${durationMs.toFixed(1)} ms)`);
           results.push({
             scenario: testCase.scenario,
             toolName: testCase.toolName,
             arguments: testCase.arguments,
+            expected: testCase.expected,
             status: 'passed',
             durationMs,
-            detail: reason
+            detail: reason,
+            ...responseSummary
           });
         }
 
@@ -1372,11 +1617,16 @@ export async function runToolTests(toolName, testCases) {
             scenario: testCase.scenario,
             toolName: testCase.toolName,
             arguments: testCase.arguments,
+            expected: testCase.expected,
             status: 'failed',
             durationMs,
-            detail: `Infrastructure failure (crash/disconnection): ${errorMessage}`
+            detail: `Infrastructure failure (crash/disconnection): ${errorMessage}`,
+            responseSuccess: false,
+            responseIsError: true,
+            responseError: errorMessage
           });
-          continue;
+          console.log('🛑 Automation bridge is not connected; aborting remaining tests to avoid wasting time.');
+          break;
         }
 
         // Determine PRIMARY intent from expected string
@@ -1398,9 +1648,13 @@ export async function runToolTests(toolName, testCases) {
             scenario: testCase.scenario,
             toolName: testCase.toolName,
             arguments: testCase.arguments,
+            expected: testCase.expected,
             status: 'passed',
             durationMs,
-            detail: errorMessage
+            detail: errorMessage,
+            responseSuccess: false,
+            responseIsError: true,
+            responseError: errorMessage
           });
           continue;
         }
@@ -1410,10 +1664,18 @@ export async function runToolTests(toolName, testCases) {
           scenario: testCase.scenario,
           toolName: testCase.toolName,
           arguments: testCase.arguments,
+          expected: testCase.expected,
           status: 'failed',
           durationMs,
-          detail: errorMessage
+          detail: errorMessage,
+          responseSuccess: false,
+          responseIsError: true,
+          responseError: errorMessage
         });
+        if (isBridgeDisconnectedSignal(errorMessage)) {
+          console.log('🛑 Automation bridge is not connected; aborting remaining tests to avoid wasting time.');
+          break;
+        }
       }
       
       // Throttle to avoid rate limiting (600 req/min = 10 req/sec)
@@ -1540,7 +1802,7 @@ export class TestRunner {
       try {
         await waitForAnyPort(bridgeHost, envPorts, waitMs);
       } catch (err) {
-        console.warn('Automation bridge did not become available before tests started:', err.message);
+        throw new Error(`Automation bridge did not become available before tests started: ${err.message}`);
       }
 
       const distPath = path.join(repoRoot, 'dist', 'cli.js');
@@ -1560,10 +1822,13 @@ export class TestRunner {
                 const st = await fs.stat(full);
                 const m = st.mtimeMs || 0;
                 if (m > latest) latest = m;
-              } catch (_) { }
+              } catch (_) {
+                // Ignore files that disappear while scanning mtimes.
+              }
             }
           }
         } catch (_) {
+          // Ignore missing plugin directories when deciding whether dist is stale.
         }
         return latest;
       }
@@ -1716,6 +1981,9 @@ export class TestRunner {
         async executeTool(toolName, args, options = {}) {
           const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : undefined;
           const response = await callToolOnce({ name: toolName, arguments: args }, timeoutMs);
+          if (isBridgeDisconnectedSignal(response)) {
+            throw new Error('Unreal Engine is not connected');
+          }
           let structuredContent = response.structuredContent ?? null;
           if (structuredContent === null && response.content?.length) {
             for (const entry of response.content) {
@@ -1744,11 +2012,10 @@ export class TestRunner {
         const startTime = performance.now();
 
         try {
-          // Log step start to Unreal Engine console
-          const cleanName = (step.name || 'Unknown Step').replace(/"/g, "'");
+          // Log step start to Unreal Engine console without echoing scenario text.
           await callToolOnce({
             name: 'system_control',
-            arguments: { action: 'console_command', command: `Log "---- STARTING STEP: ${cleanName} ----"` }
+            arguments: { action: 'console_command', command: 'Log Starting MCP test step' }
           }, 5000).catch(() => { });
         } catch (e) { /* ignore */ }
 
@@ -1777,6 +2044,10 @@ export class TestRunner {
             durationMs,
             detail
           });
+          if (isBridgeDisconnectedSignal(detail)) {
+            console.log('🛑 Automation bridge is not connected; aborting remaining steps to avoid wasting time.');
+            break;
+          }
         }
       }
 
@@ -1804,4 +2075,3 @@ export class TestRunner {
     }
   }
 }
-

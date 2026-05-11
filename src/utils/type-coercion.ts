@@ -49,11 +49,12 @@ export function toString(val: unknown): string | undefined {
  * Convert Vector3 object to [x, y, z] tuple.
  * Returns undefined for invalid input.
  */
-export function toVec3Array(v: Vector3 | undefined): [number, number, number] | undefined {
+export function toVec3Array(v: unknown): [number, number, number] | undefined {
   if (!v || typeof v !== 'object') return undefined;
-  const x = Number(v.x);
-  const y = Number(v.y);
-  const z = Number(v.z);
+  const vec = v as Partial<Vector3>;
+  const x = Number(vec.x);
+  const y = Number(vec.y);
+  const z = Number(vec.z);
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return undefined;
   return [x, y, z];
 }
@@ -62,11 +63,12 @@ export function toVec3Array(v: Vector3 | undefined): [number, number, number] | 
  * Convert Rotator object to [pitch, yaw, roll] tuple.
  * Returns undefined for invalid input.
  */
-export function toRotArray(r: Rotator | undefined): [number, number, number] | undefined {
+export function toRotArray(r: unknown): [number, number, number] | undefined {
   if (!r || typeof r !== 'object') return undefined;
-  const pitch = Number(r.pitch);
-  const yaw = Number(r.yaw);
-  const roll = Number(r.roll);
+  const rot = r as Partial<Rotator>;
+  const pitch = Number(rot.pitch);
+  const yaw = Number(rot.yaw);
+  const roll = Number(rot.roll);
   if (!Number.isFinite(pitch) || !Number.isFinite(yaw) || !Number.isFinite(roll)) return undefined;
   return [pitch, yaw, roll];
 }

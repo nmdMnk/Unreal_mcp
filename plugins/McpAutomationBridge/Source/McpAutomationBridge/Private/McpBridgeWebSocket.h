@@ -116,8 +116,6 @@ private:
     TMap<FString, FString> Headers;
     FString ListenHost;
 
-    // Server tuning (moved later to ensure proper initialization order)
-
     TArray<uint8> PendingReceived;
     TArray<uint8> FragmentAccumulator;
     bool bFragmentMessageActive;

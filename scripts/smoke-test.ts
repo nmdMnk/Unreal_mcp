@@ -1,7 +1,9 @@
 
-import { spawn } from 'child_process';
-import path from 'path';
-import { fileURLToPath } from 'url';
+/// <reference types="node" />
+
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const serverPath = path.join(__dirname, '../dist/cli.js');

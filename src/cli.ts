@@ -26,6 +26,7 @@ const log = new Logger('CLI');
           const m2 = await import(tsModuleSpecifier);
           if (m2 && typeof m2.startStdioServer === 'function') {
             await m2.startStdioServer();
+            return;
           } else {
             throw new Error('startStdioServer not exported from index.ts');
           }

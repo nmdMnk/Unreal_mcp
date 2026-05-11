@@ -2,6 +2,7 @@ import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, SystemArgs } from '../../types/handler-types.js';
 import { executeAutomationRequest, validateArgsSecurity } from './common-handlers.js';
+import { readOutputLog } from '../../utils/log-reader.js';
 
 /** Response from various operations */
 interface OperationResponse {
@@ -253,11 +254,19 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
       }
 
       try {
+        const componentName = typeof (argsTyped as Record<string, unknown>).name === 'string'
+          ? ((argsTyped as Record<string, unknown>).name as string).trim()
+          : undefined;
         const res = await executeAutomationRequest(tools, 'manage_widget_authoring', {
-          action: 'add_widget_child',
+          action: 'add_widget_component',
+          subAction: 'add_widget_component',
           widgetPath,
-          childClass: childClass,
-          parentName: parentName
+          componentType: childClass,
+          componentName,
+          parentName: parentName,
+          text: typeof (argsTyped as Record<string, unknown>).text === 'string'
+            ? (argsTyped as Record<string, unknown>).text
+            : undefined
         }) as Record<string, unknown>;
         return cleanObject({
           ...res,
@@ -348,9 +357,16 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
           const assetPath = typeof rawPath === 'string' ? rawPath : String(rawPath ?? '');
           try {
             const res = await executeAutomationRequest(tools, 'manage_asset', {
-              action: 'validate',
+              action: 'exists',
+              subAction: 'exists',
               assetPath
             }) as Record<string, unknown>;
+            const resultObj = typeof res.result === 'object' && res.result !== null
+              ? res.result as Record<string, unknown>
+              : undefined;
+            const exists = typeof res.exists === 'boolean'
+              ? res.exists
+              : (typeof resultObj?.exists === 'boolean' ? resultObj.exists : false);
             // Extract error message from potentially complex error object
             let errorStr: string | null = null;
             if (res.error) {
@@ -362,7 +378,10 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
                 errorStr = String(res.error);
               }
             }
-            return { assetPath, success: res.success as boolean | undefined, error: errorStr };
+            if (!exists && !errorStr) {
+              errorStr = 'Asset does not exist';
+            }
+            return { assetPath, success: exists, error: errorStr };
           } catch (error) {
             return {
               assetPath,
@@ -373,9 +392,11 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
         })
       );
 
+      const allValid = results.every(result => result.success !== false);
+
       return {
-        success: true,
-        message: 'Asset validation completed',
+        success: allValid,
+        message: allValid ? 'Asset validation completed' : 'Asset validation failed for one or more assets',
         action: 'validate_assets',
         results
       };
@@ -654,7 +675,7 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
       };
     }
     case 'read_log':
-      return cleanObject(await tools.logTools.readOutputLog(args as Record<string, unknown>));
+      return cleanObject(await readOutputLog(args as Record<string, unknown>));
     case 'export_asset': {
       // Export asset to FBX/OBJ format
       // This requires editor-only functionality

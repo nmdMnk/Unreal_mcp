@@ -1,7 +1,7 @@
 name: 'Bug Report'
 description: 'Report a bug to help us improve Unreal Engine MCP Server'
 labels:
-  - 'bug'
+  - 'type/bug'
 body:
   - type: 'markdown'
     attributes:

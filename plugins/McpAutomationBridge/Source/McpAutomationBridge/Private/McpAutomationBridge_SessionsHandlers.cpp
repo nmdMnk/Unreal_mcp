@@ -103,6 +103,16 @@ DEFINE_LOG_CATEGORY_STATIC(LogMcpSessionsHandlers, Log, All);
 namespace SessionsHelpers
 {
 
+    static TSet<FString> LocalVoiceMuteFallbackState;
+
+    static FString MakeLocalVoiceMuteKey(const FString& TargetIdentifier, int32 LocalPlayerNum, bool bSystemWide)
+    {
+        return FString::Printf(TEXT("%s:%d:%s"),
+            bSystemWide ? TEXT("system") : TEXT("local"),
+            LocalPlayerNum,
+            *TargetIdentifier);
+    }
+
     // Get object field
     TSharedPtr<FJsonObject> GetObjectField(const TSharedPtr<FJsonObject>& Payload, const FString& FieldName)
     {
@@ -876,6 +886,8 @@ static bool HandleMutePlayer(
 
     FString TargetIdentifier = !TargetPlayerId.IsEmpty() ? TargetPlayerId : PlayerName;
     bool bSuccess = false;
+    bool bAppliedToVoiceInterface = false;
+    bool bAppliedToFallbackState = false;
     FString StatusMessage;
 
 #if MCP_HAS_VOICECHAT
@@ -892,6 +904,7 @@ static bool HandleMutePlayer(
                 // Full voice chat with server connection
                 VoiceChat->SetPlayerMuted(TargetIdentifier, bMuted);
                 bSuccess = true;
+                bAppliedToVoiceInterface = true;
                 StatusMessage = FString::Printf(TEXT("Player '%s' %s via IVoiceChat"), 
                     *TargetIdentifier, bMuted ? TEXT("muted") : TEXT("unmuted"));
             }
@@ -910,15 +923,14 @@ static bool HandleMutePlayer(
                     VoiceChat->UnblockPlayers(PlayersToBlock);
                 }
                 bSuccess = true;
+                bAppliedToVoiceInterface = true;
                 StatusMessage = FString::Printf(TEXT("Player '%s' %s locally (voice server not connected)"), 
                     *TargetIdentifier, bMuted ? TEXT("muted") : TEXT("unmuted"));
             }
             else
             {
-                // VoiceChat module exists but not initialized - acknowledge request
-                bSuccess = true;
-                StatusMessage = FString::Printf(TEXT("Player '%s' %s (VoiceChat not initialized)"), 
-                    *TargetIdentifier, bMuted ? TEXT("muted") : TEXT("unmuted"));
+                bSuccess = false;
+                StatusMessage = TEXT("VoiceChat module is available but not initialized; mute was not applied");
             }
         }
     }
@@ -954,58 +966,73 @@ static bool HandleMutePlayer(
                             ? FString::Printf(TEXT("Player '%s' %s via OnlineSubsystem"), 
                                 *TargetIdentifier, bMuted ? TEXT("muted") : TEXT("unmuted"))
                             : TEXT("Voice interface mute operation failed");
+                        bAppliedToVoiceInterface = bSuccess;
                     }
                     else
                     {
-                        // Failed to create net ID - record mute locally
-                        bSuccess = true;
-                        StatusMessage = FString::Printf(TEXT("Player '%s' %s locally (net ID not available)"), 
-                            *TargetIdentifier, bMuted ? TEXT("muted") : TEXT("unmuted"));
+                        bSuccess = false;
+                        StatusMessage = TEXT("Unable to resolve target player net ID; mute was not applied");
                     }
 #else
                     // UE 5.7+: CreateUniquePlayerId was removed. Use GetUniquePlayerId for local players
                     // or find the player in the registered players list.
                     // For remote players, we need to find them via the session or player controller.
-                    // Return success for local mute state tracking
-                    bSuccess = true;
-                    StatusMessage = FString::Printf(TEXT("Player '%s' %s locally (UE 5.7+ uses session-based lookup)"), 
-                        *TargetIdentifier, bMuted ? TEXT("muted") : TEXT("unmuted"));
+                    bSuccess = false;
+                    StatusMessage = TEXT("UE 5.7+ remote mute requires session-based player lookup; mute was not applied");
 #endif
                 }
                 else
                 {
-                    // Identity interface not available - return success for local mute
-                    bSuccess = true;
-                    StatusMessage = TEXT("Mute recorded locally (identity interface not available)");
+                    bSuccess = false;
+                    StatusMessage = TEXT("Identity interface not available; mute was not applied");
                 }
             }
             else
             {
-                // Voice interface not available - voice requires bHasVoiceEnabled=true in DefaultEngine.ini
-                // Return success since this is a configuration issue, not an error
-                bSuccess = true;
-                StatusMessage = TEXT("Voice interface not configured (enable with [OnlineSubsystem] bHasVoiceEnabled=true in DefaultEngine.ini)");
+                bSuccess = false;
+                StatusMessage = TEXT("Voice interface not configured; mute was not applied");
             }
         }
         else
         {
-            // OnlineSubsystem not available - return success for standalone PIE
-            bSuccess = true;
-            StatusMessage = TEXT("OnlineSubsystem not available (standalone PIE session)");
+            bSuccess = false;
+            StatusMessage = TEXT("OnlineSubsystem not available; mute was not applied");
         }
     }
 #else
     {
-        // No voice system available - just acknowledge the request
-        bSuccess = true;
-        StatusMessage = TEXT("Mute state recorded (no voice system available in this build)");
+        bSuccess = false;
+        StatusMessage = TEXT("No voice system available in this build; mute was not applied");
     }
 #endif
+
+    if (!bSuccess)
+    {
+        const FString FallbackKey = MakeLocalVoiceMuteKey(TargetIdentifier, LocalPlayerNum, bSystemWide);
+        if (bMuted)
+        {
+            LocalVoiceMuteFallbackState.Add(FallbackKey);
+        }
+        else
+        {
+            LocalVoiceMuteFallbackState.Remove(FallbackKey);
+        }
+
+        bSuccess = true;
+        bAppliedToFallbackState = true;
+        StatusMessage = FString::Printf(
+            TEXT("Native voice interface absent; stored %s in local editor-session mute state"),
+            bMuted ? TEXT("mute") : TEXT("unmute"));
+    }
 
     TSharedPtr<FJsonObject> ResponseJson = McpHandlerUtils::CreateResultObject();
     ResponseJson->SetStringField(TEXT("target"), TargetIdentifier);
     ResponseJson->SetBoolField(TEXT("muted"), bMuted);
     ResponseJson->SetBoolField(TEXT("success"), bSuccess);
+    ResponseJson->SetBoolField(TEXT("appliedToVoiceInterface"), bAppliedToVoiceInterface);
+    ResponseJson->SetBoolField(TEXT("appliedToFallbackState"), bAppliedToFallbackState);
+    ResponseJson->SetNumberField(TEXT("localPlayerNum"), LocalPlayerNum);
+    ResponseJson->SetBoolField(TEXT("systemWide"), bSystemWide);
     ResponseJson->SetStringField(TEXT("status"), StatusMessage);
 
     FString Message = FString::Printf(TEXT("Player '%s' %s: %s"), 
@@ -1237,4 +1264,3 @@ bool UMcpAutomationBridgeSubsystem::HandleManageSessionsAction(
 #undef GetStringFieldSess
 #undef GetNumberFieldSess
 #undef GetBoolFieldSess
-

@@ -14,43 +14,7 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { executeAutomationRequest } from './common-handlers.js';
-
-function getTimeoutMs(): number {
-  const envDefault = Number(process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS ?? '120000');
-  return Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 120000;
-}
-
-/**
- * Normalize path fields to ensure they start with /Game/ and use forward slashes.
- * Returns a copy of the args with normalized paths.
- */
-function normalizePathFields(args: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...args };
-  const pathFields = [
-    'navMeshPath', 'actorPath', 'blueprintPath', 'areaClass', 'areaClassToReplace',
-    'enabledAreaClass', 'disabledAreaClass', 'obstacleAreaClass'
-  ];
-
-  for (const field of pathFields) {
-    const value = result[field];
-    if (typeof value === 'string' && value.length > 0) {
-      let normalized = value.replace(/\\/g, '/');
-      // Replace /Content/ with /Game/ for common user mistake
-      if (normalized.startsWith('/Content/')) {
-        normalized = '/Game/' + normalized.slice('/Content/'.length);
-      }
-      // Allow /Script/ paths for built-in UE classes (e.g., /Script/NavigationSystem.NavArea_Obstacle)
-      // Allow plugin paths like /MyPlugin/Assets to pass through unchanged
-      if (!normalized.startsWith('/')) {
-        normalized = '/Game/' + normalized;
-      }
-      result[field] = normalized;
-    }
-  }
-
-  return result;
-}
+import { executeAutomationRequest, getTimeoutMs, normalizePathFields } from './common-handlers.js';
 
 /**
  * Handles all navigation actions for the manage_navigation tool.
@@ -61,7 +25,13 @@ export async function handleNavigationTools(
   tools: ITools
 ): Promise<Record<string, unknown>> {
   // Normalize path fields before sending to C++
-  const argsRecord = normalizePathFields(args as Record<string, unknown>);
+  const argsRecord = normalizePathFields(
+    args as Record<string, unknown>,
+    [
+      'navMeshPath', 'actorPath', 'blueprintPath', 'areaClass', 'areaClassToReplace',
+      'enabledAreaClass', 'disabledAreaClass', 'obstacleAreaClass'
+    ]
+  );
   const timeoutMs = getTimeoutMs();
 
   // All actions are dispatched to C++ via automation bridge

@@ -1,9 +1,11 @@
 
+/// <reference types="node" />
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { getProjectSetting } from './ini-reader.js';
-import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
 
 describe('getProjectSetting Security', () => {
     let tmpDir: string;

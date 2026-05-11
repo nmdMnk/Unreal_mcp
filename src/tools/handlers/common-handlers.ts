@@ -1,6 +1,12 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, Vector3, Rotator } from '../../types/handler-types.js';
-import { getAdditionalPathPrefixes } from '../../config.js';
+import { getAdditionalPathPrefixes, stringToPositiveInteger } from '../../config.js';
+import { CommandValidator } from '../../utils/command-validator.js';
+
+export function getTimeoutMs(defaultMs: number = 120000): number {
+  const raw = process.env.MCP_REQUEST_TIMEOUT_MS ?? process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS;
+  return stringToPositiveInteger(raw, defaultMs);
+}
 
 /**
  * Validates that args is not null/undefined.
@@ -11,15 +17,17 @@ export function ensureArgsPresent(args: unknown): asserts args is Record<string,
   }
 }
 
+function hasParentDirectorySegment(value: string): boolean {
+  return value.replace(/\\/g, '/').split('/').some(segment => segment === '..');
+}
+
 /**
  * Security validation: Check for path traversal attempts and blocked patterns.
  * Returns an error message if validation fails, undefined if validation passes.
  */
 export function validateSecurityPatterns(args: Record<string, unknown>): string | undefined {
-  // Path traversal patterns to block
-  const traversalPatterns = [
-    '../',           // Unix parent directory
-    '..\\',          // Windows parent directory
+  // Block unsafe absolute filesystem locations.
+  const blockedPathPatterns = [
     '/etc/',         // Unix system directory
     '\\Windows\\',   // Windows system directory
     '\\Program Files', // Windows program files
@@ -29,26 +37,30 @@ export function validateSecurityPatterns(args: Record<string, unknown>): string 
   for (const [key, value] of Object.entries(args)) {
     if (typeof value === 'string') {
       const lowerValue = value.toLowerCase();
-      for (const pattern of traversalPatterns) {
+      if (hasParentDirectorySegment(value)) {
+        return `Security violation: '${key}' contains blocked path pattern. Path traversal is not allowed.`;
+      }
+
+      for (const pattern of blockedPathPatterns) {
         if (value.includes(pattern) || lowerValue.includes(pattern.toLowerCase())) {
           return `Security violation: '${key}' contains blocked path pattern. Path traversal is not allowed.`;
         }
       }
       
       // Additional check for paths starting with / (could be absolute system paths)
-      // Allow /Game/, /Engine/, /Script/, /Temp/ as they are UE paths
+      // Allow /Game/, /Engine/, /Script/, /Temp/, /Niagara/ as they are UE paths
       // Also allow exact matches like /Game, /Engine (without trailing slash)
       // Additional prefixes can be configured via MCP_ADDITIONAL_PATH_PREFIXES
       // for UE plugins with CanContainContent (e.g. /ProjectObject/, /ProjectAnimation/)
       if (key.toLowerCase().includes('path') && value.startsWith('/')) {
         const additional = getAdditionalPathPrefixes();
-        const allowedPrefixes = ['/Game/', '/Engine/', '/Script/', '/Temp/', ...additional];
-        const exactAllowed = ['/Game', '/Engine', '/Script', '/Temp',
+        const allowedPrefixes = ['/Game/', '/Engine/', '/Script/', '/Temp/', '/Niagara/', ...additional];
+        const exactAllowed = ['/Game', '/Engine', '/Script', '/Temp', '/Niagara',
           ...additional.map(p => p.replace(/\/$/, ''))];
         const isAllowed = allowedPrefixes.some(prefix => value.startsWith(prefix)) ||
                           exactAllowed.includes(value);
         if (!isAllowed) {
-          return `Security violation: '${key}' uses unauthorized absolute path. Only /Game/, /Engine/, /Script/, /Temp/ paths are allowed by default. Set MCP_ADDITIONAL_PATH_PREFIXES to whitelist custom plugin content mount points.`;
+          return `Security violation: '${key}' uses unauthorized absolute path. Only /Game/, /Engine/, /Script/, /Temp/, /Niagara/ paths are allowed by default. Set MCP_ADDITIONAL_PATH_PREFIXES to whitelist custom plugin content mount points.`;
         }
       }
     }
@@ -110,6 +122,101 @@ export function requireAssetName(value: unknown, field: string, message?: string
 }
 
 /**
+ * Normalize UE asset path fields to use forward slashes and /Game/ content roots.
+ * Existing absolute UE/plugin roots are preserved.
+ */
+export function normalizePathFields(
+  args: Record<string, unknown>,
+  pathFields: readonly string[]
+): Record<string, unknown> {
+  const result = { ...args };
+  const rootAliases = [
+    'Game',
+    'Engine',
+    'Script',
+    'Temp',
+    'Niagara',
+    ...getAdditionalPathPrefixes().map(prefix => prefix.replace(/^\//, '').replace(/\/$/, ''))
+  ];
+
+  for (const field of pathFields) {
+    const value = result[field];
+    if (typeof value === 'string' && value.length > 0) {
+      let normalized = value.replace(/\\/g, '/');
+      if (normalized.startsWith('/Content/')) {
+        normalized = '/Game/' + normalized.slice('/Content/'.length);
+      } else if (normalized.startsWith('Content/')) {
+        normalized = '/Game/' + normalized.slice('Content/'.length);
+      } else if (rootAliases.some(root => normalized.startsWith(`${root}/`))) {
+        normalized = '/' + normalized;
+      }
+      if (!normalized.startsWith('/')) {
+        normalized = '/Game/' + normalized;
+      }
+      result[field] = normalized;
+    }
+  }
+
+  return result;
+}
+
+export function promoteScalarResultFields(response: Record<string, unknown>): Record<string, unknown> {
+  const result = response.result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return response;
+
+  const promoted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(result)) {
+    if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+      promoted[key] = value;
+    }
+  }
+
+  return { ...response, ...promoted };
+}
+
+function requireConsoleCommandString(value: unknown, context: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${context} must be a string`);
+  }
+  return value;
+}
+
+function validateConsoleCommandPayload(toolName: string, args: Record<string, unknown>): void {
+  const normalizedToolName = toolName.toLowerCase();
+  if (normalizedToolName === 'console_command') {
+    CommandValidator.validate(requireConsoleCommandString(args.command, 'console_command.command'));
+    return;
+  }
+
+  if (normalizedToolName !== 'batch_console_commands') {
+    return;
+  }
+
+  const commands = args.commands;
+  if (!Array.isArray(commands)) {
+    throw new Error('batch_console_commands.commands must be an array');
+  }
+
+  for (const [index, entry] of commands.entries()) {
+    if (typeof entry === 'string') {
+      CommandValidator.validate(entry);
+      continue;
+    }
+
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      const commandRecord = entry as Record<string, unknown>;
+      const command = typeof commandRecord.command === 'string' && commandRecord.command.trim().length > 0
+        ? commandRecord.command
+        : commandRecord.cmd;
+      CommandValidator.validate(requireConsoleCommandString(command, `batch_console_commands.commands[${index}]`));
+      continue;
+    }
+
+    throw new Error(`batch_console_commands.commands[${index}] must be a string or command object`);
+  }
+}
+
+/**
  * Execute a request via the automation bridge.
  */
 export async function executeAutomationRequest(
@@ -121,7 +228,9 @@ export async function executeAutomationRequest(
 ): Promise<unknown> {
   // Security validation: Check for path traversal and other security violations
   validateArgsSecurity(args);
-  
+  const argsRecord = args as Record<string, unknown>;
+  validateConsoleCommandPayload(toolName, argsRecord);
+
   const automationBridge = tools.automationBridge;
   // If the bridge is missing or not a function, we can't proceed with automation requests
   if (!automationBridge || typeof automationBridge.sendAutomationRequest !== 'function') {
@@ -134,7 +243,6 @@ export async function executeAutomationRequest(
 
   // Extract timeoutMs from args if present (for tools that need custom timeouts)
   // This allows tests and handlers to specify longer timeouts for heavy operations
-  const argsRecord = args as Record<string, unknown>;
   const timeoutMs = options.timeoutMs ?? (typeof argsRecord.timeoutMs === 'number' ? argsRecord.timeoutMs : undefined);
   
   // Remove timeoutMs from payload to avoid sending it to UE (it's client-side only)

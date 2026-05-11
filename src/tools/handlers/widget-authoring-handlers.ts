@@ -17,39 +17,7 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { requireNonEmptyString, executeAutomationRequest } from './common-handlers.js';
-
-function getTimeoutMs(): number {
-  const envDefault = Number(process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS ?? '120000');
-  return Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 120000;
-}
-
-/**
- * Normalize path fields to ensure they start with /Game/ and use forward slashes.
- * Returns a copy of the args with normalized paths.
- */
-function normalizePathFields(args: Record<string, unknown>, fields: string[]): Record<string, unknown> {
-  const result = { ...args };
-
-  for (const field of fields) {
-    const value = result[field];
-    if (typeof value === 'string' && value.length > 0) {
-      let normalized = value.replace(/\\/g, '/');
-      // Replace /Content/ with /Game/ for common user mistake
-      if (normalized.startsWith('/Content/')) {
-        normalized = '/Game/' + normalized.slice('/Content/'.length);
-      }
-      // Ensure path starts with /Game/ if it doesn't start with a valid root
-      // Allow plugin paths like /MyPlugin/Assets to pass through unchanged
-      if (!normalized.startsWith('/')) {
-        normalized = '/Game/' + normalized;
-      }
-      result[field] = normalized;
-    }
-  }
-
-  return result;
-}
+import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs, normalizePathFields } from './common-handlers.js';
 
 /**
  * Handles all widget authoring actions for the manage_widget_authoring tool.

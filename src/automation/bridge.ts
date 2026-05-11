@@ -30,6 +30,16 @@ import { automationMessageSchema } from './message-schema.js';
 import { config } from '../config.js';
 
 const require = createRequire(import.meta.url);
+
+type WebSocketWithInternalSocket = WebSocket & {
+    _socket?: { remoteAddress?: string; remotePort?: number };
+    socket?: { remoteAddress?: string; remotePort?: number };
+};
+
+function castAutomationResponse<T>(response: AutomationBridgeResponseMessage): T {
+    return response as T;
+}
+
 const packageInfo: { name?: string; version?: string } = (() => {
     try {
         return require('../../package.json');
@@ -55,6 +65,7 @@ export class AutomationBridge extends EventEmitter {
     private readonly maxConcurrentConnections: number;
     private readonly maxQueuedRequests: number;
     private readonly useTls: boolean;
+    private readonly connectionTimeoutMs: number;
 
     private connectionManager: ConnectionManager;
     private requestTracker: RequestTracker;
@@ -72,6 +83,10 @@ export class AutomationBridge extends EventEmitter {
     private queuedRequestItems: QueuedRequestItem[] = [];
     private connectionPromise?: Promise<void>;
     private connectionLock = false;
+    private pendingConnectionSocket?: WebSocket;
+    private abortedConnectionSockets = new WeakSet<WebSocket>();
+    private connectionAttemptCleanup?: () => void;
+    private connectionAttemptReject?: (reason: Error) => void;
 
     constructor(options: AutomationBridgeOptions = {}) {
         super();
@@ -176,13 +191,18 @@ export class AutomationBridge extends EventEmitter {
                 return value > 0 && value <= 65535 ? value : null;
             }
             if (typeof value === 'string' && value.trim().length > 0) {
-                const parsed = Number.parseInt(value.trim(), 10);
+                const trimmed = value.trim();
+                if (!/^\d+$/.test(trimmed)) return null;
+                const parsed = Number(trimmed);
                 return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : null;
             }
             return null;
         };
 
-        const defaultPort = sanitizePort(options.port ?? process.env.MCP_AUTOMATION_WS_PORT) ?? DEFAULT_AUTOMATION_PORT;
+        const defaultPort = sanitizePort(options.port)
+            ?? sanitizePort(process.env.MCP_AUTOMATION_WS_PORT)
+            ?? sanitizePort(process.env.MCP_AUTOMATION_PORT)
+            ?? DEFAULT_AUTOMATION_PORT;
         const configuredPortValues: Array<number | string> | undefined = options.ports
             ? options.ports
             : process.env.MCP_AUTOMATION_WS_PORTS
@@ -239,7 +259,9 @@ export class AutomationBridge extends EventEmitter {
                 return value >= 0 ? value : fallback;
             }
             if (typeof value === 'string' && value.trim().length > 0) {
-                const parsed = Number.parseInt(value.trim(), 10);
+                const trimmed = value.trim();
+                if (!/^\d+$/.test(trimmed)) return fallback;
+                const parsed = Number(trimmed);
                 return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
             }
             return fallback;
@@ -261,6 +283,10 @@ export class AutomationBridge extends EventEmitter {
         const maxConcurrentConnections = Math.max(1, options.maxConcurrentConnections ?? 10);
         this.maxQueuedRequests = Math.max(0, options.maxQueuedRequests ?? DEFAULT_MAX_QUEUED_REQUESTS);
         this.useTls = parseBoolean(options.useTls ?? process.env.MCP_AUTOMATION_USE_TLS, false);
+        this.connectionTimeoutMs = Math.max(
+            1,
+            parseNonNegativeInt(options.connectionTimeoutMs ?? config.MCP_CONNECTION_TIMEOUT_MS, config.MCP_CONNECTION_TIMEOUT_MS)
+        );
         const maxInboundMessagesPerMinute = parseNonNegativeInt(
             options.maxInboundMessagesPerMinute
                 ?? process.env.MCP_AUTOMATION_MAX_MESSAGES_PER_MINUTE,
@@ -274,10 +300,9 @@ export class AutomationBridge extends EventEmitter {
 
         const rawClientHost = options.clientHost
             ?? process.env.MCP_AUTOMATION_CLIENT_HOST
-            ?? process.env.MCP_AUTOMATION_HOST
-            ?? DEFAULT_AUTOMATION_HOST;
+            ?? this.host;
         this.clientHost = normalizeHost(rawClientHost, 'Automation bridge client host');
-        this.clientPort = options.clientPort ?? sanitizePort(process.env.MCP_AUTOMATION_CLIENT_PORT) ?? DEFAULT_AUTOMATION_PORT;
+        this.clientPort = options.clientPort ?? sanitizePort(process.env.MCP_AUTOMATION_CLIENT_PORT) ?? defaultPort;
         this.maxConcurrentConnections = maxConcurrentConnections;
 
         // Initialize components
@@ -351,6 +376,7 @@ export class AutomationBridge extends EventEmitter {
                 headers,
                 perMessageDeflate: false
             });
+            this.pendingConnectionSocket = socket;
 
             this.handleClientConnection(socket);
         } catch (error) {
@@ -366,7 +392,8 @@ export class AutomationBridge extends EventEmitter {
         socket.on('open', async () => {
             this.log.info('Automation bridge client connected, starting handshake');
             try {
-                const metadata = await this.handshakeHandler.initiateHandshake(socket);
+                const metadata = await this.handshakeHandler.initiateHandshake(socket, this.connectionTimeoutMs);
+                this.clearPendingConnection(socket);
 
                 this.lastHandshakeAt = new Date();
                 this.lastHandshakeMetadata = metadata;
@@ -375,7 +402,7 @@ export class AutomationBridge extends EventEmitter {
 
                 // Extract remote address/port from underlying TCP socket
                 // Note: WebSocket types don't expose _socket, but it exists at runtime
-                const socketWithInternal = socket as unknown as { _socket?: { remoteAddress?: string; remotePort?: number }; socket?: { remoteAddress?: string; remotePort?: number } };
+                const socketWithInternal = socket as WebSocketWithInternalSocket;
                 const underlying = socketWithInternal._socket || socketWithInternal.socket;
                 const remoteAddr = underlying?.remoteAddress ?? undefined;
                 const remotePort = underlying?.remotePort ?? undefined;
@@ -465,7 +492,7 @@ export class AutomationBridge extends EventEmitter {
                         
                         const validation = automationMessageSchema.safeParse(parsed);
                         if (!validation.success) {
-                            this.log.warn('Dropped invalid automation message', validation.error.format());
+                            this.log.warn('Dropped invalid automation message', validation.error.issues);
                             return;
                         }
 
@@ -478,6 +505,7 @@ export class AutomationBridge extends EventEmitter {
                 });
 
             } catch (error) {
+                this.clearPendingConnection(socket);
                 const err = error instanceof Error ? error : new Error(String(error));
                 this.lastHandshakeFailure = { reason: err.message, at: new Date() };
                 this.emitAutomation('handshakeFailed', { reason: err.message, port: this.clientPort });
@@ -485,6 +513,11 @@ export class AutomationBridge extends EventEmitter {
         });
 
         socket.on('error', (error) => {
+            this.clearPendingConnection(socket);
+            if (this.abortedConnectionSockets.has(socket)) {
+                this.log.debug('Ignoring error from aborted automation bridge socket', error);
+                return;
+            }
             this.log.error('Automation bridge client socket error', error);
             const errObj = error instanceof Error ? error : new Error(String(error));
             this.lastError = { message: errObj.message, at: new Date() };
@@ -493,6 +526,8 @@ export class AutomationBridge extends EventEmitter {
         });
 
         socket.on('close', (code, reasonBuffer) => {
+            this.clearPendingConnection(socket);
+            this.abortedConnectionSockets.delete(socket);
             const reason = reasonBuffer.toString('utf8');
             const socketInfo = this.connectionManager.removeSocket(socket);
 
@@ -530,6 +565,40 @@ export class AutomationBridge extends EventEmitter {
         return `${scheme}://${this.formatHostForUrl(this.clientHost)}:${this.clientPort}`;
     }
 
+    private clearPendingConnection(socket: WebSocket): void {
+        if (this.pendingConnectionSocket === socket) {
+            this.pendingConnectionSocket = undefined;
+        }
+    }
+
+    private abortPendingConnection(reason: Error = new Error('Automation bridge connection attempt aborted')): void {
+        const socket = this.pendingConnectionSocket;
+        this.pendingConnectionSocket = undefined;
+        const rejectConnectionAttempt = this.connectionAttemptReject;
+
+        const cleanup = this.connectionAttemptCleanup;
+        if (cleanup) {
+            cleanup();
+        } else {
+            this.connectionLock = false;
+            this.connectionPromise = undefined;
+            this.connectionAttemptReject = undefined;
+        }
+
+        if (rejectConnectionAttempt) {
+            rejectConnectionAttempt(reason);
+        }
+
+        if (socket && socket.readyState !== WebSocket.CLOSED && socket.readyState !== WebSocket.CLOSING) {
+            this.abortedConnectionSockets.add(socket);
+            try {
+                socket.terminate();
+            } catch (error) {
+                this.log.debug('Failed to terminate timed-out automation bridge socket', error);
+            }
+        }
+    }
+
     stop(): void {
         if (this.isConnected()) {
             this.broadcast({
@@ -538,6 +607,7 @@ export class AutomationBridge extends EventEmitter {
                 reason: 'Server shutting down'
             });
         }
+        this.abortPendingConnection(new Error('Automation bridge server stopped'));
         this.connectionManager.closeAll(1001, 'Server shutdown');
         this.lastHandshakeAck = undefined;
         this.requestTracker.rejectAll(new Error('Automation bridge server stopped'));
@@ -563,7 +633,7 @@ export class AutomationBridge extends EventEmitter {
 
         return {
             enabled: this.enabled,
-            host: this.host,
+            host: this.clientHost,
             port: this.port,
             configuredPorts: [...this.ports],
             listeningPorts: [], // We are client-only now
@@ -635,7 +705,14 @@ export class AutomationBridge extends EventEmitter {
                             // Clear lock and promise so next attempt can try again
                             this.connectionLock = false;
                             this.connectionPromise = undefined;
+                            if (this.connectionAttemptCleanup === cleanup) {
+                                this.connectionAttemptCleanup = undefined;
+                                this.connectionAttemptReject = undefined;
+                            }
                         };
+
+                        this.connectionAttemptCleanup = cleanup;
+                        this.connectionAttemptReject = reject;
 
                         this.once('connected', onConnect);
                         this.once('error', onError);
@@ -651,7 +728,7 @@ export class AutomationBridge extends EventEmitter {
 
                 try {
                     // Wait for connection with a short timeout for the connection itself
-                    const connectTimeout = 5000;
+                    const connectTimeout = this.connectionTimeoutMs;
                     let timeoutId: ReturnType<typeof setTimeout> | undefined;
                     const timeoutPromise = new Promise<never>((_, reject) => {
                         timeoutId = setTimeout(() => reject(new Error('Lazy connection timeout')), connectTimeout);
@@ -663,11 +740,12 @@ export class AutomationBridge extends EventEmitter {
                         if (timeoutId) clearTimeout(timeoutId);
                     }
                 } catch (err: unknown) {
-                    this.log.error('Lazy connection failed', err);
-                    // We don't throw here immediately, we let the isConnected check fail below 
-                    // or throw a specific error.
-                    // Actually, if connection failed, we should probably fail the request.
                     const errObj = err as Record<string, unknown> | null;
+                    if (String(errObj?.message ?? err) === 'Lazy connection timeout') {
+                        this.abortPendingConnection(new Error('Lazy connection timeout'));
+                    }
+                    this.log.error('Lazy connection failed', err);
+                    // Fail with connection context instead of letting the generic isConnected check handle it.
                     throw new Error(`Failed to establish connection to Unreal Engine: ${String(errObj?.message ?? err)}`);
                 }
             } else {
@@ -711,7 +789,7 @@ export class AutomationBridge extends EventEmitter {
         if (coalesceKey) {
             const existing = this.requestTracker.getCoalescedRequest(coalesceKey);
             if (existing) {
-                return existing as unknown as T;
+                return existing.then(castAutomationResponse<T>);
             }
         }
 
@@ -728,7 +806,7 @@ export class AutomationBridge extends EventEmitter {
             payload
         };
 
-        const resultPromise = promise as unknown as Promise<T>;
+        const resultPromise = promise.then(castAutomationResponse<T>);
 
         // Ensure we process the queue when this request finishes
         resultPromise.finally(() => {

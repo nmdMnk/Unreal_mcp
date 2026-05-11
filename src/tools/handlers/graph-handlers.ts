@@ -1,7 +1,7 @@
 import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { GraphArgs, HandlerArgs, AutomationResponse } from '../../types/handler-types.js';
-import { executeAutomationRequest } from './common-handlers.js';
+import { executeAutomationRequest, promoteScalarResultFields } from './common-handlers.js';
 import { TOOL_ACTIONS } from '../../utils/action-constants.js';
 
 // AutomationResponse imported from types/handler-types.js
@@ -81,7 +81,6 @@ export async function handleGraphTools(toolName: string, action: string, args: G
     // Dispatch based on tool name
     switch (toolName) {
         case TOOL_ACTIONS.MANAGE_BLUEPRINT:
-        case 'manage_blueprint_graph': // Backward compat - callers still pass this
             return handleBlueprintGraph(action, args, tools);
         case 'manage_niagara_graph':
             return handleNiagaraGraph(action, args, tools);
@@ -96,6 +95,7 @@ export async function handleGraphTools(toolName: string, action: string, args: G
 
 async function handleBlueprintGraph(action: string, args: GraphArgs, tools: ITools): Promise<Record<string, unknown>> {
     const processedArgs: ProcessedGraphArgs = { ...args, subAction: action };
+    const processedRecord = processedArgs as Record<string, unknown>;
 
     // Default graphName
     if (!processedArgs.graphName) {
@@ -131,8 +131,31 @@ async function handleBlueprintGraph(action: string, args: GraphArgs, tools: IToo
         if (!processedArgs.targetClass) processedArgs.targetClass = processedArgs.memberClass || processedArgs.componentClass;
     }
 
-    // Fix Issue 6: Support connect_pins parameter mapping
-    // Input: nodeId, pinName, linkedTo (TargetNode.Pin)
+    if (processedRecord.nodeGuid !== undefined && !processedArgs.nodeId) {
+        processedArgs.nodeId = processedRecord.nodeGuid as string;
+    }
+    if (processedRecord.sourceNode !== undefined && !processedArgs.fromNodeId) {
+        processedArgs.fromNodeId = processedRecord.sourceNode as string;
+    }
+    if (processedRecord.targetNode !== undefined && !processedArgs.toNodeId) {
+        processedArgs.toNodeId = processedRecord.targetNode as string;
+    }
+    if (processedRecord.sourcePin !== undefined && !processedArgs.fromPinName) {
+        processedArgs.fromPinName = processedRecord.sourcePin as string;
+    }
+    if (processedRecord.targetPin !== undefined && !processedArgs.toPinName) {
+        processedArgs.toPinName = processedRecord.targetPin as string;
+    }
+    if (processedRecord.defaultValue !== undefined && processedRecord.value === undefined) {
+        processedRecord.value = processedRecord.defaultValue;
+    }
+    if (processedRecord.x === undefined && typeof processedRecord.posX === 'number') {
+        processedRecord.x = processedRecord.posX;
+    }
+    if (processedRecord.y === undefined && typeof processedRecord.posY === 'number') {
+        processedRecord.y = processedRecord.posY;
+    }
+
     if (action === 'connect_pins') {
         // Map source
         if (!processedArgs.fromNodeId && processedArgs.nodeId) {
@@ -166,8 +189,8 @@ async function handleBlueprintGraph(action: string, args: GraphArgs, tools: IToo
         }
     }
 
-    const res = await executeAutomationRequest(tools, 'manage_blueprint_graph', processedArgs as HandlerArgs, 'Automation bridge not available') as AutomationResponse;
-    return cleanObject({ ...res, ...(res.result || {}) }) as Record<string, unknown>;
+    const res = await executeAutomationRequest(tools, TOOL_ACTIONS.MANAGE_BLUEPRINT, processedArgs as HandlerArgs, 'Automation bridge not available') as AutomationResponse;
+    return cleanObject(promoteScalarResultFields(res)) as Record<string, unknown>;
 }
 
 async function handleNiagaraGraph(action: string, args: GraphArgs, tools: ITools): Promise<Record<string, unknown>> {
@@ -183,7 +206,7 @@ async function handleNiagaraGraph(action: string, args: GraphArgs, tools: ITools
         payload.assetPath = args.system as string;
     }
     const res = await executeAutomationRequest(tools, 'manage_niagara_graph', payload as HandlerArgs, 'Automation bridge not available') as AutomationResponse;
-    return cleanObject({ ...res, ...(res.result || {}) }) as Record<string, unknown>;
+    return cleanObject(promoteScalarResultFields(res)) as Record<string, unknown>;
 }
 
 async function handleMaterialGraph(action: string, args: GraphArgs, tools: ITools): Promise<Record<string, unknown>> {
@@ -201,15 +224,16 @@ async function handleMaterialGraph(action: string, args: GraphArgs, tools: ITool
             }
         }
         
-        if (payload.toPin && !payload.inputName) {
-            if (typeof payload.toPin === 'string') {
-                payload.inputName = payload.toPin.replace(/\s+/g, '');
+        const targetInput = payload.toPin ?? payload.targetPin;
+        if (targetInput && !payload.inputName) {
+            if (typeof targetInput === 'string') {
+                payload.inputName = targetInput.replace(/\s+/g, '');
             }
         }
     }
 
     const res = await executeAutomationRequest(tools, 'manage_material_graph', payload as HandlerArgs, 'Automation bridge not available') as AutomationResponse;
-    return cleanObject({ ...res, ...(res.result || {}) }) as Record<string, unknown>;
+    return cleanObject(promoteScalarResultFields(res)) as Record<string, unknown>;
 }
 
 async function handleBehaviorTree(action: string, args: GraphArgs, tools: ITools): Promise<Record<string, unknown>> {
@@ -226,5 +250,5 @@ async function handleBehaviorTree(action: string, args: GraphArgs, tools: ITools
     }
     
     const res = await executeAutomationRequest(tools, 'manage_behavior_tree', processedArgs as HandlerArgs, 'Automation bridge not available') as AutomationResponse;
-    return cleanObject({ ...res, ...(res.result || {}) }) as Record<string, unknown>;
+    return cleanObject(promoteScalarResultFields(res)) as Record<string, unknown>;
 }

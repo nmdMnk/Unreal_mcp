@@ -18,7 +18,7 @@
 //   - unload_streaming_level       : Unload streaming level
 //
 // Section 3: Level Operations
-//   - get_current_level_name       : Get current level path
+//   - get_current_level            : Get current level path and editor world identity
 //   - get_all_levels               : List all levels in world
 //   - set_current_level            : Set active editing level
 //
@@ -58,7 +58,9 @@
 #include "LevelUtils.h"
 #include "EditorBuildUtils.h"
 #include "EditorAssetLibrary.h"
-#include "TickTaskManagerInterface.h"  // Required for proper tick system cleanup
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "HAL/FileManager.h"
+#include "Misc/PackageName.h"
 #include "WorldPartition/WorldPartition.h"  // Required for World Partition detection
 
 // ScopedTransaction header location varies by UE version
@@ -85,6 +87,17 @@
 #define MCP_HAS_LEVELEDITOR_SUBSYSTEM 0
 #endif
 
+namespace {
+bool IsSafeLevelConsoleToken(const FString& Value) {
+  const FString Trimmed = Value.TrimStartAndEnd();
+  return !Trimmed.IsEmpty() && !Trimmed.Contains(TEXT("\n")) &&
+         !Trimmed.Contains(TEXT("\r")) && !Trimmed.Contains(TEXT("&&")) &&
+         !Trimmed.Contains(TEXT("||")) && !Trimmed.Contains(TEXT(";")) &&
+         !Trimmed.Contains(TEXT("|")) && !Trimmed.Contains(TEXT("`")) &&
+         !Trimmed.Contains(TEXT(" ")) && !Trimmed.Contains(TEXT("\t"));
+}
+} // namespace
+
 /**
  * Safely creates a new map with proper tick system cleanup to prevent
  * TickTaskManager assertion crashes in UE 5.7+.
@@ -96,8 +109,8 @@
  * the old world remain registered when the new world is created.
  *
  * Root Cause Analysis:
- * The FTickTaskManager maintains a LevelList that's filled during StartFrame() 
- * and cleared during EndFrame(). When NewMap() destroys the old world:
+ * The FTickTaskManager tracks visible levels during the engine frame. When
+ * NewMap() destroys the old world:
  * 1. ULevel destructor calls FreeTickTaskLevel()
  * 2. FreeTickTaskLevel() asserts: check(!LevelList.Contains(TickTaskLevel))
  * 3. If a tick frame started but didn't complete, LevelList still has entries
@@ -105,7 +118,8 @@
  * Fix Strategy:
  * 1. Set all levels to invisible (prevents FillLevelList from adding them)
  * 2. Disable all actor/component ticking
- * 3. Force a complete tick frame cycle to clear LevelList
+ * 3. Drain end-of-frame updates, render work, streaming, and GC without
+ *    manually advancing the engine tick lifecycle
  * 4. Properly cleanup before world destruction
   *
   * @param bForceNewMap If true, create a completely new empty map (default: true)
@@ -255,25 +269,17 @@ static UWorld* McpSafeNewMap(bool bForceNewMap = true, UMcpAutomationBridgeSubsy
             Subsystem->SendProgressUpdate(RequestId, 55.0f, TEXT("Garbage collection complete"));
         }
         
-        // STEP 9: CRITICAL FIX - Call EndFrame() to clear FTickTaskManager's LevelList
-        // The FTickTaskManager maintains a LevelList that's populated by FillLevelList() during
-        // StartFrame() and cleared by LevelList.Reset() in EndFrame(). When NewMap() destroys
-        // the old world, FreeTickTaskLevel() asserts that the TickTaskLevel is NOT in LevelList.
-        // By calling EndFrame(), we ensure LevelList is cleared before world destruction.
-        // 
-        // This is safe because:
-        // 1. We've already unregistered all tick functions (Step 2)
-        // 2. We've set bIsVisible=false on all levels (Step 1)
-        // 3. EndFrame() doesn't have assertions that would fail if called outside a tick frame
-        // 4. The TickTaskSequencer.EndFrame() just clears batched tick data
-        // 5. The LevelList.Reset() is the critical operation we need
-        FTickTaskManagerInterface::Get().EndFrame();
-        UE_LOG(LogTemp, Log, TEXT("McpSafeNewMap: Called EndFrame() to clear LevelList"));
-        
-        // Progress update: LevelList cleared
+        // STEP 9: Do not call FTickTaskManagerInterface::EndFrame() from an
+        // automation handler. EndFrame belongs to the engine frame lifecycle;
+        // invoking it here can corrupt active tick state and later crash during
+        // level load with TickTaskManager assertions. The explicit tick
+        // unregister, end-of-frame update, GC, and render flushes above are the
+        // safe cleanup boundary for this handler.
+
+        // Progress update: tick cleanup complete
         if (Subsystem && !RequestId.IsEmpty())
         {
-            Subsystem->SendProgressUpdate(RequestId, 65.0f, TEXT("Cleared tick task level list"));
+            Subsystem->SendProgressUpdate(RequestId, 65.0f, TEXT("Completed tick cleanup"));
         }
         
         // STEP 10: Give the engine a moment to process cleanup
@@ -299,21 +305,25 @@ static UWorld* McpSafeNewMap(bool bForceNewMap = true, UMcpAutomationBridgeSubsy
     
     if (NewWorld)
     {
-        // STEP 12: CRITICAL - Disable ticking on the new world's actors immediately
-        // The NewMap creates actors (like WorldSettings) that might trigger tick assertions
-        // if not properly initialized before the next tick frame
+        // STEP 12: CRITICAL - Unregister ticking on the new world's actors immediately.
+        // SetActorTickEnabled(false) only disables execution; the tick function can
+        // remain registered in TickTaskManager. Unregistering removes these newly
+        // created editor-world ticks from the manager before the next frame.
         if (NewWorld->PersistentLevel)
         {
             for (AActor* Actor : NewWorld->PersistentLevel->Actors)
             {
                 if (Actor)
                 {
-                    Actor->SetActorTickEnabled(false);
+                    if (Actor->PrimaryActorTick.IsTickFunctionRegistered())
+                    {
+                        Actor->PrimaryActorTick.UnRegisterTickFunction();
+                    }
                     for (UActorComponent* Component : Actor->GetComponents())
                     {
-                        if (Component)
+                        if (Component && Component->PrimaryComponentTick.IsTickFunctionRegistered())
                         {
-                            Component->SetComponentTickEnabled(false);
+                            Component->PrimaryComponentTick.UnRegisterTickFunction();
                         }
                     }
                 }
@@ -362,8 +372,8 @@ bool UMcpAutomationBridgeSubsystem::HandleLevelAction(
       (Lower == TEXT("manage_level") || Lower == TEXT("save_current_level") ||
        Lower == TEXT("create_new_level") || Lower == TEXT("stream_level") ||
        Lower == TEXT("spawn_light") || Lower == TEXT("build_lighting") ||
-       Lower == TEXT("spawn_light") || Lower == TEXT("build_lighting") ||
        Lower == TEXT("bake_lightmap") || Lower == TEXT("list_levels") ||
+       Lower == TEXT("get_current_level") ||
        Lower == TEXT("export_level") || Lower == TEXT("import_level") ||
        Lower == TEXT("add_sublevel"));
   if (!bIsLevelAction)
@@ -547,6 +557,10 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       EffectiveAction = TEXT("spawn_light");
     } else if (LowerSub == TEXT("list") || LowerSub == TEXT("list_levels")) {
       EffectiveAction = TEXT("list_levels");
+    } else if (LowerSub == TEXT("get_current_level")) {
+      // Keep the documented manage_level action on the native route instead of
+      // falling through to UNKNOWN_ACTION or relying on a TS-side list fallback.
+      EffectiveAction = TEXT("get_current_level");
     } else if (LowerSub == TEXT("export_level")) {
       EffectiveAction = TEXT("export_level");
     } else if (LowerSub == TEXT("import_level")) {
@@ -622,6 +636,64 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     
     return Levels;
   };
+
+  if (EffectiveAction == TEXT("get_current_level")) {
+    UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (!EditorWorld) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("No editor world available"), nullptr, TEXT("NO_WORLD"));
+      return true;
+    }
+
+    ULevel* CurrentLevel = EditorWorld->GetCurrentLevel();
+    if (!CurrentLevel) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("No current level available"), nullptr, TEXT("NO_LEVEL"));
+      return true;
+    }
+
+    UPackage* WorldPackage = EditorWorld->GetOutermost();
+    UPackage* LevelPackage = CurrentLevel->GetOutermost();
+
+    auto WorldTypeToString = [](EWorldType::Type WorldType) -> FString {
+      switch (WorldType) {
+      case EWorldType::Game:
+        return TEXT("Game");
+      case EWorldType::Editor:
+        return TEXT("Editor");
+      case EWorldType::PIE:
+        return TEXT("PIE");
+      case EWorldType::EditorPreview:
+        return TEXT("EditorPreview");
+      case EWorldType::GamePreview:
+        return TEXT("GamePreview");
+      case EWorldType::GameRPC:
+        return TEXT("GameRPC");
+      case EWorldType::Inactive:
+        return TEXT("Inactive");
+      case EWorldType::None:
+      default:
+        return TEXT("None");
+      }
+    };
+
+    TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+    Result->SetStringField(TEXT("mapName"), EditorWorld->GetMapName());
+    Result->SetStringField(TEXT("mapPath"), WorldPackage ? WorldPackage->GetName() : TEXT(""));
+    Result->SetStringField(TEXT("levelName"), CurrentLevel->GetName());
+    Result->SetStringField(TEXT("levelPath"), LevelPackage ? LevelPackage->GetName() : TEXT(""));
+    // Include editor-world identity separately from the map package so agents
+    // can distinguish persistent map state from transient PIE/editor worlds.
+    Result->SetStringField(TEXT("editorWorldName"), EditorWorld->GetName());
+    Result->SetStringField(TEXT("editorWorldPath"), WorldPackage ? WorldPackage->GetPathName() : TEXT(""));
+    Result->SetStringField(TEXT("worldType"), WorldTypeToString(EditorWorld->WorldType));
+    Result->SetNumberField(TEXT("actorCount"), CurrentLevel->Actors.Num());
+    Result->SetBoolField(TEXT("isPersistentLevel"), CurrentLevel == EditorWorld->PersistentLevel);
+
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Current level retrieved"), Result);
+    return true;
+  }
 
   if (EffectiveAction == TEXT("save_current_level")) {
     if (!GEditor) {
@@ -725,6 +797,14 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       SendAutomationResponse(RequestingSocket, RequestId, false,
                              TEXT("savePath required for save_level_as"),
                              nullptr, TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    SavePath = SanitizeProjectRelativePath(SavePath);
+    if (SavePath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("Invalid savePath: contains path traversal (..) or invalid characters"),
+                             nullptr, TEXT("SECURITY_VIOLATION"));
       return true;
     }
 
@@ -920,6 +1000,20 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
           FString());
       return true;
     }
+
+    // UE 5.7: GEditor->NewMap can assert while destroying the current editor
+    // world if TickTaskManager still tracks a level from a previous automation
+    // map transition. The manage_level_structure create_level path creates and
+    // saves an inactive UWorld package without switching the editor world, so it
+    // avoids EditorDestroyWorld/NewMap entirely while still producing a real
+    // level asset that manage_level load/stream/export actions can use.
+    TSharedPtr<FJsonObject> CreatePayload = MakeShared<FJsonObject>();
+    CreatePayload->SetStringField(TEXT("subAction"), TEXT("create_level"));
+    CreatePayload->SetStringField(TEXT("levelName"), FPaths::GetBaseFilename(SavePath));
+    CreatePayload->SetStringField(TEXT("levelPath"), FPaths::GetPath(SavePath));
+    CreatePayload->SetBoolField(TEXT("bCreateWorldPartition"), bUseWorldPartition);
+    CreatePayload->SetBoolField(TEXT("save"), true);
+    return HandleManageLevelStructureAction(RequestId, TEXT("manage_level_structure"), CreatePayload, RequestingSocket);
 
     // Create new map
 #if defined(MCP_HAS_LEVELEDITOR_SUBSYSTEM) && __has_include("FileHelpers.h")
@@ -1220,6 +1314,13 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
                              Result);
     } else {
       // Streaming level not found - try console command as fallback
+      if (!IsSafeLevelConsoleToken(NormalizedLevelName)) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid streaming level name"), Result,
+                               TEXT("INVALID_ARGUMENT"));
+        return true;
+      }
+
       const FString Cmd =
           FString::Printf(TEXT("StreamLevel %s %s %s"), *NormalizedLevelName,
                           bLoad ? TEXT("Load") : TEXT("Unload"),
@@ -1494,6 +1595,15 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
                                nullptr, TEXT("INVALID_ARGUMENT"));
         return true;
       }
+
+      SourcePath = SanitizeProjectRelativePath(SourcePath);
+      DestinationPath = SanitizeProjectRelativePath(DestinationPath);
+      if (SourcePath.IsEmpty() || DestinationPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid sourcePath or destinationPath"),
+                               nullptr, TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
       
       // CRITICAL FIX: Check if destination already exists BEFORE trying to duplicate
       // This prevents "An asset already exists at this location" errors and makes
@@ -1570,6 +1680,14 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       SendAutomationError(RequestingSocket, RequestId,
                           TEXT("subLevelPath required"),
                           TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    SubLevelPath = SanitizeProjectRelativePath(SubLevelPath);
+    if (SubLevelPath.IsEmpty()) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("Invalid subLevelPath"),
+                          TEXT("SECURITY_VIOLATION"));
       return true;
     }
 
@@ -1739,18 +1857,189 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     }
     LevelPath = SanitizedPath;
 
-    // Use UEditorAssetLibrary to delete the level asset
-    bool bDeleted = UEditorAssetLibrary::DeleteAsset(LevelPath);
+    FString LongPackageName = LevelPath;
+    int32 ObjectPathDelimiter = INDEX_NONE;
+    if (LongPackageName.FindChar(TEXT('.'), ObjectPathDelimiter)) {
+      LongPackageName = LongPackageName.Left(ObjectPathDelimiter);
+    }
+
+    const FString AssetName = FPaths::GetBaseFilename(LongPackageName);
+    const FString ObjectPath = AssetName.IsEmpty()
+                                   ? LongPackageName
+                                   : FString::Printf(TEXT("%s.%s"), *LongPackageName, *AssetName);
+    const FString PackageDir = FPaths::GetPath(LongPackageName);
+
+    FString MapFilename;
+    FString AbsoluteMapFilename;
+    const bool bHasMapFilename = FPackageName::TryConvertLongPackageNameToFilename(
+        LongPackageName, MapFilename, FPackageName::GetMapPackageExtension());
+    if (bHasMapFilename) {
+      AbsoluteMapFilename = FPaths::ConvertRelativePathToFull(MapFilename);
+      FPaths::NormalizeFilename(AbsoluteMapFilename);
+    }
+
+    IFileManager& FileManager = IFileManager::Get();
+    IAssetRegistry& AssetRegistry =
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+
+    auto RescanLevelPackage = [&]() {
+      if (bHasMapFilename && FileManager.FileExists(*AbsoluteMapFilename)) {
+        TArray<FString> FilesToScan;
+        FilesToScan.Add(AbsoluteMapFilename);
+        AssetRegistry.ScanFilesSynchronous(FilesToScan, true);
+      }
+      if (!PackageDir.IsEmpty()) {
+        TArray<FString> PathsToScan;
+        PathsToScan.Add(PackageDir);
+        AssetRegistry.ScanPathsSynchronous(PathsToScan, true);
+      }
+    };
+
+    RescanLevelPackage();
+
+    int32 RemovedStreamingRefs = 0;
+    bool bCurrentWorldMatchesTarget = false;
+    if (GEditor) {
+      UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
+      if (EditorWorld) {
+        bCurrentWorldMatchesTarget = EditorWorld->GetOutermost() &&
+                                     EditorWorld->GetOutermost()->GetName() == LongPackageName;
+        if (!bCurrentWorldMatchesTarget) {
+          TArray<ULevelStreaming*> StreamingLevels = EditorWorld->GetStreamingLevels();
+          for (ULevelStreaming* StreamingLevel : StreamingLevels) {
+            if (!StreamingLevel) {
+              continue;
+            }
+
+            const FString StreamingPackage = StreamingLevel->GetWorldAssetPackageFName().ToString();
+            if (StreamingPackage == LongPackageName || StreamingPackage == ObjectPath) {
+              StreamingLevel->SetShouldBeLoaded(false);
+              StreamingLevel->SetShouldBeVisible(false);
+              if (ULevel* LoadedStreamingLevel = StreamingLevel->GetLoadedLevel()) {
+                if (UEditorLevelUtils::RemoveLevelFromWorld(LoadedStreamingLevel)) {
+                  ++RemovedStreamingRefs;
+                }
+              } else {
+                EditorWorld->RemoveStreamingLevel(StreamingLevel);
+                ++RemovedStreamingRefs;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (RemovedStreamingRefs > 0) {
+      FlushRenderingCommands();
+      if (GEditor) {
+        GEditor->ForceGarbageCollection(true);
+      }
+      CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+      FlushRenderingCommands();
+    }
+
+    UPackage* LoadedPackage = FindPackage(nullptr, *LongPackageName);
+    const bool bWasLoaded = LoadedPackage != nullptr;
+    bool bPackageUnloadAttempted = false;
+    bool bPackageUnloadSucceeded = false;
+    if (LoadedPackage && !bCurrentWorldMatchesTarget) {
+      FlushRenderingCommands();
+      if (GEditor) {
+        GEditor->ForceGarbageCollection(true);
+      }
+      CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+      FlushRenderingCommands();
+      LoadedPackage = FindPackage(nullptr, *LongPackageName);
+
+      if (LoadedPackage) {
+#if MCP_HAS_PACKAGE_TOOLS
+        TArray<UPackage*> PackagesToUnload;
+        PackagesToUnload.Add(LoadedPackage);
+        TWeakObjectPtr<UPackage> WeakLoadedPackage = LoadedPackage;
+        FText UnloadError;
+        bPackageUnloadAttempted = true;
+        bPackageUnloadSucceeded = UPackageTools::UnloadPackages(PackagesToUnload, UnloadError, true);
+        if (!UnloadError.IsEmpty()) {
+          UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+                 TEXT("delete_level: UnloadPackages reported for %s: %s"),
+                 *LongPackageName, *UnloadError.ToString());
+        }
+        FlushRenderingCommands();
+        if (GEditor) {
+          GEditor->ForceGarbageCollection(true);
+        }
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        FlushRenderingCommands();
+        LoadedPackage = FindPackage(nullptr, *LongPackageName);
+        bPackageUnloadSucceeded = bPackageUnloadSucceeded && !WeakLoadedPackage.IsValid() && LoadedPackage == nullptr;
+#else
+        UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+               TEXT("delete_level: PackageTools unavailable; cannot unload loaded map package %s"),
+               *LongPackageName);
+#endif
+      }
+    }
+    const bool bPackageStillLoaded = LoadedPackage != nullptr;
+
+    const bool bMapFileExisted = bHasMapFilename && FileManager.FileExists(*AbsoluteMapFilename);
+    const bool bPackageExisted = FPackageName::DoesPackageExist(LongPackageName);
+    bool bDeletedViaFileFallback = false;
+    bool bDeletedBuiltData = false;
+
+    if (!bCurrentWorldMatchesTarget && !bPackageStillLoaded && bMapFileExisted) {
+      UE_LOG(LogMcpAutomationBridgeSubsystem, Log,
+             TEXT("delete_level: Deleting map file directly after registry/editor cleanup: %s"),
+             *AbsoluteMapFilename);
+      bDeletedViaFileFallback = FileManager.Delete(*AbsoluteMapFilename, false, true, true);
+
+      const FString BuiltDataPackagePath = LongPackageName + TEXT("_BuiltData");
+      FString BuiltDataFilename;
+      if (FPackageName::TryConvertLongPackageNameToFilename(
+              BuiltDataPackagePath, BuiltDataFilename, FPackageName::GetAssetPackageExtension())) {
+        FString AbsoluteBuiltDataFilename = FPaths::ConvertRelativePathToFull(BuiltDataFilename);
+        FPaths::NormalizeFilename(AbsoluteBuiltDataFilename);
+        if (FileManager.FileExists(*AbsoluteBuiltDataFilename)) {
+          bDeletedBuiltData = FileManager.Delete(*AbsoluteBuiltDataFilename, false, true, true);
+        }
+      }
+    }
+
+    RescanLevelPackage();
+
+    const bool bMapFileStillExists = bHasMapFilename && FileManager.FileExists(*AbsoluteMapFilename);
+    const bool bPackageStillExists = FPackageName::DoesPackageExist(LongPackageName);
+    const bool bDeleted = (bDeletedViaFileFallback && !bMapFileStillExists) ||
+                          (!bMapFileExisted && !bPackageExisted && !bPackageStillLoaded);
+
+    TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+    Result->SetStringField(TEXT("levelPath"), LongPackageName);
+    Result->SetStringField(TEXT("objectPath"), ObjectPath);
+    Result->SetStringField(TEXT("mapFilename"), AbsoluteMapFilename);
+    Result->SetBoolField(TEXT("deleted"), bDeleted);
+    Result->SetBoolField(TEXT("deletedViaFileFallback"), bDeletedViaFileFallback);
+    Result->SetBoolField(TEXT("deletedBuiltData"), bDeletedBuiltData);
+    Result->SetBoolField(TEXT("editorDeletionSkippedForMap"), true);
+    Result->SetBoolField(TEXT("deleteAssetFailed"), false);
+    Result->SetBoolField(TEXT("wasLoaded"), bWasLoaded);
+    Result->SetBoolField(TEXT("packageUnloadAttempted"), bPackageUnloadAttempted);
+    Result->SetBoolField(TEXT("packageUnloadSucceeded"), bPackageUnloadSucceeded);
+    Result->SetBoolField(TEXT("packageStillLoaded"), bPackageStillLoaded);
+    Result->SetBoolField(TEXT("currentWorldMatchesTarget"), bCurrentWorldMatchesTarget);
+    Result->SetNumberField(TEXT("removedStreamingRefs"), RemovedStreamingRefs);
+    Result->SetBoolField(TEXT("fileExistsAfter"), bMapFileStillExists);
+    Result->SetBoolField(TEXT("packageExistsAfter"), bPackageStillExists);
+
     if (bDeleted) {
-      TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
-      Result->SetStringField(TEXT("levelPath"), LevelPath);
-      Result->SetBoolField(TEXT("deleted"), true);
       SendAutomationResponse(RequestingSocket, RequestId, true,
-                             FString::Printf(TEXT("Level deleted: %s"), *LevelPath), Result);
+                             FString::Printf(TEXT("Level file deleted: %s"), *LongPackageName), Result);
+    } else if (bCurrentWorldMatchesTarget || bPackageStillLoaded) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             FString::Printf(TEXT("Level is still loaded and cannot be deleted safely: %s"), *LongPackageName),
+                             Result, TEXT("LEVEL_LOADED"));
     } else {
       SendAutomationResponse(RequestingSocket, RequestId, false,
-                             FString::Printf(TEXT("Failed to delete level: %s"), *LevelPath),
-                             nullptr, TEXT("DELETE_FAILED"));
+                             FString::Printf(TEXT("Failed to delete level: %s"), *LongPackageName),
+                             Result, TEXT("DELETE_FAILED"));
     }
     return true;
   }
@@ -1768,6 +2057,12 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     if (SourcePath.IsEmpty()) {
       SendAutomationResponse(RequestingSocket, RequestId, false,
                              TEXT("levelPath or sourcePath required for rename_level"),
+                             nullptr, TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+    if (DestinationPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("destinationPath required for rename_level"),
                              nullptr, TEXT("INVALID_ARGUMENT"));
       return true;
     }
@@ -1789,12 +2084,6 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     }
     SourcePath = SanitizedSource;
     DestinationPath = SanitizedDest;
-    if (DestinationPath.IsEmpty()) {
-      SendAutomationResponse(RequestingSocket, RequestId, false,
-                             TEXT("destinationPath required for rename_level"),
-                             nullptr, TEXT("INVALID_ARGUMENT"));
-      return true;
-    }
 
     // Use DuplicateAsset + DeleteAsset to rename (avoids "Find/Replace"
     // modal dialog that auto-cancels during automation)
@@ -1914,16 +2203,24 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       Payload->TryGetStringField(TEXT("levelPath"), LevelPath);
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
     }
-    
+
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
     if (!World) {
       SendAutomationResponse(RequestingSocket, RequestId, false,
                              TEXT("No editor world available"), nullptr, TEXT("NO_WORLD"));
       return true;
     }
-    
+
     ULevel* TargetLevel = nullptr;
     if (!LevelPath.IsEmpty()) {
+      LevelPath = SanitizeProjectRelativePath(LevelPath);
+      if (LevelPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid levelPath"), nullptr,
+                               TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
+
       TArray<ULevel*> Levels = GetAllLevelsFromWorld(World);
       for (ULevel* Level : Levels) {
         if (Level && Level->GetOutermost() && Level->GetOutermost()->GetName() == LevelPath) {
@@ -1934,20 +2231,74 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     } else {
       TargetLevel = World->GetCurrentLevel();
     }
-    
-    if (!TargetLevel) {
-      SendAutomationResponse(RequestingSocket, RequestId, false,
-                             FString::Printf(TEXT("Level not found: %s"), *LevelPath),
-                             nullptr, TEXT("LEVEL_NOT_FOUND"));
+
+    if (TargetLevel) {
+      // Loaded path: preserve existing JSON shape, only ADD `loaded: true`.
+      TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+      Result->SetStringField(TEXT("levelPath"), TargetLevel->GetOutermost() ? TargetLevel->GetOutermost()->GetName() : TEXT(""));
+      Result->SetStringField(TEXT("levelName"), TargetLevel->GetName());
+      Result->SetNumberField(TEXT("actorCount"), TargetLevel->Actors.Num());
+      Result->SetBoolField(TEXT("loaded"), true);
+
+      SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Level info retrieved"), Result);
       return true;
     }
-    
-    TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
-    Result->SetStringField(TEXT("levelPath"), TargetLevel->GetOutermost() ? TargetLevel->GetOutermost()->GetName() : TEXT(""));
-    Result->SetStringField(TEXT("levelName"), TargetLevel->GetName());
-    Result->SetNumberField(TEXT("actorCount"), TargetLevel->Actors.Num());
-    
-    SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Level info retrieved"), Result);
+
+    // Not loaded as a UWorld — fall back to AssetRegistry lookup so callers can
+    // query metadata for any map asset without forcing a load. We do NOT auto-load.
+    if (!LevelPath.IsEmpty()) {
+      IAssetRegistry& AssetRegistry =
+          FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+
+      // Accept either a package path ("/Game/Maps/Foo") or a full object path
+      // ("/Game/Maps/Foo.Foo"). FSoftObjectPath handles both forms.
+      FAssetData AssetData;
+      #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
+      AssetData = AssetRegistry.GetAssetByObjectPath(FSoftObjectPath(LevelPath));
+      if (!AssetData.IsValid()) {
+        // Try appending `.<ShortName>` to a bare package path.
+        const FString ShortName = FPackageName::GetShortName(LevelPath);
+        if (!ShortName.IsEmpty() && !LevelPath.Contains(TEXT("."))) {
+          const FString ObjectPath = LevelPath + TEXT(".") + ShortName;
+          AssetData = AssetRegistry.GetAssetByObjectPath(FSoftObjectPath(ObjectPath));
+        }
+      }
+      #else
+      AssetData = AssetRegistry.GetAssetByObjectPath(FName(*LevelPath));
+      if (!AssetData.IsValid()) {
+        const FString ShortName = FPackageName::GetShortName(LevelPath);
+        if (!ShortName.IsEmpty() && !LevelPath.Contains(TEXT("."))) {
+          const FString ObjectPath = LevelPath + TEXT(".") + ShortName;
+          AssetData = AssetRegistry.GetAssetByObjectPath(FName(*ObjectPath));
+        }
+      }
+      #endif
+
+      if (AssetData.IsValid()) {
+        TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
+        Result->SetBoolField(TEXT("loaded"), false);
+        Result->SetStringField(TEXT("levelPath"), AssetData.PackageName.ToString());
+        Result->SetStringField(TEXT("levelName"), AssetData.AssetName.ToString());
+        Result->SetStringField(TEXT("packageName"), AssetData.PackageName.ToString());
+        Result->SetStringField(TEXT("assetName"), AssetData.AssetName.ToString());
+        Result->SetStringField(TEXT("objectPath"), MCP_ASSET_DATA_GET_OBJECT_PATH(AssetData));
+        Result->SetStringField(TEXT("assetClass"), MCP_ASSET_DATA_GET_CLASS_PATH(AssetData));
+
+        TSharedPtr<FJsonObject> TagsObj = McpHandlerUtils::CreateResultObject();
+        for (const auto& Kvp : AssetData.TagsAndValues) {
+          TagsObj->SetStringField(Kvp.Key.ToString(), Kvp.Value.AsString());
+        }
+        Result->SetObjectField(TEXT("tagsAndValues"), TagsObj);
+
+        SendAutomationResponse(RequestingSocket, RequestId, true,
+                               TEXT("Level info retrieved (asset registry, not loaded)"), Result);
+        return true;
+      }
+    }
+
+    SendAutomationResponse(RequestingSocket, RequestId, false,
+                           FString::Printf(TEXT("Level not found: %s"), *LevelPath),
+                           nullptr, TEXT("LEVEL_NOT_FOUND"));
     return true;
   }
   if (EffectiveAction == TEXT("set_level_world_settings")) {
@@ -1955,6 +2306,16 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     if (Payload.IsValid()) {
       Payload->TryGetStringField(TEXT("levelPath"), RequestedLevelPath);
       if (RequestedLevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), RequestedLevelPath);
+    }
+
+    if (!RequestedLevelPath.IsEmpty()) {
+      RequestedLevelPath = SanitizeProjectRelativePath(RequestedLevelPath);
+      if (RequestedLevelPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid levelPath"), nullptr,
+                               TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
     }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
@@ -1997,6 +2358,16 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     if (Payload.IsValid()) {
       Payload->TryGetStringField(TEXT("levelPath"), RequestedLevelPath);
       if (RequestedLevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), RequestedLevelPath);
+    }
+
+    if (!RequestedLevelPath.IsEmpty()) {
+      RequestedLevelPath = SanitizeProjectRelativePath(RequestedLevelPath);
+      if (RequestedLevelPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid levelPath"), nullptr,
+                               TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
     }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
@@ -2046,7 +2417,15 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
                              TEXT("levelPath required"), nullptr, TEXT("INVALID_ARGUMENT"));
       return true;
     }
-    
+
+    LevelPath = SanitizeProjectRelativePath(LevelPath);
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("Invalid levelPath"), nullptr,
+                             TEXT("SECURITY_VIOLATION"));
+      return true;
+    }
+
     // Verify level package exists before adding to avoid false positives
     FString FilenameToCheck;
     bool bFileExists = false;
@@ -2087,6 +2466,20 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     if (Payload.IsValid()) {
       Payload->TryGetStringField(TEXT("levelPath"), LevelPath);
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
+    }
+
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("levelPath required"), nullptr, TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    LevelPath = SanitizeProjectRelativePath(LevelPath);
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("Invalid levelPath"), nullptr,
+                             TEXT("SECURITY_VIOLATION"));
+      return true;
     }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
@@ -2131,6 +2524,20 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
       Payload->TryGetBoolField(TEXT("visible"), bVisible);
     }
+
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("levelPath required"), nullptr, TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    LevelPath = SanitizeProjectRelativePath(LevelPath);
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("Invalid levelPath"), nullptr,
+                             TEXT("SECURITY_VIOLATION"));
+      return true;
+    }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
     if (!World) {
@@ -2169,6 +2576,20 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
       Payload->TryGetBoolField(TEXT("locked"), bLocked);
     }
+
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("levelPath required"), nullptr, TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    LevelPath = SanitizeProjectRelativePath(LevelPath);
+    if (LevelPath.IsEmpty()) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             TEXT("Invalid levelPath"), nullptr,
+                             TEXT("SECURITY_VIOLATION"));
+      return true;
+    }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
     if (!World) {
@@ -2206,6 +2627,16 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     if (Payload.IsValid()) {
       Payload->TryGetStringField(TEXT("levelPath"), LevelPath);
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
+    }
+
+    if (!LevelPath.IsEmpty()) {
+      LevelPath = SanitizeProjectRelativePath(LevelPath);
+      if (LevelPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid levelPath"), nullptr,
+                               TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
     }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
@@ -2255,6 +2686,16 @@ TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     if (Payload.IsValid()) {
       Payload->TryGetStringField(TEXT("levelPath"), LevelPath);
       if (LevelPath.IsEmpty()) Payload->TryGetStringField(TEXT("level_path"), LevelPath);
+    }
+
+    if (!LevelPath.IsEmpty()) {
+      LevelPath = SanitizeProjectRelativePath(LevelPath);
+      if (LevelPath.IsEmpty()) {
+        SendAutomationResponse(RequestingSocket, RequestId, false,
+                               TEXT("Invalid levelPath"), nullptr,
+                               TEXT("SECURITY_VIOLATION"));
+        return true;
+      }
     }
     
     UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;

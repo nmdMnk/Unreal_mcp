@@ -195,7 +195,7 @@ The MCP Automation Bridge is a production-ready Unreal Editor plugin that enable
 | | `play_montage` | ✅ Native | Native montage playback control |
 | | `setup_ragdoll` | ✅ Native | Ragdoll physics configuration |
 | | `configure_vehicle` | ⚠️ Partial | Complex vehicle setup in progress |
-| **create_effect** | `niagara` | ✅ Native | `UNiagaraSystemFactoryNew` native creation |
+| **manage_effect** | `niagara` | ✅ Native | `UNiagaraSystemFactoryNew` native creation |
 | | `spawn_niagara` | ✅ Native | Native Niagara actor spawning |
 | | `debug_shape` | ✅ Native | Debug line/box/sphere drawing |
 | | `dynamic_light` | ✅ Native | Dynamic light spawning |
@@ -208,18 +208,20 @@ The MCP Automation Bridge is a production-ready Unreal Editor plugin that enable
 | **system_control** | `profile` / `show_fps` | ✅ Native | Console command execution |
 | | `set_quality` | ✅ Native | Quality settings via console |
 | | `screenshot` | ✅ Native | Screenshot capture commands |
-| **console_command** | (all) | ✅ Native | Direct `GEditor->Exec()` with safety filtering |
-| **execute_python** | (all) | ❌ Removed | Python execution removed; use native actions |
+| | `console_command` | ✅ Native | Direct `GEditor->Exec()` with safety filtering |
+| | `execute_python` | ✅ Native | Python execution through `system_control` |
 | **manage_sequence** | `create` / `add_track` | ✅ Native | Level Sequence Editor native operations |
 | | `keyframe` | ✅ Native | Native keyframe manipulation |
 | **inspect** | `get_property` | ✅ Native | `FProperty` → JSON serialization |
 | | `set_property` | ✅ Native | JSON → `FProperty` typed marshaling |
 | | `inspect_cdo` | ✅ Native | Inspect any Blueprint CDO without spawning an actor. CDO properties via reflection; for Actor BPs enumerates CDO components with effective overrides. Supports detailed, componentName, propertyNames filters. |
 | | `list` | ✅ Native | Actor/asset listing via subsystems |
-| **manage_audio** | `create_sound_cue` | ✅ Native | Sound Cue asset creation |
-| | `play_sound_at_location` | ✅ Native | 3D spatial sound playback |
-| | `create_audio_component` | ✅ Native | Audio component creation |
-| **manage_behavior_tree** | `add_node` | ✅ Native | Behavior Tree node creation |
+| **manage_audio** | 50 audio actions | ✅ Native | Runtime playback/configuration through `HandleAudioAction`; graph and asset authoring through internal `manage_audio_authoring` |
+| | `create_sound_cue`, `create_sound_class`, `create_sound_mix` | ✅ Native | Base audio asset creation |
+| | `play_sound_at_location`, `play_sound_2d`, `play_sound_attached`, `spawn_sound_at_location` | ✅ Native | 2D/3D playback and attachment |
+| | `add_cue_node`, `connect_cue_nodes`, `create_metasound`, `connect_metasound_nodes` | ✅ Native | Sound Cue and MetaSound graph authoring |
+| | `set_sound_attenuation`, `configure_spatialization`, `configure_occlusion`, `configure_reverb_send` | ✅ Native | Attenuation, spatialization, occlusion, and reverb settings |
+| **manage_ai** | `add_node` | ✅ Native | Behavior Tree node creation |
 | | `connect_nodes` | ✅ Native | Node connection management |
 | | `set_node_properties` | ✅ Native | Node property editing |
 

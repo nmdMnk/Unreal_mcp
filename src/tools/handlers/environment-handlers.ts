@@ -2,12 +2,20 @@ import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, EnvironmentArgs, Vector3 } from '../../types/handler-types.js';
 import { executeAutomationRequest, validateArgsSecurity } from './common-handlers.js';
+import { exportEnvironmentSnapshot, importEnvironmentSnapshot } from '../../utils/environment-snapshot.js';
 
 /** Location item in foliage locations array */
 interface LocationItem {
   x?: number;
   y?: number;
   z?: number;
+}
+
+interface ProceduralFoliageBounds {
+  location?: Vector3;
+  size?: Vector3;
+  min?: Vector3;
+  max?: Vector3;
 }
 
 /** Convert Vector3 to array format expected by some tools */
@@ -22,6 +30,52 @@ function vec3ToObject(v: Vector3 | undefined): { x: number; y: number; z: number
   return { x: v.x ?? 0, y: v.y ?? 0, z: v.z ?? 0 };
 }
 
+function isVector3(value: unknown): value is Vector3 {
+  return typeof value === 'object' && value !== null && (
+    'x' in value || 'y' in value || 'z' in value
+  );
+}
+
+function getNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function getString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+function buildRegionFromTopLevel(args: Record<string, unknown>): { minX: number; minY: number; maxX: number; maxY: number } | undefined {
+  const minX = getNumber(args.minX);
+  const minY = getNumber(args.minY);
+  const maxX = getNumber(args.maxX);
+  const maxY = getNumber(args.maxY);
+  return minX !== undefined && minY !== undefined && maxX !== undefined && maxY !== undefined
+    ? { minX, minY, maxX, maxY }
+    : undefined;
+}
+
+function normalizeProceduralFoliageBounds(value: unknown): { location?: Vector3; size?: Vector3 } | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const bounds = value as ProceduralFoliageBounds;
+  if (isVector3(bounds.location) || isVector3(bounds.size)) {
+    return {
+      location: isVector3(bounds.location) ? bounds.location : undefined,
+      size: isVector3(bounds.size) ? bounds.size : undefined
+    };
+  }
+
+  if (!isVector3(bounds.min) || !isVector3(bounds.max)) return undefined;
+
+  return {
+    location: bounds.min,
+    size: {
+      x: (bounds.max.x ?? 0) - (bounds.min.x ?? 0),
+      y: (bounds.max.y ?? 0) - (bounds.min.y ?? 0),
+      z: (bounds.max.z ?? 0) - (bounds.min.z ?? 0)
+    }
+  };
+}
+
 export async function handleEnvironmentTools(action: string, args: HandlerArgs, tools: ITools): Promise<Record<string, unknown>> {
   // SECURITY: Validate raw args FIRST before constructing payloads
   // This catches path traversal and other security violations in params that handlers might not use
@@ -32,21 +86,24 @@ export async function handleEnvironmentTools(action: string, args: HandlerArgs, 
   const envAction = String(action || '').toLowerCase();
   
   switch (envAction) {
-    case 'create_landscape':
+    case 'create_landscape': {
+      const componentCount = argsTyped.componentCount;
+      const componentsX = typeof componentCount === 'object' ? componentCount.x : undefined;
+      const componentsY = typeof componentCount === 'object' ? componentCount.y : undefined;
       return cleanObject(await executeAutomationRequest(tools, 'create_landscape', {
         name: argsTyped.name ?? '',
         location: vec3ToArray(argsTyped.location),
         sizeX: argsRecord.sizeX as number | undefined,
         sizeY: argsRecord.sizeY as number | undefined,
-        quadsPerSection: argsRecord.quadsPerSection as number | undefined,
+        quadsPerSection: (argsRecord.quadsPerSection as number | undefined) ?? argsTyped.sectionSize,
+        sectionSize: argsTyped.sectionSize,
         sectionsPerComponent: argsTyped.sectionsPerComponent,
-        componentCount: typeof argsTyped.componentCount === 'object' ? argsTyped.componentCount.x : undefined,
-        materialPath: argsTyped.materialPath,
-        enableWorldPartition: argsRecord.enableWorldPartition as boolean | undefined,
-        runtimeGrid: argsRecord.runtimeGrid as string | undefined,
-        isSpatiallyLoaded: argsRecord.isSpatiallyLoaded as boolean | undefined,
-        dataLayers: argsRecord.dataLayers as string[] | undefined
+        componentCount: componentsX,
+        componentsX,
+        componentsY,
+        materialPath: argsTyped.materialPath
       }) as Record<string, unknown>);
+    }
     case 'modify_heightmap':
       return cleanObject(await executeAutomationRequest(tools, 'modify_heightmap', {
         landscapeName: argsTyped.landscapeName || argsTyped.name || '',
@@ -57,7 +114,7 @@ export async function handleEnvironmentTools(action: string, args: HandlerArgs, 
         minY: (argsRecord.minY as number) ?? 0,
         maxX: (argsRecord.maxX as number) ?? 0,
         maxY: (argsRecord.maxY as number) ?? 0,
-        region: argsRecord.region as { minX?: number; minY?: number; maxX?: number; maxY?: number } | undefined,
+        region: (argsRecord.region as { minX?: number; minY?: number; maxX?: number; maxY?: number } | undefined) ?? buildRegionFromTopLevel(argsRecord),
         updateNormals: argsRecord.updateNormals as boolean | undefined,
         skipFlush: argsRecord.skipFlush as boolean | undefined
       }) as Record<string, unknown>);
@@ -72,7 +129,11 @@ export async function handleEnvironmentTools(action: string, args: HandlerArgs, 
         // C++ expects location as object {x, y, z}, not array
         location: vec3ToObject(argsTyped.location),
         radius: argsTyped.radius || 500,
+        brushRadius: argsTyped.radius || 500,
         strength: (argsRecord.strength as number) || 0.5,
+        falloff: argsRecord.falloff as number | undefined,
+        brushFalloff: argsRecord.falloff as number | undefined,
+        toolMode: tool,
         skipFlush: argsRecord.skipFlush as boolean | undefined
       }) as Record<string, unknown>);
     }
@@ -84,7 +145,12 @@ export async function handleEnvironmentTools(action: string, args: HandlerArgs, 
         return cleanObject(await executeAutomationRequest(tools, 'add_foliage_type', {
           name: argsTyped.foliageType || argsTyped.name || defaultName || 'NewFoliageType',
           meshPath: argsTyped.meshPath,
-          density: argsTyped.density
+          density: argsTyped.density,
+          minScale: argsTyped.minScale,
+          maxScale: argsTyped.maxScale,
+          alignToNormal: argsTyped.alignToNormal,
+          randomYaw: argsTyped.randomYaw,
+          cullDistance: argsTyped.cullDistance
         }) as Record<string, unknown>);
       } else {
         // Validate foliageType is provided
@@ -176,12 +242,14 @@ export async function handleEnvironmentTools(action: string, args: HandlerArgs, 
         sizeY: argsRecord.sizeY as number | undefined,
         heightScale: argsRecord.heightScale as number | undefined,
         subdivisions: argsRecord.subdivisions as number | undefined,
-        settings: argsRecord.settings as Record<string, unknown> | undefined
+        rotation: argsRecord.rotation as Record<string, unknown> | undefined,
+        material: argsRecord.material as string | undefined
       }) as Record<string, unknown>);
     }
     case 'create_procedural_foliage': {
       // Generate default name if not provided (C++ will auto-generate if empty)
-      const defaultName = argsTyped.name || `ProceduralFoliage_${Date.now()}`;
+      const volumeName = getString(argsRecord.volumeName);
+      const defaultName = argsTyped.name || volumeName || `ProceduralFoliage_${Date.now()}`;
       // Accept both 'foliageTypes' and 'types' parameter names
       const foliageTypes = (argsRecord.foliageTypes || argsRecord.types) as { meshPath: string; density: number }[] | undefined;
       return cleanObject(await executeAutomationRequest(tools, 'create_procedural_foliage', {
@@ -190,7 +258,7 @@ export async function handleEnvironmentTools(action: string, args: HandlerArgs, 
         // Pass 'types' as well for C++ handler that accepts both
         types: foliageTypes,
         volumeName: argsRecord.volumeName as string | undefined,
-        bounds: argsTyped.bounds ? { location: argsTyped.bounds.min, size: argsTyped.bounds.max } : undefined,
+        bounds: normalizeProceduralFoliageBounds(argsRecord.bounds),
         seed: argsTyped.seed,
         tileSize: argsRecord.tileSize as number | undefined
       }) as Record<string, unknown>);
@@ -205,17 +273,17 @@ export async function handleEnvironmentTools(action: string, args: HandlerArgs, 
     case 'create_landscape_grass_type':
       return cleanObject(await executeAutomationRequest(tools, 'create_landscape_grass_type', {
         name: argsTyped.name || '',
-        meshPath: argsTyped.meshPath || (argsRecord.path as string) || (argsRecord.staticMesh as string),
+        meshPath: argsTyped.meshPath || (argsRecord.staticMesh as string) || '',
         path: argsRecord.path as string | undefined,
         staticMesh: argsRecord.staticMesh as string | undefined
       }) as Record<string, unknown>);
     case 'export_snapshot':
-      return cleanObject(await tools.environmentTools.exportSnapshot({
+      return cleanObject(await exportEnvironmentSnapshot({
         path: argsRecord.path as string | undefined,
         filename: argsRecord.filename as string | undefined
       })) as Record<string, unknown>;
     case 'import_snapshot':
-      return cleanObject(await tools.environmentTools.importSnapshot({
+      return cleanObject(await importEnvironmentSnapshot({
         path: argsRecord.path as string | undefined,
         filename: argsRecord.filename as string | undefined
       })) as Record<string, unknown>;
@@ -224,6 +292,14 @@ export async function handleEnvironmentTools(action: string, args: HandlerArgs, 
         landscapeName: argsTyped.landscapeName || argsTyped.name || '',
         materialPath: argsTyped.materialPath ?? ''
       }) as Record<string, unknown>);
+    case 'set_time_of_day': {
+      const time = getNumber(argsRecord.time) ?? getNumber(argsRecord.hour) ?? getNumber(argsRecord.propertyValue) ?? 12;
+      return cleanObject(await executeAutomationRequest(tools, 'build_environment', {
+        action: 'set_time_of_day',
+        time,
+        hour: argsRecord.hour as number | undefined
+      }) as Record<string, unknown>);
+    }
     case 'generate_lods':
       return cleanObject(await executeAutomationRequest(tools, 'build_environment', {
         action: 'generate_lods',

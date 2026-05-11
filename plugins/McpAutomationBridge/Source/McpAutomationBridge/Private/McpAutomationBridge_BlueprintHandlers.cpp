@@ -316,24 +316,9 @@ FMcpAutomationBridge_FindExecPin(UEdGraphNode *Node,
 }
 
 static UEdGraphPin *
-FMcpAutomationBridge_FindOutputPin(UEdGraphNode *Node,
-                                   const FName &PinName = NAME_None) {
-  // Delegate to centralized McpBlueprintUtils
-  return McpBlueprintUtils::FindOutputPin(Node, PinName);
-}
-
-static UEdGraphPin *
 FMcpAutomationBridge_FindPreferredEventExec(UEdGraph *Graph) {
   // Delegate to centralized McpBlueprintUtils
   return McpBlueprintUtils::FindPreferredEventExec(Graph);
-}
-
-
-
-static UEdGraphPin *FMcpAutomationBridge_FindInputPin(UEdGraphNode *Node,
-                                                      const FName &PinName) {
-  // Delegate to centralized McpBlueprintUtils
-  return McpBlueprintUtils::FindInputPin(Node, PinName);
 }
 
 static UEdGraphPin *
@@ -775,125 +760,6 @@ static void FMcpAutomationBridge_AnnotateVariableJson(
   }
 }
 
-static TSharedPtr<FJsonObject> FMcpAutomationBridge_BuildPropertyVariableJson(
-    UBlueprint *Blueprint, const FName &VariableName, FProperty *Property,
-    bool bIsSCSVariable) {
-  if (!Blueprint || VariableName.IsNone()) {
-    return nullptr;
-  }
-
-  UBlueprint *DeclaringBlueprint = nullptr;
-  const int32 NewVarIndex = FBlueprintEditorUtils::FindNewVariableIndexAndBlueprint(
-      Blueprint, VariableName, DeclaringBlueprint);
-  if (DeclaringBlueprint && NewVarIndex != INDEX_NONE &&
-      DeclaringBlueprint->NewVariables.IsValidIndex(NewVarIndex)) {
-    TSharedPtr<FJsonObject> Obj = FMcpAutomationBridge_BuildVariableJson(
-        DeclaringBlueprint, DeclaringBlueprint->NewVariables[NewVarIndex]);
-    if (Property) {
-      // Get or create metadata object for compatibility path
-      TSharedPtr<FJsonObject> Metadata =
-          Obj->HasField(TEXT("metadata")) ? Obj->GetObjectField(TEXT("metadata"))
-                                          : MakeShared<FJsonObject>();
-      bool bMetadataChanged = false;
-
-      const FText Tooltip = Property->GetToolTipText();
-      if (!Tooltip.IsEmpty()) {
-        Obj->SetStringField(TEXT("tooltip"), Tooltip.ToString());
-        Metadata->SetStringField(TEXT("tooltip"), Tooltip.ToString());
-        bMetadataChanged = true;
-      }
-      const FString DisplayName = Property->IsNative()
-                                      ? Property->GetDisplayNameText().ToString()
-                                      : VariableName.ToString();
-      if (!DisplayName.IsEmpty() &&
-          !DisplayName.Equals(VariableName.ToString(), ESearchCase::CaseSensitive)) {
-        Obj->SetStringField(TEXT("displayName"), DisplayName);
-        Metadata->SetStringField(TEXT("displayName"), DisplayName);
-        bMetadataChanged = true;
-      }
-
-      if (bMetadataChanged) {
-        Obj->SetObjectField(TEXT("metadata"), Metadata);
-      }
-    }
-    FMcpAutomationBridge_AnnotateVariableJson(Obj, Blueprint, DeclaringBlueprint,
-                                              bIsSCSVariable);
-    return Obj;
-  }
-
-  TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
-  Obj->SetStringField(TEXT("name"), VariableName.ToString());
-  Obj->SetBoolField(TEXT("component"), bIsSCSVariable);
-
-  if (Property) {
-    const FString PropertyType =
-        FMcpAutomationBridge_DescribePropertyType(Property);
-    if (!PropertyType.IsEmpty()) {
-      Obj->SetStringField(TEXT("type"), PropertyType);
-    }
-    Obj->SetBoolField(TEXT("replicated"),
-                      Property->HasAnyPropertyFlags(CPF_Net));
-    Obj->SetBoolField(TEXT("public"),
-                      !Property->HasAnyPropertyFlags(CPF_BlueprintReadOnly));
-
-    const FText CategoryText =
-        FBlueprintEditorUtils::GetBlueprintVariableCategory(Blueprint,
-                                                            VariableName, nullptr);
-    const FString Category = CategoryText.IsEmpty() ? FString() : CategoryText.ToString();
-    if (!Category.IsEmpty() && !Category.Equals(Blueprint->GetName())) {
-      Obj->SetStringField(TEXT("category"), Category);
-    }
-
-    TSharedPtr<FJsonObject> Metadata = MakeShared<FJsonObject>();
-    bool bHasMetadata = false;
-
-    // Add DisplayName to metadata if present and different from variable name
-    const FString DisplayName = Property->IsNative()
-                                    ? Property->GetDisplayNameText().ToString()
-                                    : VariableName.ToString();
-    if (!DisplayName.IsEmpty() &&
-        !DisplayName.Equals(VariableName.ToString(), ESearchCase::CaseSensitive)) {
-      Obj->SetStringField(TEXT("displayName"), DisplayName);
-      Metadata->SetStringField(TEXT("displayName"), DisplayName);
-      bHasMetadata = true;
-    }
-
-    // Add Tooltip to metadata if present
-    const FText Tooltip = Property->GetToolTipText();
-    if (!Tooltip.IsEmpty()) {
-      Obj->SetStringField(TEXT("tooltip"), Tooltip.ToString());
-      Metadata->SetStringField(TEXT("tooltip"), Tooltip.ToString());
-      bHasMetadata = true;
-    }
-
-    // Copy any additional metadata from the property
-    if (const TMap<FName, FString> *MetaMap = Property->GetMetaDataMap()) {
-      for (const TPair<FName, FString> &Pair : *MetaMap) {
-        if (!Pair.Value.IsEmpty()) {
-          Metadata->SetStringField(Pair.Key.ToString(), Pair.Value);
-          bHasMetadata = true;
-        }
-      }
-    }
-    if (bHasMetadata) {
-      Obj->SetObjectField(TEXT("metadata"), Metadata);
-    }
-
-    if (!DeclaringBlueprint) {
-      if (const UClass *OwnerClass = Property->GetOwnerClass()) {
-        DeclaringBlueprint = UBlueprint::GetBlueprintFromClass(OwnerClass);
-      }
-    }
-  } else {
-    Obj->SetBoolField(TEXT("replicated"), false);
-    Obj->SetBoolField(TEXT("public"), true);
-  }
-
-  FMcpAutomationBridge_AnnotateVariableJson(Obj, Blueprint, DeclaringBlueprint,
-                                            bIsSCSVariable);
-  return Obj;
-}
-
 static TSharedPtr<FJsonObject>
 FMcpAutomationBridge_BuildVariableJson(const UBlueprint *Blueprint,
                                        const FBPVariableDescription &VarDesc) {
@@ -1291,12 +1157,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
     const TSharedPtr<FJsonObject> &Payload,
     TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
 #if WITH_EDITOR
-  // Explicitly ignore manage_blueprint_graph actions so they fall through to
-  // HandleBlueprintGraphAction
-  if (Action.Equals(TEXT("manage_blueprint_graph"), ESearchCase::IgnoreCase)) {
-    return false;
-  }
-
+  // Canonical graph actions are handled by HandleBlueprintGraphAction before
+  // this general Blueprint handler is invoked.
   UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
          TEXT(">>> HandleBlueprintAction ENTRY: RequestId=%s RawAction='%s'"),
          *RequestId, *Action);
@@ -1466,11 +1328,10 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
       if (FChar::IsAlnum(C))
         PatternAlpha.AppendChar(C);
     }
-    const bool bExactOrContains =
-        (Lower.Equals(PatternStr) || Lower.Contains(PatternStr));
+    const bool bExactOrContains = Lower.Equals(PatternStr);
     const bool bAlphaMatch =
         (!AlphaNumLower.IsEmpty() && !PatternAlpha.IsEmpty() &&
-         AlphaNumLower.Contains(PatternAlpha));
+         AlphaNumLower.Equals(PatternAlpha));
     const bool bMatched = (bExactOrContains || bAlphaMatch);
     // Keep this at VeryVerbose because it executes for every pattern match
     // attempt and rapidly fills the log during normal operation.
@@ -2319,17 +2180,35 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
       AlphaNumLower.Contains(TEXT("addscscomponent"))) {
     FString BPPath;
     Payload->TryGetStringField(TEXT("blueprint_path"), BPPath);
+    if (BPPath.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("blueprintPath"), BPPath);
+    }
     FString CompClass;
     Payload->TryGetStringField(TEXT("component_class"), CompClass);
+    if (CompClass.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("componentClass"), CompClass);
+    }
     FString CompName;
     Payload->TryGetStringField(TEXT("component_name"), CompName);
+    if (CompName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("componentName"), CompName);
+    }
     FString ParentName;
     Payload->TryGetStringField(TEXT("parent_component"), ParentName);
+    if (ParentName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("parentComponent"), ParentName);
+    }
     // Feature #1, #2: Extract mesh and material paths for assignment
     FString MeshPath;
     Payload->TryGetStringField(TEXT("mesh_path"), MeshPath);
+    if (MeshPath.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("meshPath"), MeshPath);
+    }
     FString MaterialPath;
     Payload->TryGetStringField(TEXT("material_path"), MaterialPath);
+    if (MaterialPath.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("materialPath"), MaterialPath);
+    }
     TSharedPtr<FJsonObject> Result = FSCSHandlers::AddSCSComponent(
         BPPath, CompClass, CompName, ParentName, MeshPath, MaterialPath);
     SendAutomationResponse(RequestingSocket, RequestId,
@@ -2344,8 +2223,14 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
       AlphaNumLower.Contains(TEXT("removescscomponent"))) {
     FString BPPath;
     Payload->TryGetStringField(TEXT("blueprint_path"), BPPath);
+    if (BPPath.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("blueprintPath"), BPPath);
+    }
     FString CompName;
     Payload->TryGetStringField(TEXT("component_name"), CompName);
+    if (CompName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("componentName"), CompName);
+    }
     TSharedPtr<FJsonObject> Result =
         FSCSHandlers::RemoveSCSComponent(BPPath, CompName);
     SendAutomationResponse(RequestingSocket, RequestId,
@@ -2360,10 +2245,19 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
       AlphaNumLower.Contains(TEXT("reparentscscomponent"))) {
     FString BPPath;
     Payload->TryGetStringField(TEXT("blueprint_path"), BPPath);
+    if (BPPath.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("blueprintPath"), BPPath);
+    }
     FString CompName;
     Payload->TryGetStringField(TEXT("component_name"), CompName);
+    if (CompName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("componentName"), CompName);
+    }
     FString NewParent;
     Payload->TryGetStringField(TEXT("new_parent"), NewParent);
+    if (NewParent.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("newParent"), NewParent);
+    }
     TSharedPtr<FJsonObject> Result =
         FSCSHandlers::ReparentSCSComponent(BPPath, CompName, NewParent);
     SendAutomationResponse(RequestingSocket, RequestId,
@@ -2375,11 +2269,19 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
 
   // set_scs_component_transform: set component transform in SCS
   if (ActionMatchesPattern(TEXT("set_scs_component_transform")) ||
-      AlphaNumLower.Contains(TEXT("setscscomponenttransform"))) {
+      ActionMatchesPattern(TEXT("set_scs_transform")) ||
+      AlphaNumLower.Contains(TEXT("setscscomponenttransform")) ||
+      AlphaNumLower.Contains(TEXT("setscstransform"))) {
     FString BPPath;
     Payload->TryGetStringField(TEXT("blueprint_path"), BPPath);
+    if (BPPath.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("blueprintPath"), BPPath);
+    }
     FString CompName;
     Payload->TryGetStringField(TEXT("component_name"), CompName);
+    if (CompName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("componentName"), CompName);
+    }
     TSharedPtr<FJsonObject> Result =
         FSCSHandlers::SetSCSComponentTransform(BPPath, CompName, Payload);
     SendAutomationResponse(RequestingSocket, RequestId,
@@ -2391,17 +2293,30 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
 
   // set_scs_component_property: set component property in SCS
   if (ActionMatchesPattern(TEXT("set_scs_component_property")) ||
-      AlphaNumLower.Contains(TEXT("setscscomponentproperty"))) {
+      ActionMatchesPattern(TEXT("set_scs_property")) ||
+      AlphaNumLower.Contains(TEXT("setscscomponentproperty")) ||
+      AlphaNumLower.Contains(TEXT("setscsproperty"))) {
     FString BPPath;
     Payload->TryGetStringField(TEXT("blueprint_path"), BPPath);
+    if (BPPath.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("blueprintPath"), BPPath);
+    }
     FString CompName;
     Payload->TryGetStringField(TEXT("component_name"), CompName);
+    if (CompName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("componentName"), CompName);
+    }
     FString PropName;
     Payload->TryGetStringField(TEXT("property_name"), PropName);
+    if (PropName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("propertyName"), PropName);
+    }
     const TSharedPtr<FJsonValue> PropVal =
         Payload->TryGetField(TEXT("property_value"));
+    const TSharedPtr<FJsonValue> ResolvedPropVal =
+        PropVal.IsValid() ? PropVal : Payload->TryGetField(TEXT("value"));
     TSharedPtr<FJsonObject> Result = FSCSHandlers::SetSCSComponentProperty(
-        BPPath, CompName, PropName, PropVal);
+        BPPath, CompName, PropName, ResolvedPropVal);
     SendAutomationResponse(RequestingSocket, RequestId,
                            GetJsonBoolField(Result, TEXT("success")),
                            SafeGetStr(Result, TEXT("message")), Result,
@@ -4182,7 +4097,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
 
     FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
     McpSafeCompileBlueprint(Blueprint);
-    const bool bSaved = UEditorAssetLibrary::SaveLoadedAsset(Blueprint);
+    const bool bSaved = McpSafeAssetSave(Blueprint);
 
     TSharedPtr<FJsonObject> Entry =
         FMcpAutomationBridge_EnsureBlueprintEntry(RegistryKey);
@@ -5746,11 +5661,9 @@ bool UMcpAutomationBridgeSubsystem::HandleSCSAction(
       return true;
     }
 
-    // Create the SCS node correctly
-    USCS_Node *NewNode = NewObject<USCS_Node>(SCS);
+    // UE 5.7+: Let SCS create and own both the node and component template.
+    USCS_Node *NewNode = SCS->CreateNode(ComponentClass, FName(*ComponentName));
     if (NewNode) {
-      NewNode->SetVariableName(*ComponentName);
-      NewNode->ComponentClass = ComponentClass;
       SCS->AddNode(NewNode);
 
       // Compile and save the blueprint

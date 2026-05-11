@@ -16,12 +16,8 @@
 import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
-import { requireNonEmptyString, executeAutomationRequest } from './common-handlers.js';
+import { requireNonEmptyString, executeAutomationRequest, getTimeoutMs, normalizePathFields } from './common-handlers.js';
 
-function getTimeoutMs(): number {
-  const envDefault = Number(process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS ?? '120000');
-  return Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 120000;
-}
 
 /**
  * Handles all networking actions for the manage_networking tool.
@@ -31,8 +27,8 @@ export async function handleNetworkingTools(
   args: HandlerArgs,
   tools: ITools
 ): Promise<Record<string, unknown>> {
-  const argsRecord = args as Record<string, unknown>;
-  const timeoutMs = getTimeoutMs();
+  const argsRecord = normalizePathFields(args as Record<string, unknown>, ['blueprintPath']);
+  const timeoutMs = typeof argsRecord.timeoutMs === 'number' ? argsRecord.timeoutMs : getTimeoutMs();
 
   // All actions are dispatched to C++ via automation bridge
   const sendRequest = async (subAction: string): Promise<Record<string, unknown>> => {
@@ -92,7 +88,7 @@ export async function handleNetworkingTools(
     case 'configure_replication_graph': {
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       // Configures replication graph settings
-      // Optional: nodeClass, spatialBias, defaultSettingsClass
+      // Optional: spatiallyLoaded, netLoadOnClient, replicationPolicy
       return sendRequest('configure_replication_graph');
     }
 
@@ -105,7 +101,7 @@ export async function handleNetworkingTools(
       requireNonEmptyString(argsRecord.functionName, 'functionName', 'Missing required parameter: functionName');
       requireNonEmptyString(argsRecord.rpcType, 'rpcType', 'Missing required parameter: rpcType');
       // Creates an RPC function (Server, Client, NetMulticast)
-      // Optional: reliable (bool), parameters (array), returnType
+      // Optional: reliable (bool)
       return sendRequest('create_rpc_function');
     }
 
@@ -113,7 +109,7 @@ export async function handleNetworkingTools(
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       requireNonEmptyString(argsRecord.functionName, 'functionName', 'Missing required parameter: functionName');
       // Configures RPC validation function
-      // Optional: validationFunctionName, withValidation (bool)
+      // Optional: withValidation (bool)
       return sendRequest('configure_rpc_validation');
     }
 
@@ -189,7 +185,7 @@ export async function handleNetworkingTools(
     case 'configure_net_serialization': {
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       // Configures custom net serialization for a struct
-      // Optional: structName, useNetSerialize (bool)
+      // Optional: structName, customSerialization (bool)
       return sendRequest('configure_net_serialization');
     }
 
@@ -204,7 +200,7 @@ export async function handleNetworkingTools(
     case 'configure_push_model': {
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       // Configures push-model replication for properties
-      // Optional: usePushModel (bool), propertyNames (array)
+      // Optional: usePushModel (bool)
       return sendRequest('configure_push_model');
     }
 
@@ -215,7 +211,7 @@ export async function handleNetworkingTools(
     case 'configure_client_prediction': {
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       // Configures client-side prediction settings
-      // Optional: enablePrediction (bool), predictionKey (string)
+      // Optional: enablePrediction (bool), predictionThreshold (number)
       return sendRequest('configure_client_prediction');
     }
 
@@ -230,7 +226,7 @@ export async function handleNetworkingTools(
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       requireNonEmptyString(argsRecord.dataType, 'dataType', 'Missing required parameter: dataType');
       // Adds network prediction data structure
-      // Optional: properties (array of predicted properties)
+      // Optional: variableName
       return sendRequest('add_network_prediction_data');
     }
 
@@ -261,7 +257,7 @@ export async function handleNetworkingTools(
     case 'configure_replicated_movement': {
       requireNonEmptyString(argsRecord.blueprintPath, 'blueprintPath', 'Missing required parameter: blueprintPath');
       // Configures replicated movement settings
-      // Optional: replicateMovement (bool), replicatedMovementMode, locationQuantizationLevel
+      // Optional: replicateMovement (bool)
       return sendRequest('configure_replicated_movement');
     }
 

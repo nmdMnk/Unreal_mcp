@@ -193,7 +193,13 @@ bool UMcpAutomationBridgeSubsystem::HandleAddSequencerKeyframe(
     }
 
     // Get or create section
-    UMovieSceneFloatTrack* FloatTrack = CastChecked<UMovieSceneFloatTrack>(Track);
+    UMovieSceneFloatTrack* FloatTrack = Cast<UMovieSceneFloatTrack>(Track);
+    if (!FloatTrack)
+    {
+        SendAutomationError(RequestingSocket, RequestId,
+            TEXT("Track is not a float track"), TEXT("INVALID_TRACK_TYPE"));
+        return true;
+    }
     UMovieSceneSection* Section = nullptr;
     const TArray<UMovieSceneSection*>& Sections = FloatTrack->GetAllSections();
     if (Sections.Num() > 0)

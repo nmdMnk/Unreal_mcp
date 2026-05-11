@@ -38,7 +38,7 @@ export async function handleManageToolsTools(
         const toolStates = dynamicToolManager.listTools();
         const tools = toolStates.map(state => ({
           name: state.name,
-          enabled: state.enabled,
+          enabled: dynamicToolManager.isToolEnabled(state.name),
           category: state.category,
           description: state.description.substring(0, 100) + (state.description.length > 100 ? '...' : '')
         }));
@@ -133,7 +133,7 @@ export async function handleManageToolsTools(
           return ResponseFactory.error('No category specified.', 'MISSING_CATEGORY');
         }
 
-        const validCategories: ToolCategory[] = ['core', 'world', 'authoring', 'gameplay', 'utility', 'all'];
+        const validCategories: ToolCategory[] = ['core', 'world', 'gameplay', 'utility', 'all'];
         if (!validCategories.includes(category)) {
           return ResponseFactory.error(
             `Invalid category '${category}'. Valid: ${validCategories.join(', ')}`,
@@ -161,7 +161,7 @@ export async function handleManageToolsTools(
           return ResponseFactory.error('No category specified.', 'MISSING_CATEGORY');
         }
 
-        const validCategories: ToolCategory[] = ['core', 'world', 'authoring', 'gameplay', 'utility', 'all'];
+        const validCategories: ToolCategory[] = ['core', 'world', 'gameplay', 'utility', 'all'];
         if (!validCategories.includes(category)) {
           return ResponseFactory.error(
             `Invalid category '${category}'. Valid: ${validCategories.join(', ')}`,

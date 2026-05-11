@@ -7,6 +7,7 @@
 #include "Containers/StringConv.h"
 #include "HAL/Event.h"
 #include "HAL/PlatformAtomics.h"
+#include "HAL/PlatformMisc.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/RunnableThread.h"
 #include "IPAddress.h"
@@ -66,6 +67,7 @@ constexpr uint8 OpCodePong = 0xA;
 
 constexpr uint64 MaxWebSocketMessageBytes = 5ULL * 1024ULL * 1024ULL;
 constexpr uint64 MaxWebSocketFramePayloadBytes = MaxWebSocketMessageBytes;
+constexpr int32 WebSocketCloseCodeAbnormalClosure = 4000;
 constexpr int32 WebSocketCloseCodeMessageTooBig = 1009;
 
 struct FParsedWebSocketUrl {
@@ -155,8 +157,8 @@ bool ParseWebSocketUrl(const FString &InUrl, FParsedWebSocketUrl &OutParsed,
     return false;
   }
 
-  if (Port <= 0) {
-    OutError = TEXT("WebSocket port must be positive.");
+  if (Port <= 0 || Port > 65535) {
+    OutError = TEXT("WebSocket port must be between 1 and 65535.");
     return false;
   }
 
@@ -215,6 +217,19 @@ FString BytesToStringView(const TArray<uint8> &Data) {
     return FString();
   }
   return FString(Converter.Length(), Converter.Get());
+}
+
+void FillWebSocketRandomBytes(uint8 *Dest, int32 Count) {
+  int32 Offset = 0;
+  while (Offset < Count) {
+    FGuid Guid;
+    FPlatformMisc::CreateGuid(Guid);
+    const uint32 Words[4] = {Guid.A, Guid.B, Guid.C, Guid.D};
+    const int32 CopyCount =
+        FMath::Min(Count - Offset, static_cast<int32>(sizeof(Words)));
+    FMemory::Memcpy(Dest + Offset, Words, CopyCount);
+    Offset += CopyCount;
+  }
 }
 
 void DispatchOnGameThread(TFunction<void()> &&Fn) {
@@ -740,11 +755,7 @@ void FMcpBridgeWebSocket::SendHeartbeatPing() {
 bool FMcpBridgeWebSocket::Init() { return true; }
 
 uint32 FMcpBridgeWebSocket::Run() {
-  if (bServerMode) {
-    return RunServer();
-  } else {
-    return RunClient();
-  }
+  return bServerMode ? RunServer() : RunClient();
 }
 
 uint32 FMcpBridgeWebSocket::RunClient() {
@@ -1141,12 +1152,12 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
   FParsedWebSocketUrl ParsedUrl;
   FString ParseError;
   if (!ParseWebSocketUrl(Url, ParsedUrl, ParseError)) {
-    TearDown(ParseError, false, 4000);
+    TearDown(ParseError, false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
   if (bUseTls && !ParsedUrl.bUseTls) {
-    TearDown(TEXT("TLS is enabled but ws:// URL was provided."), false, 4000);
+    TearDown(TEXT("TLS is enabled but ws:// URL was provided."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
   if (ParsedUrl.bUseTls) {
@@ -1159,7 +1170,7 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
 
   TSharedPtr<FInternetAddr> Endpoint;
   if (!ResolveEndpoint(Endpoint) || !Endpoint.IsValid()) {
-    TearDown(TEXT("Unable to resolve WebSocket host."), false, 4000);
+    TearDown(TEXT("Unable to resolve WebSocket host."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1168,7 +1179,7 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
   Socket = SocketSubsystem->CreateSocket(
       NAME_Stream, TEXT("McpAutomationBridgeSocket"), false);
   if (!Socket) {
-    TearDown(TEXT("Failed to create socket."), false, 4000);
+    TearDown(TEXT("Failed to create socket."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
   Socket->SetReuseAddr(true);
@@ -1177,22 +1188,20 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
 
   Endpoint->SetPort(Port);
   if (!Socket->Connect(*Endpoint)) {
-    TearDown(TEXT("Unable to connect to WebSocket endpoint."), false, 4000);
+    TearDown(TEXT("Unable to connect to WebSocket endpoint."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
   if (bUseTls) {
     if (!EstablishTls(false)) {
-      TearDown(TEXT("TLS handshake failed."), false, 4000);
+      TearDown(TEXT("TLS handshake failed."), false, WebSocketCloseCodeAbnormalClosure);
       return false;
     }
   }
 
   TArray<uint8> KeyBytes;
   KeyBytes.SetNumUninitialized(16);
-  for (uint8 &Byte : KeyBytes) {
-    Byte = static_cast<uint8>(FMath::RandRange(0, 255));
-  }
+  FillWebSocketRandomBytes(KeyBytes.GetData(), KeyBytes.Num());
   HandshakeKey = FBase64::Encode(KeyBytes.GetData(), KeyBytes.Num());
 
   FString HostLine = HostHeader;
@@ -1229,15 +1238,17 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
   if (!SendRaw(reinterpret_cast<const uint8 *>(HandshakeUtf8.Get()),
                HandshakeUtf8.Length(), BytesSent) ||
       BytesSent != HandshakeUtf8.Length()) {
-    TearDown(TEXT("Failed to send WebSocket handshake."), false, 4000);
+    TearDown(TEXT("Failed to send WebSocket handshake."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
   TArray<uint8> ResponseBuffer;
   ResponseBuffer.Reserve(512);
   constexpr int32 TempSize = 256;
+  constexpr int32 MaxHandshakeHeaderBytes = 8192;
   uint8 Temp[TempSize];
   bool bHandshakeComplete = false;
+  int32 HeaderEndIndex = -1;
   while (!bHandshakeComplete) {
     if (bStopping) {
       return false;
@@ -1245,7 +1256,7 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
     int32 BytesRead = 0;
     if (!RecvRaw(Temp, TempSize, BytesRead)) {
       TearDown(TEXT("WebSocket handshake failed while reading response."),
-               false, 4000);
+               false, WebSocketCloseCodeAbnormalClosure);
       return false;
     }
     if (BytesRead <= 0) {
@@ -1253,34 +1264,47 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
     }
     ResponseBuffer.Append(Temp, BytesRead);
     if (ResponseBuffer.Num() >= 4) {
-      const int32 Count = ResponseBuffer.Num();
-      if (ResponseBuffer[Count - 4] == '\r' &&
-          ResponseBuffer[Count - 3] == '\n' &&
-          ResponseBuffer[Count - 2] == '\r' &&
-          ResponseBuffer[Count - 1] == '\n') {
-        bHandshakeComplete = true;
+      for (int32 Idx = 0; Idx + 3 < ResponseBuffer.Num(); ++Idx) {
+        if (ResponseBuffer[Idx] == '\r' && ResponseBuffer[Idx + 1] == '\n' &&
+            ResponseBuffer[Idx + 2] == '\r' &&
+            ResponseBuffer[Idx + 3] == '\n') {
+          HeaderEndIndex = Idx + 4;
+          bHandshakeComplete = true;
+          break;
+        }
       }
+    }
+    if (bHandshakeComplete) {
+      if (HeaderEndIndex > MaxHandshakeHeaderBytes) {
+        TearDown(TEXT("WebSocket handshake response too large."), false,
+                 WebSocketCloseCodeAbnormalClosure);
+        return false;
+      }
+    } else if (ResponseBuffer.Num() > MaxHandshakeHeaderBytes) {
+      TearDown(TEXT("WebSocket handshake response too large."), false,
+               WebSocketCloseCodeAbnormalClosure);
+      return false;
     }
   }
 
-  FString ResponseString = FString(
-      ANSI_TO_TCHAR(reinterpret_cast<const char *>(ResponseBuffer.GetData())));
-  FString HeaderSection;
-  FString ExtraData;
-  if (!ResponseString.Split(TEXT("\r\n\r\n"), &HeaderSection, &ExtraData)) {
-    HeaderSection = ResponseString;
-  }
+  TArray<uint8> HeaderBytes;
+  HeaderBytes.Append(ResponseBuffer.GetData(), HeaderEndIndex);
+  FString HeaderSection = BytesToStringView(HeaderBytes);
 
   TArray<FString> HeaderLines;
   HeaderSection.ParseIntoArrayLines(HeaderLines, false);
   if (HeaderLines.Num() == 0) {
-    TearDown(TEXT("Malformed WebSocket handshake response."), false, 4000);
+    TearDown(TEXT("Malformed WebSocket handshake response."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
   const FString &StatusLine = HeaderLines[0];
-  if (!StatusLine.Contains(TEXT("101"))) {
-    TearDown(TEXT("WebSocket server rejected handshake."), false, 4000);
+  TArray<FString> StatusParts;
+  StatusLine.ParseIntoArrayWS(StatusParts);
+  int32 StatusCode = 0;
+  if (StatusParts.Num() < 2 || !LexTryParseString(StatusCode, *StatusParts[1]) ||
+      StatusCode != 101) {
+    TearDown(TEXT("WebSocket server rejected handshake."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1310,14 +1334,13 @@ bool FMcpBridgeWebSocket::PerformHandshake() {
   }
 
   if (!bAcceptValid) {
-    TearDown(TEXT("WebSocket handshake validation failed."), false, 4000);
+    TearDown(TEXT("WebSocket handshake validation failed."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
-  if (!ExtraData.IsEmpty()) {
-    const FTCHARToUTF8 ExtraUtf8(*ExtraData);
-    PendingReceived.Append(reinterpret_cast<const uint8 *>(ExtraUtf8.Get()),
-                           ExtraUtf8.Length());
+  if (HeaderEndIndex > 0 && HeaderEndIndex < ResponseBuffer.Num()) {
+    PendingReceived.Append(ResponseBuffer.GetData() + HeaderEndIndex,
+                           ResponseBuffer.Num() - HeaderEndIndex);
   }
 
   return true;
@@ -1328,6 +1351,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
   TArray<uint8> RequestBuffer;
   RequestBuffer.Reserve(1024);
   constexpr int32 TempSize = 256;
+  constexpr int32 MaxHandshakeHeaderBytes = 8192;
   uint8 Temp[TempSize];
   bool bRequestComplete = false;
   FString ClientKey;
@@ -1335,7 +1359,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
   int32 HeaderEndIndex = -1;
   if (bUseTls) {
     if (!EstablishTls(true)) {
-      TearDown(TEXT("TLS handshake failed."), false, 4000);
+      TearDown(TEXT("TLS handshake failed."), false, WebSocketCloseCodeAbnormalClosure);
       return false;
     }
   }
@@ -1353,7 +1377,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
       UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
              TEXT("Server handshake recv failed while awaiting upgrade request "
                   "(benign or client closed)."));
-      TearDown(TEXT("Failed to read WebSocket upgrade request."), false, 4000);
+      TearDown(TEXT("Failed to read WebSocket upgrade request."), false, WebSocketCloseCodeAbnormalClosure);
       return false;
     }
 
@@ -1378,17 +1402,47 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
         }
       }
     }
+    if (bRequestComplete) {
+      if (HeaderEndIndex > MaxHandshakeHeaderBytes) {
+        UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+               TEXT("Server handshake upgrade request exceeded %d bytes."),
+               MaxHandshakeHeaderBytes);
+        TearDown(TEXT("WebSocket upgrade request too large."), false,
+                 WebSocketCloseCodeAbnormalClosure);
+        return false;
+      }
+    } else if (RequestBuffer.Num() > MaxHandshakeHeaderBytes) {
+      UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+             TEXT("Server handshake upgrade request exceeded %d bytes."),
+             MaxHandshakeHeaderBytes);
+      TearDown(TEXT("WebSocket upgrade request too large."), false,
+               WebSocketCloseCodeAbnormalClosure);
+      return false;
+    }
   }
 
-  FString RequestString = FString(
-      ANSI_TO_TCHAR(reinterpret_cast<const char *>(RequestBuffer.GetData())));
+  TArray<uint8> RequestHeaderBytes;
+  RequestHeaderBytes.Append(RequestBuffer.GetData(), HeaderEndIndex);
+  FString RequestString = BytesToStringView(RequestHeaderBytes);
   TArray<FString> RequestLines;
   RequestString.ParseIntoArrayLines(RequestLines, false);
 
   if (RequestLines.Num() == 0) {
     UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
            TEXT("Server handshake received empty upgrade request."));
-    TearDown(TEXT("Malformed WebSocket upgrade request."), false, 4000);
+    TearDown(TEXT("Malformed WebSocket upgrade request."), false, WebSocketCloseCodeAbnormalClosure);
+    return false;
+  }
+
+  TArray<FString> RequestParts;
+  RequestLines[0].ParseIntoArrayWS(RequestParts);
+  if (RequestParts.Num() < 3 ||
+      !RequestParts[0].Equals(TEXT("GET"), ESearchCase::IgnoreCase)) {
+    UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+           TEXT("Server handshake received invalid request line: %s"),
+           RequestLines.Num() > 0 ? *RequestLines[0] : TEXT("(empty)"));
+    TearDown(TEXT("Invalid WebSocket upgrade request line."), false,
+             WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1424,7 +1478,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
           Value.Equals(TEXT("websocket"), ESearchCase::IgnoreCase)) {
         bValidUpgrade = true;
       } else if (Key.Equals(TEXT("Connection"), ESearchCase::IgnoreCase) &&
-                 Value.Equals(TEXT("Upgrade"), ESearchCase::IgnoreCase)) {
+                 Value.ToLower().Contains(TEXT("upgrade"))) {
         bValidConnection = true;
       } else if (Key.Equals(TEXT("Sec-WebSocket-Version"),
                             ESearchCase::IgnoreCase) &&
@@ -1449,7 +1503,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
            bValidConnection ? TEXT("true") : TEXT("false"),
            bValidVersion ? TEXT("true") : TEXT("false"),
            ClientKey.IsEmpty() ? TEXT("false") : TEXT("true"));
-    TearDown(TEXT("Invalid WebSocket upgrade request."), false, 4000);
+    TearDown(TEXT("Invalid WebSocket upgrade request."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1522,7 +1576,7 @@ bool FMcpBridgeWebSocket::PerformServerHandshake() {
            TEXT("Server handshake failed: unable to send upgrade response "
                 "(sent %d expected %d)."),
            BytesSent, ResponseUtf8.Length());
-    TearDown(TEXT("Failed to send WebSocket upgrade response."), false, 4000);
+    TearDown(TEXT("Failed to send WebSocket upgrade response."), false, WebSocketCloseCodeAbnormalClosure);
     return false;
   }
 
@@ -1630,9 +1684,7 @@ bool FMcpBridgeWebSocket::SendTextFrame(const void *Data, SIZE_T Length) {
 
   if (bMask) {
     uint8 MaskKey[4];
-    for (uint8 &Byte : MaskKey) {
-      Byte = static_cast<uint8>(FMath::RandRange(0, 255));
-    }
+    FillWebSocketRandomBytes(MaskKey, UE_ARRAY_COUNT(MaskKey));
     Frame.Append(MaskKey, 4);
 
     const int64 Offset = Frame.Num();
@@ -1668,9 +1720,7 @@ bool FMcpBridgeWebSocket::SendControlFrame(const uint8 ControlOpCode,
 
   if (bMask) {
     uint8 MaskKey[4];
-    for (uint8 &Byte : MaskKey) {
-      Byte = static_cast<uint8>(FMath::RandRange(0, 255));
-    }
+    FillWebSocketRandomBytes(MaskKey, UE_ARRAY_COUNT(MaskKey));
 
     Frame.Append(MaskKey, 4);
     const int32 PayloadOffset = Frame.Num();

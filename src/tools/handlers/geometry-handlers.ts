@@ -52,6 +52,134 @@ const GEOMETRY_ACTIONS = [
 
 type GeometryAction = (typeof GEOMETRY_ACTIONS)[number];
 
+function copyAlias(
+  normalized: Record<string, unknown>,
+  args: HandlerArgs,
+  from: string,
+  to: string
+): void {
+  if (normalized[to] === undefined && args[from] !== undefined) {
+    normalized[to] = args[from];
+  }
+}
+
+function getNumberArg(args: HandlerArgs, key: string): number | undefined {
+  const value = args[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function copyUvPair(
+  normalized: Record<string, unknown>,
+  args: HandlerArgs,
+  from: string,
+  uKey: string,
+  vKey: string
+): void {
+  const value = args[from];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return;
+  }
+
+  const uv = value as Record<string, unknown>;
+  if (normalized[uKey] === undefined && typeof uv.u === 'number') {
+    normalized[uKey] = uv.u;
+  }
+  if (normalized[vKey] === undefined && typeof uv.v === 'number') {
+    normalized[vKey] = uv.v;
+  }
+}
+
+function normalizeGeometryAliases(
+  action: string,
+  args: HandlerArgs,
+  normalized: Record<string, unknown>
+): void {
+  switch (action) {
+    case 'create_sphere':
+      copyAlias(normalized, args, 'radialSegments', 'subdivisions');
+      copyAlias(normalized, args, 'numRings', 'subdivisions');
+      break;
+    case 'create_cylinder':
+    case 'create_cone':
+    case 'create_disc':
+    case 'create_ring':
+      copyAlias(normalized, args, 'numSides', 'segments');
+      break;
+    case 'create_capsule':
+      copyAlias(normalized, args, 'radialSegments', 'segments');
+      copyAlias(normalized, args, 'numRings', 'hemisphereSteps');
+      copyAlias(normalized, args, 'heightSegments', 'hemisphereSteps');
+      break;
+    case 'create_torus':
+      copyAlias(normalized, args, 'radius', 'majorRadius');
+      copyAlias(normalized, args, 'innerRadius', 'minorRadius');
+      copyAlias(normalized, args, 'numSides', 'majorSegments');
+      copyAlias(normalized, args, 'radialSegments', 'minorSegments');
+      copyAlias(normalized, args, 'numRings', 'minorSegments');
+      break;
+    case 'create_arch':
+      copyAlias(normalized, args, 'radius', 'majorRadius');
+      copyAlias(normalized, args, 'innerRadius', 'minorRadius');
+      copyAlias(normalized, args, 'numSides', 'majorSteps');
+      copyAlias(normalized, args, 'radialSegments', 'majorSteps');
+      copyAlias(normalized, args, 'numRings', 'minorSteps');
+      break;
+    case 'create_pipe':
+      copyAlias(normalized, args, 'radius', 'outerRadius');
+      copyAlias(normalized, args, 'numSides', 'radialSteps');
+      copyAlias(normalized, args, 'heightSegments', 'heightSteps');
+      break;
+    case 'create_spiral_stairs': {
+      const numTurns = getNumberArg(args, 'numTurns');
+      if (normalized.curveAngle === undefined && numTurns !== undefined) {
+        normalized.curveAngle = numTurns * 360;
+      }
+      break;
+    }
+    case 'extrude':
+    case 'inset':
+    case 'outset':
+    case 'bevel':
+    case 'offset_faces':
+    case 'chamfer':
+      copyAlias(normalized, args, 'amount', 'distance');
+      break;
+    case 'simplify_mesh': {
+      const reductionPercent = getNumberArg(args, 'reductionPercent');
+      if (normalized.targetPercentage === undefined && reductionPercent !== undefined) {
+        normalized.targetPercentage = Math.max(1, Math.min(100, 100 - reductionPercent));
+      }
+      break;
+    }
+    case 'remesh_voxel':
+      copyAlias(normalized, args, 'targetEdgeLength', 'voxelSize');
+      break;
+    case 'generate_complex_collision':
+      copyAlias(normalized, args, 'hullCount', 'maxHullCount');
+      copyAlias(normalized, args, 'maxVerticesPerHull', 'maxHullVerts');
+      break;
+    case 'recalculate_normals':
+      copyAlias(normalized, args, 'computeWeightedNormals', 'areaWeighted');
+      copyAlias(normalized, args, 'hardEdgeAngle', 'splitAngle');
+      break;
+    case 'merge_vertices':
+    case 'weld_vertices':
+      copyAlias(normalized, args, 'weldDistance', 'tolerance');
+      break;
+    case 'set_lod_settings':
+      copyAlias(normalized, args, 'reductionPercent', 'trianglePercent');
+      break;
+    case 'transform_uvs':
+      copyUvPair(normalized, args, 'uvScale', 'scaleU', 'scaleV');
+      copyUvPair(normalized, args, 'uvOffset', 'translateU', 'translateV');
+      break;
+    case 'convert_to_static_mesh':
+    case 'convert_to_nanite':
+      copyAlias(normalized, args, 'outputPath', 'assetPath');
+      break;
+  }
+}
+
 /**
  * Normalize geometry arguments before sending to C++
  */
@@ -78,6 +206,8 @@ function normalizeGeometryArgs(action: string, args: HandlerArgs): Record<string
   if (args.axis && Array.isArray(args.axis)) {
     normalized.axis = args.axis.map((v: unknown) => Number(v) || 0);
   }
+
+  normalizeGeometryAliases(action, args, normalized);
 
   return normalized;
 }

@@ -1,4 +1,3 @@
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Logger } from './logger.js';
 
 // Minimal helper to opportunistically use MCP Elicitation when available.
@@ -22,7 +21,19 @@ export interface ElicitOptions {
   alternate?: () => Promise<{ ok: boolean; value?: unknown; error?: string }>;
 }
 
-export function createElicitationHelper(server: Server, log: Logger) {
+type ElicitCapableServer = {
+  elicitInput?: unknown;
+};
+
+function parsePositiveIntegerEnv(raw: string): number | undefined {
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+export function createElicitationHelper(server: ElicitCapableServer, log: Logger) {
   // We do not require explicit capability detection: we optimistically try once
   // and disable on a Method-not-found (-32601) error for the session.
   let supported = true; // optimistic; will be set false on first failure
@@ -32,8 +43,8 @@ export function createElicitationHelper(server: Server, log: Logger) {
   const DEFAULT_TIMEOUT_MS = 3 * 60 * 1000;
 
   const timeoutEnvRaw = process.env.MCP_ELICITATION_TIMEOUT_MS ?? process.env.ELICITATION_TIMEOUT_MS ?? '';
-  const parsedEnvTimeout = Number.parseInt(timeoutEnvRaw, 10);
-  const defaultTimeoutMs = Number.isFinite(parsedEnvTimeout) && parsedEnvTimeout > 0
+  const parsedEnvTimeout = parsePositiveIntegerEnv(timeoutEnvRaw);
+  const defaultTimeoutMs = parsedEnvTimeout !== undefined
     ? Math.min(Math.max(parsedEnvTimeout, MIN_TIMEOUT_MS), MAX_TIMEOUT_MS)
     : DEFAULT_TIMEOUT_MS;
 
@@ -86,7 +97,7 @@ export function createElicitationHelper(server: Server, log: Logger) {
     const params = { message, requestedSchema } as Record<string, unknown>;
 
     try {
-      const elicitMethod = (server as unknown as Record<string, unknown>)?.elicitInput;
+      const elicitMethod = server.elicitInput;
       if (typeof elicitMethod !== 'function') {
         supported = false;
         throw new Error('elicitInput-not-available');
@@ -94,7 +105,7 @@ export function createElicitationHelper(server: Server, log: Logger) {
 
       const requestedTimeout = opts.timeoutMs;
       const timeoutMs = Math.max(MIN_TIMEOUT_MS, requestedTimeout ?? defaultTimeoutMs);
-      const res = await (elicitMethod as (params: Record<string, unknown>, opts: { timeout: number }) => Promise<Record<string, unknown>>).call(server, params, { timeout: timeoutMs });
+      const res = await elicitMethod.call(server, params, { timeout: timeoutMs }) as Record<string, unknown>;
       const action = res?.action;
       const content = res?.content;
 

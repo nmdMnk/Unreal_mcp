@@ -565,6 +565,36 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGameFrameworkAction(
             }
         }
 
+        FString GameStateClass = GetStringField(Payload, TEXT("gameStateClass"));
+        if (!GameStateClass.IsEmpty())
+        {
+            UClass* GSClass = LoadClassFromPath(GameStateClass);
+            if (GSClass)
+            {
+                SetClassProperty(BP, TEXT("GameStateClass"), GSClass, Error);
+            }
+        }
+
+        FString PlayerStateClass = GetStringField(Payload, TEXT("playerStateClass"));
+        if (!PlayerStateClass.IsEmpty())
+        {
+            UClass* PSClass = LoadClassFromPath(PlayerStateClass);
+            if (PSClass)
+            {
+                SetClassProperty(BP, TEXT("PlayerStateClass"), PSClass, Error);
+            }
+        }
+
+        FString HUDClass = GetStringField(Payload, TEXT("hudClass"));
+        if (!HUDClass.IsEmpty())
+        {
+            UClass* HUDClassObj = LoadClassFromPath(HUDClass);
+            if (HUDClassObj)
+            {
+                SetClassProperty(BP, TEXT("HUDClass"), HUDClassObj, Error);
+            }
+        }
+
         if (bSave)
         {
             McpSafeAssetSave(BP);
@@ -1018,8 +1048,10 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGameFrameworkAction(
 
         if (Payload->HasField(TEXT("startPlayersNeeded")))
         {
-            // This would typically be a custom property - log for user info
-            UE_LOG(LogMcpGameFrameworkHandlers, Log, TEXT("startPlayersNeeded would require custom variable in Blueprint"));
+            SendAutomationError(RequestingSocket, RequestId,
+                TEXT("startPlayersNeeded is not a native GameMode property and is not implemented as a generated Blueprint variable."),
+                TEXT("UNSUPPORTED_FIELD"));
+            return true;
         }
 
         if (bModified)

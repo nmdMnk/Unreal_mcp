@@ -11,7 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Native MCP Streamable HTTP Transport** — built-in HTTP/SSE MCP server directly in the C++ plugin, no TypeScript bridge or Node.js required. AI clients connect via `http://localhost:3000/mcp`. Supports SSE streaming, multiple concurrent sessions, dynamic tool management. Opt-in via `bEnableNativeMCP` project setting.
+- **`execute_python` action** in `system_control` — execute Python code inline or from `.py` files with stdout/stderr capture, execution time tracking, and RAII temp file cleanup. Max code size: 1 MB.
+- **Capability token authentication** for native MCP transport — validates `X-MCP-Capability-Token` header when `bRequireCapabilityToken` is enabled.
+- **Native C++ self-describing tool definitions** with `FMcpSchemaBuilder` fluent API — replaces JSON schema loader. The TypeScript bridge exposes 22 canonical parent MCP tools.
+- **Dynamic tool manager** — enable/disable tools and categories at runtime via `manage_tools`, with protected tools/categories.
+- **Editor status bar indicator** — shows MCP port and active session count.
+
+### Security
+
+- **Symlink escape prevention** in `execute_python` file path validation — resolves symlinks and re-validates against project directory.
+- **Code size limit** — `execute_python` enforces 1 MB maximum for inline code payloads.
+- **Explicit request origin tracking** (`ERequestOrigin`) — routes HTTP vs WebSocket responses by explicit origin instead of inferring from `TargetSocket==nullptr`.
+- **Tool registry thread safety** — `Register()` holds `CacheMutex` for entire body; `GetAllTools()` returns copy.
+- **Dynamic tool manager protection** — `EnableCategory("all")` respects protected categories and initial state.
+
+### Changed
+
+- Tool categories now use four groups: `core`, `world`, `gameplay`, and `utility`. The singleton `authoring` category was removed, and `manage_blueprint` moved into `core`.
+- `manage_blueprint` schema: `location`, `rotation`, `scale` changed from flat number arrays to structured objects with named sub-fields — matches TypeScript schema.
+- `system_control` schema: removed `export_asset` action (not in TS) and `additionalArgs` parameter.
+- `control_editor` schema: added `set_editor_mode` action.
+- `ScanPathsSynchronous` removed from asset query/workflow handlers to prevent GameThread blocking. Documented limitation: newly-added assets may not appear until editor rescan.
+- Screenshot handler now returns `async: true` with `expectedDelay` field and timing guidance.
+
 - **`inspect_cdo` sub-action** for the `inspect` tool – inspect any Blueprint's Class Default Object without spawning an actor. Reads CDO property values via reflection. For Actor BPs, enumerates all components: native CDO components with effective override values, plus Blueprint SCS components from node templates (full parent chain). Includes parent attachment info for SCS components. Source classified as Native, SCS, or SCS_Inherited. Key fields (mesh, animClass, transform) included in summary; full property export via detailed or propertyNames filter.
+
+### Fixed
+
+- **Game Feature Plugin path validation** – `SanitizeProjectRelativePath` now uses `FPackageName::IsValidLongPackageName` instead of a manual `/Content/` heuristic, correctly recognizing all registered engine mount points (game feature plugins like `/MyGameFeature/`, `/ShooterCore/`, `/ALS/`, etc.).
+- **`manage_level: get_level_info` no longer requires the level to be loaded** – previously returned `LEVEL_NOT_FOUND` for any map asset path that hadn't already been `load_level`'d. Now falls back to `IAssetRegistry::GetAssetByObjectPath` and returns `objectPath`, `assetName`, `packageName`, `assetClass`, and the asset's `tagsAndValues` map alongside `loaded: false`. The loaded case is unchanged but now also includes `loaded: true`. Does not auto-load the level.
 
 ---
 

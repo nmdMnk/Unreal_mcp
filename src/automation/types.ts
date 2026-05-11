@@ -1,7 +1,7 @@
 import { WebSocket } from 'ws';
 
 export interface AutomationBridgeOptions {
-    host?: string;
+    host?: string | null;
     port?: number;
     ports?: number[];
     protocols?: string[];
@@ -10,6 +10,7 @@ export interface AutomationBridgeOptions {
     serverName?: string;
     serverVersion?: string;
     heartbeatIntervalMs?: number;
+    connectionTimeoutMs?: number;
     maxPendingRequests?: number;
     maxConcurrentConnections?: number;
     maxQueuedRequests?: number;
