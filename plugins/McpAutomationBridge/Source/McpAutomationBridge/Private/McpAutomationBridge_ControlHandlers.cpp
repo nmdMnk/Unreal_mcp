@@ -3605,6 +3605,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetPreferences(
       } else if (Category.Equals(TEXT("LevelEditor"), ESearchCase::IgnoreCase) && Pair.Key.Equals(TEXT("RealtimeAudio"), ESearchCase::IgnoreCase)) {
         bool BoolVal;
         if (Pair.Value->TryGetBool(BoolVal)) {
+          GEditor->MuteRealTimeAudio(!BoolVal);
           AppliedSettings.Add(Pair.Key);
         } else {
           FailedSettings.Add(Pair.Key);

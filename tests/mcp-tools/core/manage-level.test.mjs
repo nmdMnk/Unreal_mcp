@@ -24,14 +24,14 @@ const testCases = [
   { scenario: 'Setup: create test folder', toolName: 'manage_asset', arguments: { action: 'create_folder', path: TEST_FOLDER }, expected: 'success|already exists' },
 
   // === CREATE / SAVE / LOAD ===
-  { scenario: 'CREATE: create_level', toolName: 'manage_level', arguments: { action: 'create_level', levelName: `LevelMain_${ts}`, levelPath: TEST_FOLDER, useWorldPartition: false }, expected: 'success|already exists' },
+  { scenario: 'CREATE: create_level', toolName: 'manage_level', arguments: { action: 'create_level', levelName: `LevelMain_${ts}`, levelPath: TEST_FOLDER, useWorldPartition: false, saveDirtyPackages: true }, expected: 'success|already exists' },
   { scenario: 'ACTION: save', toolName: 'manage_level', arguments: { action: 'save' }, expected: 'success' },
   { scenario: 'ACTION: save_level alias', toolName: 'manage_level', arguments: { action: 'save_level' }, expected: 'success' },
   { scenario: 'ACTION: save_as', toolName: 'manage_level', arguments: { action: 'save_as', savePath: SAVE_AS_LEVEL }, expected: 'success' },
   { scenario: 'ACTION: save_level_as', toolName: 'manage_level', arguments: { action: 'save_level_as', savePath: SAVE_LEVEL_AS }, expected: 'success' },
-  { scenario: 'Setup: create sublevel', toolName: 'manage_level', arguments: { action: 'create_level', levelName: `LevelSub_${ts}`, levelPath: TEST_FOLDER, useWorldPartition: false }, expected: 'success|already exists' },
-  { scenario: 'ACTION: load', toolName: 'manage_level', arguments: { action: 'load', levelPath: MAIN_LEVEL, streaming: false }, expected: 'success' },
-  { scenario: 'ACTION: load_level alias', toolName: 'manage_level', arguments: { action: 'load_level', levelPath: MAIN_LEVEL, streaming: false }, expected: 'success' },
+  { scenario: 'Setup: create sublevel', toolName: 'manage_level', arguments: { action: 'create_level', levelName: `LevelSub_${ts}`, levelPath: TEST_FOLDER, useWorldPartition: false, saveDirtyPackages: true }, expected: 'success|already exists' },
+  { scenario: 'ACTION: load', toolName: 'manage_level', arguments: { action: 'load', levelPath: MAIN_LEVEL, streaming: false, saveDirtyPackages: true }, expected: 'success' },
+  { scenario: 'ACTION: load_level alias', toolName: 'manage_level', arguments: { action: 'load_level', levelPath: MAIN_LEVEL, streaming: false, saveDirtyPackages: true }, expected: 'success' },
   { scenario: 'Setup: spawn actor in level', toolName: 'control_actor', arguments: { action: 'spawn', classPath: '/Engine/BasicShapes/Cube', actorName: TEST_ACTOR, location: { x: 0, y: 0, z: 100 } }, expected: 'success' },
 
   // === STREAMING ===

@@ -286,6 +286,7 @@ export interface LevelArgs extends HandlerArgs {
     streaming?: boolean;
     shouldBeLoaded?: boolean;
     shouldBeVisible?: boolean;
+    saveDirtyPackages?: boolean;
     overwrite?: boolean;
     metadata?: Record<string, unknown>;
     timeoutMs?: number;

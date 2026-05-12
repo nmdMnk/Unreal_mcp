@@ -378,7 +378,9 @@ bool RestoreFileBackup(const FString& Filename, const FString& BackupFilename) {
   IFileManager::Get().Delete(*Filename, false, true, true);
   IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
   const bool bRestored = PlatformFile.CopyFile(*Filename, *BackupFilename);
-  IFileManager::Get().Delete(*BackupFilename, false, true, true);
+  if (bRestored) {
+    IFileManager::Get().Delete(*BackupFilename, false, true, true);
+  }
   return bRestored;
 }
 
@@ -432,7 +434,9 @@ bool RestoreDirectoryBackup(const FString& Directory, const FString& BackupDirec
   IFileManager::Get().MakeDirectory(*FPaths::GetPath(Directory), true);
   IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
   const bool bRestored = PlatformFile.CopyDirectoryTree(*Directory, *BackupDirectory, false);
-  IFileManager::Get().DeleteDirectory(*BackupDirectory, false, true);
+  if (bRestored) {
+    IFileManager::Get().DeleteDirectory(*BackupDirectory, false, true);
+  }
   return bRestored;
 }
 
@@ -629,13 +633,50 @@ bool CopyLevelMapPackageFile(const FString& SourcePackagePath,
   FString DestinationBuiltDataBackup;
   FString DestinationExternalActorsBackup;
   FString DestinationExternalObjectsBackup;
-  auto RestoreDestinationBackups = [&]() {
-    RestoreFileBackup(DestinationFilename, DestinationMapBackup);
-    RestoreFileBackup(DestinationBuiltDataFilename, DestinationBuiltDataBackup);
-    RestoreDirectoryBackup(ExternalActorsPlan.DestinationDirectory, DestinationExternalActorsBackup);
-    RestoreDirectoryBackup(ExternalObjectsPlan.DestinationDirectory, DestinationExternalObjectsBackup);
+  auto AppendRollbackFailure = [](FString& RollbackError, const FString& Detail) {
+    if (!RollbackError.IsEmpty()) {
+      RollbackError += TEXT("; ");
+    }
+    RollbackError += Detail;
   };
-  auto RollbackCopiedDestinationArtifacts = [&]() {
+  auto RestoreDestinationBackups = [&](FString& RollbackError) {
+    bool bRollbackSucceeded = true;
+    if (!RestoreFileBackup(DestinationFilename, DestinationMapBackup)) {
+      bRollbackSucceeded = false;
+      AppendRollbackFailure(RollbackError,
+                            FString::Printf(TEXT("failed to restore destination level backup: %s"),
+                                            *DestinationMapBackup));
+    }
+    if (!RestoreFileBackup(DestinationBuiltDataFilename, DestinationBuiltDataBackup)) {
+      bRollbackSucceeded = false;
+      AppendRollbackFailure(RollbackError,
+                            FString::Printf(TEXT("failed to restore destination built data backup: %s"),
+                                            *DestinationBuiltDataBackup));
+    }
+    if (!RestoreDirectoryBackup(ExternalActorsPlan.DestinationDirectory, DestinationExternalActorsBackup)) {
+      bRollbackSucceeded = false;
+      AppendRollbackFailure(RollbackError,
+                            FString::Printf(TEXT("failed to restore destination external actors backup: %s"),
+                                            *DestinationExternalActorsBackup));
+    }
+    if (!RestoreDirectoryBackup(ExternalObjectsPlan.DestinationDirectory, DestinationExternalObjectsBackup)) {
+      bRollbackSucceeded = false;
+      AppendRollbackFailure(RollbackError,
+                            FString::Printf(TEXT("failed to restore destination external objects backup: %s"),
+                                            *DestinationExternalObjectsBackup));
+    }
+    return bRollbackSucceeded;
+  };
+  auto RecordRollbackResult = [&](bool bRollbackSucceeded, const FString& RollbackError) {
+    if (!Result.IsValid()) {
+      Result = McpHandlerUtils::CreateResultObject();
+    }
+    Result->SetBoolField(TEXT("rollbackSucceeded"), bRollbackSucceeded);
+    if (!RollbackError.IsEmpty()) {
+      Result->SetStringField(TEXT("rollbackError"), RollbackError);
+    }
+  };
+  auto RollbackCopiedDestinationArtifacts = [&](FString& RollbackError) {
     if (DestinationMapBackup.IsEmpty()) {
       if (!DestinationFilename.IsEmpty()) {
         FileManager.Delete(*DestinationFilename, false, true, true);
@@ -656,7 +697,9 @@ bool CopyLevelMapPackageFile(const FString& SourcePackagePath,
         FileManager.DeleteDirectory(*ExternalObjectsPlan.DestinationDirectory, false, true);
       }
     }
-    RestoreDestinationBackups();
+    const bool bRollbackSucceeded = RestoreDestinationBackups(RollbackError);
+    RecordRollbackResult(bRollbackSucceeded, RollbackError);
+    return bRollbackSucceeded;
   };
   auto DeleteDestinationBackups = [&]() {
     DeleteFileBackup(DestinationMapBackup);
@@ -684,7 +727,13 @@ bool CopyLevelMapPackageFile(const FString& SourcePackagePath,
                                    ExternalObjectsPlan.bDeletedDestination,
                                    DestinationExternalObjectsBackup,
                                    ErrorMessage, ErrorCode)) {
-    RestoreDestinationBackups();
+    FString RollbackError;
+    const bool bRollbackSucceeded = RestoreDestinationBackups(RollbackError);
+    RecordRollbackResult(bRollbackSucceeded, RollbackError);
+    if (!bRollbackSucceeded) {
+      ErrorMessage += FString::Printf(TEXT(" Rollback failed: %s"), *RollbackError);
+      ErrorCode = TEXT("ROLLBACK_FAILED");
+    }
     return false;
   }
 
@@ -696,10 +745,14 @@ bool CopyLevelMapPackageFile(const FString& SourcePackagePath,
   IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
   const bool bCopiedMap = PlatformFile.CopyFile(*DestinationFilename, *SourceFilename);
   if (!bCopiedMap) {
-    RollbackCopiedDestinationArtifacts();
+    FString RollbackError;
+    const bool bRollbackSucceeded = RollbackCopiedDestinationArtifacts(RollbackError);
     ErrorMessage = FString::Printf(TEXT("Failed to copy level file from %s to %s"),
                                    *SourcePackagePath, *DestinationPackagePath);
-    ErrorCode = TEXT("COPY_FAILED");
+    if (!bRollbackSucceeded) {
+      ErrorMessage += FString::Printf(TEXT(" Rollback failed: %s"), *RollbackError);
+    }
+    ErrorCode = bRollbackSucceeded ? TEXT("COPY_FAILED") : TEXT("ROLLBACK_FAILED");
     return false;
   }
 
@@ -708,11 +761,15 @@ bool CopyLevelMapPackageFile(const FString& SourcePackagePath,
     FileManager.MakeDirectory(*FPaths::GetPath(DestinationBuiltDataFilename), true);
     bCopiedBuiltData = PlatformFile.CopyFile(*DestinationBuiltDataFilename, *SourceBuiltDataFilename);
     if (!bCopiedBuiltData) {
-      RollbackCopiedDestinationArtifacts();
+      FString RollbackError;
+      const bool bRollbackSucceeded = RollbackCopiedDestinationArtifacts(RollbackError);
       ErrorMessage = FString::Printf(
           TEXT("Failed to copy built data from %s to %s"),
           *SourceBuiltDataPackagePath, *DestinationBuiltDataPackagePath);
-      ErrorCode = TEXT("COPY_FAILED");
+      if (!bRollbackSucceeded) {
+        ErrorMessage += FString::Printf(TEXT(" Rollback failed: %s"), *RollbackError);
+      }
+      ErrorCode = bRollbackSucceeded ? TEXT("COPY_FAILED") : TEXT("ROLLBACK_FAILED");
       return false;
     }
   }
@@ -724,12 +781,16 @@ bool CopyLevelMapPackageFile(const FString& SourcePackagePath,
         *ExternalActorsPlan.DestinationDirectory,
         *ExternalActorsPlan.SourceDirectory, false);
     if (!bCopiedExternalActors) {
-      RollbackCopiedDestinationArtifacts();
+      FString RollbackError;
+      const bool bRollbackSucceeded = RollbackCopiedDestinationArtifacts(RollbackError);
       ErrorMessage = FString::Printf(
           TEXT("Failed to copy external actors from %s to %s"),
           *ExternalActorsPlan.SourceDirectory,
           *ExternalActorsPlan.DestinationDirectory);
-      ErrorCode = TEXT("COPY_FAILED");
+      if (!bRollbackSucceeded) {
+        ErrorMessage += FString::Printf(TEXT(" Rollback failed: %s"), *RollbackError);
+      }
+      ErrorCode = bRollbackSucceeded ? TEXT("COPY_FAILED") : TEXT("ROLLBACK_FAILED");
       return false;
     }
   }
@@ -742,12 +803,16 @@ bool CopyLevelMapPackageFile(const FString& SourcePackagePath,
         *ExternalObjectsPlan.DestinationDirectory,
         *ExternalObjectsPlan.SourceDirectory, false);
     if (!bCopiedExternalObjects) {
-      RollbackCopiedDestinationArtifacts();
+      FString RollbackError;
+      const bool bRollbackSucceeded = RollbackCopiedDestinationArtifacts(RollbackError);
       ErrorMessage = FString::Printf(
           TEXT("Failed to copy external objects from %s to %s"),
           *ExternalObjectsPlan.SourceDirectory,
           *ExternalObjectsPlan.DestinationDirectory);
-      ErrorCode = TEXT("COPY_FAILED");
+      if (!bRollbackSucceeded) {
+        ErrorMessage += FString::Printf(TEXT(" Rollback failed: %s"), *RollbackError);
+      }
+      ErrorCode = bRollbackSucceeded ? TEXT("COPY_FAILED") : TEXT("ROLLBACK_FAILED");
       return false;
     }
   }
@@ -1097,6 +1162,8 @@ bool UMcpAutomationBridgeSubsystem::HandleLevelAction(
       // Map to Open command
       FString LevelPath;
       Payload->TryGetStringField(TEXT("levelPath"), LevelPath);
+      bool bSaveDirtyPackages = false;
+      Payload->TryGetBoolField(TEXT("saveDirtyPackages"), bSaveDirtyPackages);
 
       // Determine invalid characters for checks
       if (LevelPath.IsEmpty()) {
@@ -1218,6 +1285,21 @@ bool UMcpAutomationBridgeSubsystem::HandleLevelAction(
       int32 DirtyContentPackagesAfterSave = 0;
       int32 FailedDirtyPackageSaves = 0;
       if (FApp::IsUnattended() || IsRunningCommandlet() || FParse::Param(FCommandLine::Get(), TEXT("nullrhi"))) {
+        CountBlockingDirtyPackages(DirtyWorldPackagesBeforeLoad, DirtyContentPackagesBeforeLoad);
+        if (DirtyWorldPackagesBeforeLoad + DirtyContentPackagesBeforeLoad > 0 && !bSaveDirtyPackages) {
+          TSharedPtr<FJsonObject> ErrorDetails = McpHandlerUtils::CreateResultObject();
+          ErrorDetails->SetNumberField(TEXT("dirtyWorldPackages"), DirtyWorldPackagesBeforeLoad);
+          ErrorDetails->SetNumberField(TEXT("dirtyContentPackages"), DirtyContentPackagesBeforeLoad);
+          ErrorDetails->SetBoolField(TEXT("saveDirtyPackages"), bSaveDirtyPackages);
+          ErrorDetails->SetStringField(TEXT("levelPath"), LevelPath);
+          SendAutomationResponse(
+              RequestingSocket, RequestId, false,
+              TEXT("Cannot load a level in unattended/headless mode while packages are dirty. Pass saveDirtyPackages=true to save them before loading."),
+              ErrorDetails, TEXT("DIRTY_PACKAGES"));
+          return true;
+        }
+
+        if (bSaveDirtyPackages) {
         bSavedDirtyPackagesBeforeLoad = SaveBlockingDirtyPackagesForLevelLoad(
             DirtyWorldPackagesBeforeLoad, DirtyContentPackagesBeforeLoad,
             DirtyWorldPackagesAfterSave, DirtyContentPackagesAfterSave,
@@ -1236,6 +1318,7 @@ bool UMcpAutomationBridgeSubsystem::HandleLevelAction(
               TEXT("Cannot load a level in unattended/headless mode while packages remain dirty after non-interactive save."),
               ErrorDetails, TEXT("DIRTY_PACKAGES"));
           return true;
+        }
         }
       }
 
@@ -1260,6 +1343,7 @@ bool UMcpAutomationBridgeSubsystem::HandleLevelAction(
         TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
         Resp->SetStringField(TEXT("requestedPath"), LevelPath);
         Resp->SetStringField(TEXT("loadedPath"), ExpectedLoadedPath);
+        Resp->SetBoolField(TEXT("saveDirtyPackages"), bSaveDirtyPackages);
         Resp->SetBoolField(TEXT("savedDirtyPackagesBeforeLoad"), bSavedDirtyPackagesBeforeLoad);
         Resp->SetNumberField(TEXT("dirtyWorldPackagesBeforeLoad"), DirtyWorldPackagesBeforeLoad);
         Resp->SetNumberField(TEXT("dirtyContentPackagesBeforeLoad"), DirtyContentPackagesBeforeLoad);

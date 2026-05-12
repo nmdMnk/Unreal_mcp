@@ -154,7 +154,8 @@ export async function handleLevelTools(action: string, args: HandlerArgs, tools:
 
       const loadRes = await executeAutomationRequest(tools, 'manage_level', {
         action: 'load',
-        levelPath: createdLevelPath
+        levelPath: createdLevelPath,
+        saveDirtyPackages: argsTyped.saveDirtyPackages === true
       }) as Record<string, unknown>;
       if (loadRes.success !== true) {
         return cleanObject(loadRes);
