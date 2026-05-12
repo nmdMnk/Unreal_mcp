@@ -4,6 +4,12 @@
  */
 
 export const commonSchemas = {
+  actionParams: {
+    type: 'object',
+    description: 'Optional action-specific parameters. These are merged with top-level arguments before routing for clients that cannot send arbitrary top-level fields.',
+    additionalProperties: true
+  },
+
   // ============================================
   // TRANSFORM & VECTOR SCHEMAS
   // ============================================
@@ -556,6 +562,22 @@ export function createOutputSchema(additionalProperties: Record<string, unknown>
       ...additionalProperties
     }
   };
+}
+
+export function addActionParamsSchema(definitions: Array<{ inputSchema: Record<string, unknown> }>): void {
+  for (const definition of definitions) {
+    const schema = definition.inputSchema;
+    const rawProperties = schema.properties;
+    if (!rawProperties || typeof rawProperties !== 'object' || Array.isArray(rawProperties)) continue;
+
+    const properties = rawProperties as Record<string, unknown>;
+    if (properties.action === undefined || properties.params !== undefined) continue;
+
+    properties.params = commonSchemas.actionParams;
+    if (schema.additionalProperties === undefined) {
+      schema.additionalProperties = true;
+    }
+  }
 }
 
 /**

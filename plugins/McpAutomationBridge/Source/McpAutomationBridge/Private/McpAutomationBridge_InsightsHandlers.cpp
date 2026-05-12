@@ -127,7 +127,9 @@ bool UMcpAutomationBridgeSubsystem::HandleInsightsAction(
 
         // Build response
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
-        Result->SetStringField(TEXT("action"), TEXT("start_trace"));
+        Result->SetStringField(TEXT("action"), TEXT("manage_insights"));
+        Result->SetStringField(TEXT("subAction"), TEXT("start_session"));
+        Result->SetStringField(TEXT("traceAction"), TEXT("start_trace"));
         Result->SetStringField(TEXT("status"), TEXT("started"));
         if (bHasChannels)
         {

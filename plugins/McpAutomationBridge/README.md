@@ -15,7 +15,7 @@ An Unreal Engine editor plugin that enables AI assistants (Claude, Cursor, Winds
 | **Asset Management** | Browse, import, duplicate, rename, delete assets; create materials |
 | **Actor Control** | Spawn, delete, transform, physics, tags, components |
 | **Editor Control** | PIE sessions, camera, viewport, screenshots, bookmarks |
-| **Level Management** | Load/save levels, streaming, World Partition, data layers |
+| **Level Management** | Load/save levels, streaming, lighting |
 | **Animation & Physics** | Animation BPs, state machines, ragdolls, vehicles, constraints |
 | **Visual Effects** | Niagara particles, GPU simulations, procedural effects |
 | **Sequencer** | Cinematics, timeline control, camera animations |

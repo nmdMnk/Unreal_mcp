@@ -38,24 +38,22 @@ describe('handleLevelTools path normalization', () => {
     }, {});
   });
 
-  it('normalizes load_cells levelPath after preserving extra arguments', async () => {
+  it('keeps World Partition actions out of manage_level dispatch', async () => {
     const { tools, sendAutomationRequest } = createTools();
 
-    await handleLevelTools('load_cells', {
+    const result = await handleLevelTools('load_cells', {
       action: 'load_cells',
       levelPath: String.raw`Content\Maps\Demo`,
       cells: ['Cell_0'],
       customFlag: true
     }, tools);
 
-    expect(sendAutomationRequest).toHaveBeenCalledWith('manage_world_partition', {
+    expect(sendAutomationRequest).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      success: false,
+      error: 'INVALID_ACTION',
       action: 'load_cells',
-      levelPath: '/Game/Maps/Demo',
-      cells: ['Cell_0'],
-      customFlag: true,
-      subAction: 'load_cells',
-      origin: undefined,
-      extent: undefined
-    }, {});
+      tool: 'manage_level_structure'
+    });
   });
 });

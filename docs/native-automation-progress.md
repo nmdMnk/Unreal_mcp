@@ -40,7 +40,7 @@ This document tracks ongoing work to replace stubbed or registry-based fallbacks
 
 | Action | Current State | Needed Work |
 | --- | --- | --- |
-| `manage_level` (world partition) | Implemented (`load_cells`, `set_datalayer`). | ✅ Done (UE 5.7+ support added) |
+| `manage_level_structure` / world partition handlers | Implemented (`enable_world_partition`, data-layer/world-partition support). | ✅ Done (UE 5.7+ support added) |
 
 ## Input System
 

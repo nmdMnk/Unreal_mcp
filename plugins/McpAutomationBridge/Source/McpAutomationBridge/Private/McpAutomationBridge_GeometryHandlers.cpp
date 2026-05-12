@@ -496,14 +496,59 @@ static bool HandleCreateBox(UMcpAutomationBridgeSubsystem* Self, const FString& 
 
     FTransform Transform = ReadTransformFromPayload(Payload);
 
-    // Get dimensions with safety clamping
-    double Width = ClampDimension(GetNumberFieldGeom(Payload, TEXT("width"), 100.0));
-    double Height = ClampDimension(GetNumberFieldGeom(Payload, TEXT("height"), 100.0));
-    double Depth = ClampDimension(GetNumberFieldGeom(Payload, TEXT("depth"), 100.0));
- 
+    double Width = GetNumberFieldGeom(Payload, TEXT("width"), 100.0);
+    double Height = GetNumberFieldGeom(Payload, TEXT("height"), 100.0);
+    double Depth = GetNumberFieldGeom(Payload, TEXT("depth"), 100.0);
+
+    const TSharedPtr<FJsonObject>* DimensionsObject = nullptr;
+    if (Payload.IsValid() && Payload->TryGetObjectField(TEXT("dimensions"), DimensionsObject) && DimensionsObject && DimensionsObject->IsValid())
+    {
+        (*DimensionsObject)->TryGetNumberField(TEXT("width"), Width);
+        (*DimensionsObject)->TryGetNumberField(TEXT("height"), Height);
+        (*DimensionsObject)->TryGetNumberField(TEXT("depth"), Depth);
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Dimensions = nullptr;
+    if (Payload.IsValid() && Payload->TryGetArrayField(TEXT("dimensions"), Dimensions) && Dimensions && Dimensions->Num() >= 3)
+    {
+        Width = (*Dimensions)[0]->AsNumber();
+        Height = (*Dimensions)[1]->AsNumber();
+        Depth = (*Dimensions)[2]->AsNumber();
+    }
+
+    if (Width <= 0.0 || Height <= 0.0 || Depth <= 0.0)
+    {
+        Self->SendAutomationError(Socket, RequestId, TEXT("Box dimensions must be positive"), TEXT("INVALID_ARGUMENT"));
+        return true;
+    }
+
+    const bool bDimensionsClamped = Width > MAX_DIMENSION || Height > MAX_DIMENSION || Depth > MAX_DIMENSION;
+    Width = ClampDimension(Width);
+    Height = ClampDimension(Height);
+    Depth = ClampDimension(Depth);
+
     int32 WidthSegments = ClampSegments(GetIntFieldGeom(Payload, TEXT("widthSegments"), 1));
     int32 HeightSegments = ClampSegments(GetIntFieldGeom(Payload, TEXT("heightSegments"), 1));
     int32 DepthSegments = ClampSegments(GetIntFieldGeom(Payload, TEXT("depthSegments"), 1));
+
+    const int64 EstimatedTriangles = 2LL * (static_cast<int64>(WidthSegments) * HeightSegments +
+                                            static_cast<int64>(WidthSegments) * DepthSegments +
+                                            static_cast<int64>(HeightSegments) * DepthSegments);
+    if (EstimatedTriangles > MAX_TRIANGLES_PER_DYNAMIC_MESH)
+    {
+        Self->SendAutomationError(Socket, RequestId,
+            FString::Printf(TEXT("Box segment counts would create too many triangles: %lld"), EstimatedTriangles),
+            TEXT("TOO_MANY_TRIANGLES"));
+        return true;
+    }
+
+    if (!IsMemoryPressureSafe())
+    {
+        Self->SendAutomationError(Socket, RequestId,
+            FString::Printf(TEXT("Memory pressure too high for geometry creation: %.1f%%"), GetMemoryUsagePercent()),
+            TEXT("MEMORY_PRESSURE"));
+        return true;
+    }
 
     // Create DynamicMesh
     UDynamicMesh* DynMesh = GetOrCreateDynamicMesh(GetTransientPackage());
@@ -539,6 +584,8 @@ static bool HandleCreateBox(UMcpAutomationBridgeSubsystem* Self, const FString& 
     Result->SetNumberField(TEXT("width"), Width);
     Result->SetNumberField(TEXT("height"), Height);
     Result->SetNumberField(TEXT("depth"), Depth);
+    Result->SetNumberField(TEXT("estimatedTriangles"), static_cast<double>(EstimatedTriangles));
+    Result->SetBoolField(TEXT("dimensionsClamped"), bDimensionsClamped);
     
     // Add verification data
     McpHandlerUtils::AddVerification(Result, NewActor);

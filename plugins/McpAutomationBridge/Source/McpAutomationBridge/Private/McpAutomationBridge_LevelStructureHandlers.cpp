@@ -231,6 +231,7 @@ static bool HandleCreateLevel(
     bool bCreateWorldPartition = GetJsonBoolField(Payload, TEXT("bCreateWorldPartition"), false);
     bool bUseExternalActors = GetJsonBoolField(Payload, TEXT("bUseExternalActors"), false);
     bool bSave = GetJsonBoolField(Payload, TEXT("save"), true);
+    bool bLoadAfterCreate = GetJsonBoolField(Payload, TEXT("loadAfterCreate"), false);
 
     // CRITICAL: When creating a World Partition level, OFPA (External Actors) should be enabled
     // for data layer support. If bCreateWorldPartition is true but bUseExternalActors is not specified,
@@ -277,6 +278,19 @@ static bool HandleCreateLevel(
             Result->SetStringField(TEXT("levelPath"), FullPath);
             Result->SetBoolField(TEXT("exists"), true);
             Result->SetBoolField(TEXT("alreadyExisted"), true);
+            if (bLoadAfterCreate) {
+                const bool bLoaded = McpSafeLoadMap(FullPath, true);
+                Result->SetBoolField(TEXT("loaded"), bLoaded);
+                if (GEditor && GEditor->GetEditorWorldContext().World()) {
+                    Result->SetStringField(TEXT("currentLevelPath"), GEditor->GetEditorWorldContext().World()->GetOutermost()->GetName());
+                }
+                if (!bLoaded) {
+                    Subsystem->SendAutomationResponse(Socket, RequestId, false,
+                        FString::Printf(TEXT("Level exists but could not be loaded: %s"), *FullPath),
+                        Result, TEXT("LOAD_FAILED"));
+                    return true;
+                }
+            }
             Subsystem->SendAutomationResponse(Socket, RequestId, true,
                 FString::Printf(TEXT("Level already exists: %s"), *FullPath),
                 Result, FString());
@@ -292,6 +306,19 @@ static bool HandleCreateLevel(
         Result->SetStringField(TEXT("levelPath"), FullPath);
         Result->SetBoolField(TEXT("exists"), true);
         Result->SetBoolField(TEXT("alreadyExisted"), true);
+        if (bLoadAfterCreate) {
+            const bool bLoaded = McpSafeLoadMap(FullPath, true);
+            Result->SetBoolField(TEXT("loaded"), bLoaded);
+            if (GEditor && GEditor->GetEditorWorldContext().World()) {
+                Result->SetStringField(TEXT("currentLevelPath"), GEditor->GetEditorWorldContext().World()->GetOutermost()->GetName());
+            }
+            if (!bLoaded) {
+                Subsystem->SendAutomationResponse(Socket, RequestId, false,
+                    FString::Printf(TEXT("Level exists but could not be loaded: %s"), *FullPath),
+                    Result, TEXT("LOAD_FAILED"));
+                return true;
+            }
+        }
         Subsystem->SendAutomationResponse(Socket, RequestId, true,
             FString::Printf(TEXT("Level already exists: %s"), *FullPath),
             Result, FString());
@@ -513,6 +540,23 @@ static bool HandleCreateLevel(
         FlushRenderingCommands();
         
         UE_LOG(LogMcpLevelStructureHandlers, Log, TEXT("HandleCreateLevel: World cleaned up from memory: %s"), *FullPath);
+    }
+
+    if (bLoadAfterCreate)
+    {
+        const bool bLoaded = McpSafeLoadMap(FullPath, true);
+        ResponseJson->SetBoolField(TEXT("loaded"), bLoaded);
+        if (GEditor && GEditor->GetEditorWorldContext().World())
+        {
+            ResponseJson->SetStringField(TEXT("currentLevelPath"), GEditor->GetEditorWorldContext().World()->GetOutermost()->GetName());
+        }
+        if (!bLoaded)
+        {
+            Subsystem->SendAutomationResponse(Socket, RequestId, false,
+                FString::Printf(TEXT("Level created but could not be loaded: %s"), *FullPath),
+                ResponseJson, TEXT("LOAD_FAILED"));
+            return true;
+        }
     }
 
     FString Message = FString::Printf(TEXT("Created level: %s"), *FullPath);

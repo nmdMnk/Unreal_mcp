@@ -104,6 +104,10 @@ public:
 			.Number(TEXT("width"), TEXT("Width value."))
 			.Number(TEXT("height"), TEXT("Height value."))
 			.Number(TEXT("depth"), TEXT("Depth value."))
+			.Object(TEXT("dimensions"), TEXT("Box dimensions (width, height, depth)."),
+				[](FMcpSchemaBuilder& S) {
+					S.Number(TEXT("width")).Number(TEXT("height")).Number(TEXT("depth"));
+				})
 			.Number(TEXT("radius"), TEXT("Radius value."))
 			.Number(TEXT("innerRadius"), TEXT("Inner radius for torus."))
 			.Number(TEXT("numSides"),

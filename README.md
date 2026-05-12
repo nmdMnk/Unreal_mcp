@@ -33,7 +33,7 @@ A comprehensive Model Context Protocol (MCP) server that enables AI assistants t
 | **Asset Management** | Browse, import, duplicate, rename, delete assets; create materials |
 | **Actor Control** | Spawn, delete, transform, physics, tags, components |
 | **Editor Control** | PIE sessions, camera, viewport, screenshots, bookmarks |
-| **Level Management** | Load/save levels, streaming, World Partition, data layers |
+| **Level Management** | Load/save levels, streaming, lighting |
 | **Animation & Physics** | Animation BPs, state machines, ragdolls, vehicles, constraints |
 | **Visual Effects** | Niagara particles, GPU simulations, procedural effects, debug shapes |
 | **Sequencer** | Cinematics, timeline control, camera animations, keyframes |
@@ -346,7 +346,7 @@ MCP_AUTOMATION_HOST=0.0.0.0
 | `manage_blueprint` | Blueprints, SCS components, graph editing, UMG widgets, layout, bindings, animations |
 | `control_actor` | Spawn, delete, transform, physics, tags |
 | `control_editor` | PIE, Camera, viewport, screenshots |
-| `manage_level` | Load/Save, World Partition, streaming |
+| `manage_level` | Load/save, streaming, lighting |
 | `system_control` | UBT, Tests, Logs, Project Settings, CVars, Python Execution |
 | `inspect` | Object Introspection |
 | `manage_tools` | Dynamic tool management (enable/disable at runtime) |

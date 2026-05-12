@@ -245,11 +245,11 @@ bool UMcpAutomationBridgeSubsystem::HandleAssetAction(
   // Asset Operations
   if (Lower == TEXT("import"))
     return HandleImportAsset(RequestId, Payload, RequestingSocket);
-  if (Lower == TEXT("duplicate"))
+  if (Lower == TEXT("duplicate") || Lower == TEXT("duplicate_asset"))
     return HandleDuplicateAsset(RequestId, Payload, RequestingSocket);
-  if (Lower == TEXT("rename"))
+  if (Lower == TEXT("rename") || Lower == TEXT("rename_asset"))
     return HandleRenameAsset(RequestId, Payload, RequestingSocket);
-  if (Lower == TEXT("move"))
+  if (Lower == TEXT("move") || Lower == TEXT("move_asset"))
     return HandleMoveAsset(RequestId, Payload, RequestingSocket);
   if (Lower == TEXT("delete") || Lower == TEXT("delete_asset") || Lower == TEXT("delete_assets"))
     return HandleDeleteAssets(RequestId, Payload, RequestingSocket);
@@ -2954,6 +2954,8 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateMaterial(
   Payload->TryGetStringField(TEXT("name"), Name);
   FString Path;
   Payload->TryGetStringField(TEXT("path"), Path);
+  bool bSave = false;
+  Payload->TryGetBoolField(TEXT("save"), bSave);
 
   if (Name.IsEmpty() || Path.IsEmpty()) {
     SendAutomationResponse(Socket, RequestId, false,
@@ -3000,9 +3002,20 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateMaterial(
       AssetTools.CreateAsset(Name, Path, UMaterial::StaticClass(), Factory);
 
   if (NewAsset) {
+    bool bSaved = false;
+    if (bSave) {
+      bSaved = McpSafeAssetSave(NewAsset);
+      if (!bSaved) {
+        SendAutomationResponse(Socket, RequestId, false,
+                               TEXT("Material created but save failed"), nullptr,
+                               TEXT("SAVE_FAILED"));
+        return true;
+      }
+    }
     TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     Resp->SetBoolField(TEXT("success"), true);
     Resp->SetStringField(TEXT("assetPath"), NewAsset->GetPathName());
+    Resp->SetBoolField(TEXT("saved"), bSaved);
     SendAutomationResponse(Socket, RequestId, true, TEXT("Material created"),
                            Resp, FString());
   } else {
@@ -3027,6 +3040,8 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateMaterialInstance(
   Payload->TryGetStringField(TEXT("path"), Path);
   FString ParentPath;
   Payload->TryGetStringField(TEXT("parentMaterial"), ParentPath);
+  bool bSave = false;
+  Payload->TryGetBoolField(TEXT("save"), bSave);
 
   if (Name.IsEmpty() || Path.IsEmpty() || ParentPath.IsEmpty()) {
     SendAutomationResponse(Socket, RequestId, false,
@@ -3140,9 +3155,21 @@ bool UMcpAutomationBridgeSubsystem::HandleCreateMaterialInstance(
       }
     }
 
+    bool bSaved = false;
+    if (bSave) {
+      bSaved = McpSafeAssetSave(NewAsset);
+      if (!bSaved) {
+        SendAutomationResponse(Socket, RequestId, false,
+                               TEXT("Material Instance created but save failed"), nullptr,
+                               TEXT("SAVE_FAILED"));
+        return true;
+      }
+    }
+
     TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
     Resp->SetBoolField(TEXT("success"), true);
     Resp->SetStringField(TEXT("assetPath"), NewAsset->GetPathName());
+    Resp->SetBoolField(TEXT("saved"), bSaved);
     SendAutomationResponse(Socket, RequestId, true,
                            TEXT("Material Instance created"), Resp, FString());
   } else {

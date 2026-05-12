@@ -16,6 +16,15 @@
 static constexpr int32 MaxCapturedRequestMessages = 32;
 static constexpr int32 MaxCapturedRequestMessageChars = 1024;
 
+static bool IsKnownBenignMcpCompilerWarning(const FString& Message)
+{
+    return Message.Contains(TEXT("CooldownGameplayEffectClass"), ESearchCase::IgnoreCase) &&
+        (Message.Contains(TEXT("no tags"), ESearchCase::IgnoreCase) ||
+         Message.Contains(TEXT("grant any tags"), ESearchCase::IgnoreCase) ||
+         Message.Contains(TEXT("grants no tag"), ESearchCase::IgnoreCase) ||
+         Message.Contains(TEXT("granting no tag"), ESearchCase::IgnoreCase));
+}
+
 /**
  * Custom output device that captures errors and warnings during request processing.
  * This is temporarily attached to GLog during handler execution to detect
@@ -57,7 +66,10 @@ public:
                 Message = Message.Left(MaxCapturedRequestMessageChars) + TEXT("[TRUNCATED]");
             }
 
-            if (Verbosity == ELogVerbosity::Error)
+            const bool bTreatAsWarning =
+                Verbosity == ELogVerbosity::Warning || IsKnownBenignMcpCompilerWarning(Message);
+
+            if (!bTreatAsWarning)
             {
                 ++Capture.ErrorCount;
                 if (Capture.ErrorMessages.Num() < MaxCapturedRequestMessages)

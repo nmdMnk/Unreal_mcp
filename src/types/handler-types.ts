@@ -286,14 +286,8 @@ export interface LevelArgs extends HandlerArgs {
     streaming?: boolean;
     shouldBeLoaded?: boolean;
     shouldBeVisible?: boolean;
-    dataLayerLabel?: string;
-    dataLayerName?: string;
-    dataLayerState?: string;
-    actorPath?: string;
-    min?: number[];
-    max?: number[];
-    origin?: number[];
-    extent?: number[];
+    saveDirtyPackages?: boolean;
+    overwrite?: boolean;
     metadata?: Record<string, unknown>;
     timeoutMs?: number;
     useWorldPartition?: boolean;
