@@ -78,6 +78,7 @@ private:
 		FString SessionId;   // from Mcp-Session-Id header
 		FString Accept;      // from Accept header
 		FString CapabilityToken;  // from X-MCP-Capability-Token header
+		FString Origin;      // from Origin header for browser CORS validation
 		int32 ContentLength = 0;
 	};
 
@@ -105,6 +106,13 @@ private:
 		std::atomic<bool> bMarkedForRemoval{false};
 	};
 
+	enum class ESessionValidationResult
+	{
+		Valid,
+		Missing,
+		Invalid
+	};
+
 	// Accept loop: handle one client connection (runs on ThreadPool)
 	void HandleConnection(FSocket* ClientSocket);
 
@@ -113,10 +121,15 @@ private:
 
 	// HTTP parsing and response helpers
 	bool ReadHttpRequest(FSocket* Socket, FParsedHttpRequest& OutRequest);
+	bool IsCorsEnabled() const;
+	bool IsAllowedCorsOrigin(const FString& Origin) const;
+	void AppendCorsHeaders(FString& Response, const FString& Origin) const;
 	bool SendHttpResponse(FSocket* Socket, int32 StatusCode,
 		const FString& ContentType, const FString& Body,
-		const TMap<FString, FString>& ExtraHeaders = {});
-	bool SendSSEHeaders(FSocket* Socket, const FString& SessionId);
+		const TMap<FString, FString>& ExtraHeaders = {},
+		const FString& CorsOrigin = FString());
+	bool SendSSEHeaders(FSocket* Socket, const FString& SessionId,
+		const FString& CorsOrigin = FString());
 	static bool WriteSSEEvent(FSSEConnection& Conn, const FString& EventData);
 
 	// JSON-RPC method handlers (return response body string)
@@ -125,16 +138,19 @@ private:
 	FString HandleToolsList(const TSharedPtr<FJsonValue>& Id);
 	void HandleToolsCall(const TSharedPtr<FJsonObject>& Params,
 		const TSharedPtr<FJsonValue>& Id, FSocket* ClientSocket,
-		const FString& SessionId);
+		const FString& SessionId, const FString& CorsOrigin);
 
 	// Session validation
-	bool ValidateSession(const FString& SessionId, FString& OutError);
+	ESessionValidationResult ValidateSession(const FString& SessionId, FString& OutError);
+	static int32 GetSessionValidationStatusCode(ESessionValidationResult Result);
+	void TouchSession(const FString& SessionId);
 
 	void OnToolsListChanged();
 	void BroadcastToolsListChanged();
 
 	// Persistent notification stream helpers (GET /mcp)
-	void HandleGetMcp(FSocket* ClientSocket, const FString& SessionId);
+	void HandleGetMcp(FSocket* ClientSocket, const FString& SessionId,
+		const FString& CorsOrigin);
 	static bool WriteNotificationEvent(FNotificationStream& Stream, const FString& EventData);
 	static bool WriteNotificationKeepalive(FNotificationStream& Stream);
 	void CloseNotificationStream(TSharedPtr<FNotificationStream> Stream);
