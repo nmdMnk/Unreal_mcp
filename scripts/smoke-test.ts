@@ -34,6 +34,19 @@ const requests = [
         id: 2,
         method: 'tools/list',
         params: {}
+    },
+    {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: {
+            name: 'manage_tools',
+            arguments: {
+                params: {
+                    action: 'get_status'
+                }
+            }
+        }
     }
 ];
 
@@ -62,6 +75,16 @@ child.stdout.on('data', (data) => {
 
             if (msg.id === 2 && msg.result) {
                 console.log(`✅ Tools check success: Found ${msg.result.tools?.length || 0} tools`);
+                child.stdin.write(JSON.stringify(requests[2]) + '\n');
+            }
+
+            if (msg.id === 3 && msg.result) {
+                const textContent = msg.result.content?.[0]?.text;
+                const payload = typeof textContent === 'string' ? JSON.parse(textContent) : {};
+                if (!payload.success || payload.totalTools !== 22) {
+                    throw new Error('manage_tools params smoke check failed');
+                }
+                console.log('✅ manage_tools params check success');
                 passed = true;
                 child.kill();
             }

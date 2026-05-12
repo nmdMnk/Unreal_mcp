@@ -7,7 +7,7 @@ export interface ToolDefinition {
   outputSchema?: Record<string, unknown>;
   [key: string]: unknown;
 }
-import { commonSchemas } from './tool-definition-utils.js';
+import { addActionParamsSchema, commonSchemas } from './tool-definition-utils.js';
 
 /** Canonical list of material authoring actions — single source of truth for schema and handler. */
 export const MATERIAL_AUTHORING_ACTIONS = [
@@ -795,14 +795,14 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_level',
     category: 'core',
-    description: 'Load/save levels, configure streaming, manage World Partition cells, and build lighting.',
+    description: 'Load/save levels, configure streaming, and build lighting.',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
           enum: [
-            'load', 'save', 'save_as', 'save_level_as', 'stream', 'unload', 'create_level', 'create_light', 'build_lighting',
+            'load', 'load_level', 'save', 'save_level', 'save_as', 'save_level_as', 'stream', 'unload', 'unload_level', 'create_level', 'create_light', 'build_lighting',
             'set_metadata',
             'export_level', 'import_level', 'list_levels', 'get_summary', 'delete', 'delete_level', 'validate_level',
             'add_sublevel', 'rename_level', 'duplicate_level', 'get_current_level'
@@ -811,17 +811,22 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         },
         // Level path parameters
         levelPath: commonSchemas.levelPath,
+        assetPath: commonSchemas.assetPath,
         levelPaths: commonSchemas.arrayOfStrings,
         levelName: commonSchemas.stringProp,
         path: commonSchemas.directoryPathForCreation,
         // Save/export/import paths
         savePath: commonSchemas.savePath,
         destinationPath: commonSchemas.destinationPath,
+        overwrite: commonSchemas.overwrite,
+        targetPath: commonSchemas.directoryPath,
         exportPath: commonSchemas.exportPath,
         packagePath: commonSchemas.directoryPath,
         sourcePath: commonSchemas.sourcePath,
         // Sublevel parameters
         sublevelPath: commonSchemas.levelPath,
+        parentLevel: commonSchemas.parentLevel,
+        parentPath: commonSchemas.directoryPath,
         streamingMethod: commonSchemas.stringProp,
         // Streaming control
         streaming: commonSchemas.booleanProp,
@@ -834,6 +839,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         location: commonSchemas.location,
         rotation: commonSchemas.rotation,
         // Level creation
+        template: commonSchemas.stringProp,
         useWorldPartition: commonSchemas.booleanProp,
         // Metadata & utilities
         metadata: commonSchemas.objectProp,
@@ -3409,3 +3415,5 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   },
 
 ];
+
+addActionParamsSchema(consolidatedToolDefinitions);

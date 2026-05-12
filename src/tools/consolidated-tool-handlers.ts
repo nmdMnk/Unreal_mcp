@@ -130,6 +130,18 @@ function normalizeToolCall(
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function mergeActionParams(args: Record<string, unknown>): Record<string, unknown> {
+  if (!isRecord(args.params)) return args;
+
+  const merged = { ...args.params, ...args };
+  delete merged.params;
+  return merged;
+}
+
 function registerDefaultHandlers() {
   toolRegistry.register('manage_asset', async (args, tools) => {
     const action = getToolAction(args);
@@ -219,10 +231,13 @@ function registerDefaultHandlers() {
       if (channels && !/^[A-Za-z0-9_, -]+$/.test(channels)) {
         return { success: false, error: 'INVALID_CHANNELS', message: 'Trace channels contain unsupported characters.' };
       }
-      await handleConsoleCommand({ command: 'Trace.Stop' }, tools);
-      const command = channels ? `Trace.File ${channels}` : 'Trace.File';
-      const res = await handleConsoleCommand({ command }, tools);
-      return cleanObject({ ...res, action, channels });
+      const res = await executeAutomationRequest(tools, 'manage_insights', {
+        ...args,
+        action,
+        subAction: action,
+        channels
+      }, 'Bridge unavailable') as Record<string, unknown>;
+      return cleanObject({ ...res, action, channels, sessionType: 'trace' });
     }
     if (action === 'lumen_update_scene') return cleanObject(await executeAutomationRequest(tools, 'manage_render', { ...args, subAction: action }, 'Bridge unavailable'));
     return await handleSystemTools(action, args, tools);
@@ -286,7 +301,8 @@ export async function handleConsolidatedToolCall(
   const startTime = Date.now();
 
   try {
-    const normalized = normalizeToolCall(name, args);
+    const expandedArgs = mergeActionParams(args);
+    const normalized = normalizeToolCall(name, expandedArgs);
     const normalizedArgs = normalized.args;
 
     if (normalized.action && !normalizedArgs.action) {

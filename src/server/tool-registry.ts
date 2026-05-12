@@ -52,6 +52,14 @@ function clientSupportsListChanged(clientName: string | undefined): boolean {
     return false;
 }
 
+function mergeActionParams(args: Record<string, unknown>): Record<string, unknown> {
+    if (!isRecord(args.params)) return args;
+
+    const merged = { ...args.params, ...args };
+    delete merged.params;
+    return merged;
+}
+
 export class ToolRegistry {
     private defaultElicitationTimeoutMs = 60000;
     private currentCategories: string[] = parseDefaultCategories();
@@ -431,19 +439,25 @@ export class ToolRegistry {
                 if (actionValues.size > 0) {
                     actionSchema.enum = Array.from(actionValues);
                 }
+                properties.action = actionSchema;
                 const parameterNames = Object.keys(properties).filter(name => name !== 'action');
                 const parameterSummary = parameterNames.length > 0 ? ` Params by action: ${parameterNames.join(', ')}.` : '';
                 const actionGuidance = ' Required: action. Select one enum value, then provide only parameters relevant to that action.';
+                const sourceRequired = Array.isArray(t.inputSchema.required)
+                    ? t.inputSchema.required.filter((name): name is string => typeof name === 'string')
+                    : ['action'];
+                const required = sourceRequired.includes('action') ? sourceRequired : ['action', ...sourceRequired];
 
                 return {
                     name: t.name,
                     description: `${t.description}${actionGuidance}${parameterSummary}`,
                     category: t.category,
                     inputSchema: {
+                        ...t.inputSchema,
                         type: 'object',
-                        properties: { action: actionSchema },
-                        required: ['action'],
-                        additionalProperties: true
+                        properties,
+                        required,
+                        additionalProperties: t.inputSchema.additionalProperties ?? true
                     }
                 };
             });
@@ -452,7 +466,7 @@ export class ToolRegistry {
 
         this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const { name } = request.params;
-            let args: Record<string, unknown> = request.params.arguments || {};
+            let args: Record<string, unknown> = mergeActionParams(request.params.arguments || {});
 
             // Handle manage_tools for dynamic tool management
             if (name === 'manage_tools') {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * manage_level Tool Integration Tests
- * Covers all 25 actions with real level package paths and deterministic cleanup.
+ * Covers all manage_level actions with real level package paths and deterministic cleanup.
  */
 
 import { runToolTests } from '../../test-runner.mjs';
@@ -26,15 +26,18 @@ const testCases = [
   // === CREATE / SAVE / LOAD ===
   { scenario: 'CREATE: create_level', toolName: 'manage_level', arguments: { action: 'create_level', levelName: `LevelMain_${ts}`, levelPath: TEST_FOLDER, useWorldPartition: false }, expected: 'success|already exists' },
   { scenario: 'ACTION: save', toolName: 'manage_level', arguments: { action: 'save' }, expected: 'success' },
+  { scenario: 'ACTION: save_level alias', toolName: 'manage_level', arguments: { action: 'save_level' }, expected: 'success' },
   { scenario: 'ACTION: save_as', toolName: 'manage_level', arguments: { action: 'save_as', savePath: SAVE_AS_LEVEL }, expected: 'success' },
   { scenario: 'ACTION: save_level_as', toolName: 'manage_level', arguments: { action: 'save_level_as', savePath: SAVE_LEVEL_AS }, expected: 'success' },
   { scenario: 'Setup: create sublevel', toolName: 'manage_level', arguments: { action: 'create_level', levelName: `LevelSub_${ts}`, levelPath: TEST_FOLDER, useWorldPartition: false }, expected: 'success|already exists' },
   { scenario: 'ACTION: load', toolName: 'manage_level', arguments: { action: 'load', levelPath: MAIN_LEVEL, streaming: false }, expected: 'success' },
+  { scenario: 'ACTION: load_level alias', toolName: 'manage_level', arguments: { action: 'load_level', levelPath: MAIN_LEVEL, streaming: false }, expected: 'success' },
   { scenario: 'Setup: spawn actor in level', toolName: 'control_actor', arguments: { action: 'spawn', classPath: '/Engine/BasicShapes/Cube', actorName: TEST_ACTOR, location: { x: 0, y: 0, z: 100 } }, expected: 'success' },
 
   // === STREAMING ===
   { scenario: 'ACTION: stream', toolName: 'manage_level', arguments: { action: 'stream', levelPath: SUB_LEVEL, shouldBeLoaded: true, shouldBeVisible: true }, expected: 'success|already loaded' },
   { scenario: 'ACTION: unload', toolName: 'manage_level', arguments: { action: 'unload', levelPath: SUB_LEVEL }, expected: 'success|not loaded' },
+  { scenario: 'ACTION: unload_level alias', toolName: 'manage_level', arguments: { action: 'unload_level', levelPath: SUB_LEVEL }, expected: 'success|not loaded' },
   { scenario: 'ADD: add_sublevel', toolName: 'manage_level', arguments: { action: 'add_sublevel', subLevelPath: SUB_LEVEL, streamingMethod: 'AlwaysLoaded' }, expected: 'success|already exists' },
   { scenario: 'ADD: add_sublevel via sublevelPath alias', toolName: 'manage_level', arguments: { action: 'add_sublevel', sublevelPath: SUB_LEVEL, streamingMethod: 'AlwaysLoaded' }, expected: 'success|already exists' },
 
@@ -54,8 +57,8 @@ const testCases = [
   { scenario: 'INFO: get_current_level', toolName: 'manage_level', arguments: { action: 'get_current_level' }, expected: 'success' },
 
   // === ASSET OPERATIONS ===
-  { scenario: 'ACTION: duplicate_level', toolName: 'manage_level', arguments: { action: 'duplicate_level', sourcePath: MAIN_LEVEL, destinationPath: DUPLICATED_LEVEL }, expected: 'success|already exists' },
-  { scenario: 'ACTION: rename_level', toolName: 'manage_level', arguments: { action: 'rename_level', levelPath: DUPLICATED_LEVEL, newName: RENAMED_LEVEL_NAME }, expected: 'success|already exists' },
+  { scenario: 'ACTION: duplicate_level', toolName: 'manage_level', arguments: { action: 'duplicate_level', sourcePath: MAIN_LEVEL, destinationPath: DUPLICATED_LEVEL, overwrite: false }, expected: 'success|already exists' },
+  { scenario: 'ACTION: rename_level', toolName: 'manage_level', arguments: { action: 'rename_level', levelPath: DUPLICATED_LEVEL, newName: RENAMED_LEVEL_NAME, overwrite: false }, expected: 'success|already exists' },
   { scenario: 'DELETE: delete multiple levels', toolName: 'manage_level', arguments: { action: 'delete', levelPaths: [SAVE_AS_LEVEL, SAVE_LEVEL_AS, EXPORTED_LEVEL] }, expected: 'success|not found' },
   { scenario: 'DELETE: delete', toolName: 'manage_level', arguments: { action: 'delete', levelPath: RENAMED_LEVEL }, expected: 'success|not found' },
   { scenario: 'DELETE: delete_level path alias', toolName: 'manage_level', arguments: { action: 'delete_level', path: IMPORTED_LEVEL }, expected: 'success|not found' },
