@@ -57,7 +57,7 @@ function expectedCondition(expectation) {
     try {
       return JSON.stringify(expectation);
     } catch {
-      return String(expectation ?? '');
+      return String(expectation);
     }
   }
   return typeof expectation === 'string' ? expectation : String(expectation ?? '');
