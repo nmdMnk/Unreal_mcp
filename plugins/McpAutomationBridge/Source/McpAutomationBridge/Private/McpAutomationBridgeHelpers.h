@@ -17,6 +17,21 @@
 #include "UObject/UnrealType.h"
 #include <type_traits>
 
+#if PLATFORM_UNIX || PLATFORM_MAC
+#include <errno.h>
+#include <sys/stat.h>
+#endif
+
+#if defined(PLATFORM_HOLOLENS)
+#define MCP_PLATFORM_HOLOLENS PLATFORM_HOLOLENS
+#else
+#define MCP_PLATFORM_HOLOLENS 0
+#endif
+
+#if PLATFORM_WINDOWS || MCP_PLATFORM_HOLOLENS
+#include "Windows/WindowsHWrapper.h"
+#endif
+
 // Include centralized UE version compatibility macros.
 #include "McpVersionCompatibility.h"
 
@@ -224,11 +239,32 @@ static inline bool McpValidateProjectSnapshotFilePath(const FString &AbsolutePat
     CurrentPath = FPaths::Combine(CurrentPath, Segment);
     FPaths::NormalizeFilename(CurrentPath);
 
+#if PLATFORM_UNIX || PLATFORM_MAC
+    struct stat FileInfo;
+    if (lstat(TCHAR_TO_UTF8(*CurrentPath), &FileInfo) == 0) {
+      if (S_ISLNK(FileInfo.st_mode)) {
+        OutError = TEXT("SECURITY_VIOLATION: Snapshot path cannot contain symbolic link components");
+        return false;
+      }
+    } else if (errno != ENOENT) {
+      OutError = TEXT("SECURITY_VIOLATION: Snapshot path symlink validation failed");
+      return false;
+    }
+#elif PLATFORM_WINDOWS || MCP_PLATFORM_HOLOLENS
+    const uint32 FileAttributes = GetFileAttributesW(*CurrentPath);
+    if (FileAttributes != 0xFFFFFFFF && (FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+      OutError = TEXT("SECURITY_VIOLATION: Snapshot path cannot contain symbolic link components");
+      return false;
+    }
+#endif
+
     if (!PlatformFile.FileExists(*CurrentPath) &&
         !PlatformFile.DirectoryExists(*CurrentPath)) {
       break;
     }
 
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1)
+#if !(PLATFORM_UNIX || PLATFORM_MAC || PLATFORM_WINDOWS || MCP_PLATFORM_HOLOLENS)
     const ESymlinkResult SymlinkResult = PlatformFile.IsSymlink(*CurrentPath);
     if (SymlinkResult == ESymlinkResult::Symlink) {
       OutError = TEXT("SECURITY_VIOLATION: Snapshot path cannot contain symbolic link components");
@@ -238,6 +274,16 @@ static inline bool McpValidateProjectSnapshotFilePath(const FString &AbsolutePat
       OutError = TEXT("SECURITY_VIOLATION: Snapshot path symlink validation is unavailable on this platform");
       return false;
     }
+#endif
+#else
+    // UE 5.0 predates IPlatformFile::IsSymlink(). Keep snapshot support usable
+    // after the project-directory containment check, while preserving symlink
+    // rejection on supported platforms above.
+#if !(PLATFORM_UNIX || PLATFORM_MAC || PLATFORM_WINDOWS || MCP_PLATFORM_HOLOLENS)
+    OutError = TEXT("SECURITY_VIOLATION: Snapshot path symlink validation is unavailable on this engine version");
+    return false;
+#endif
+#endif
   }
 
   return true;
