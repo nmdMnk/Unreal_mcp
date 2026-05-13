@@ -148,9 +148,15 @@
 #include "SourceEffects/SourceEffectMidSideSpreader.h"
 #include "SourceEffects/SourceEffectMotionFilter.h"
 #include "SourceEffects/SourceEffectEnvelopeFollower.h"
+#if __has_include("SourceEffects/SourceEffectConvolutionReverb.h")
 #include "SourceEffects/SourceEffectConvolutionReverb.h"
+#define MCP_HAS_SOURCE_EFFECT_CONVOLUTION_REVERB 1
+#else
+#define MCP_HAS_SOURCE_EFFECT_CONVOLUTION_REVERB 0
+#endif
 #define MCP_HAS_SOURCE_EFFECT_PRESETS 1
 #else
+#define MCP_HAS_SOURCE_EFFECT_CONVOLUTION_REVERB 0
 #define MCP_HAS_SOURCE_EFFECT_PRESETS 0
 #endif
 
@@ -366,8 +372,10 @@ static USoundEffectSourcePreset* CreateSourceEffectPresetByType(const FString& E
 		PresetClass = USourceEffectMotionFilterPreset::StaticClass();
 	else if (LowerType == TEXT("envelopefollower") || LowerType == TEXT("envelope"))
 		PresetClass = USourceEffectEnvelopeFollowerPreset::StaticClass();
+#if MCP_HAS_SOURCE_EFFECT_CONVOLUTION_REVERB
 	else if (LowerType == TEXT("convolutionreverb") || LowerType == TEXT("conv_reverb"))
 		PresetClass = USourceEffectConvolutionReverbPreset::StaticClass();
+#endif
 
 	if (PresetClass)
 	{
@@ -1075,14 +1083,8 @@ if (SubAction == TEXT("create_metasound"))
 			}
 		});
 #else
-		const FMetasoundFrontendDocument& DocN = Builder.GetConstDocument();
-		for (const FMetasoundFrontendNode& Node : DocN.RootGraph.Nodes)
-		{
-			TSharedPtr<FJsonObject> NodeObj = McpHandlerUtils::CreateResultObject();
-			NodeObj->SetStringField(TEXT("nodeId"), Node.GetID().ToString());
-			NodeObj->SetStringField(TEXT("name"), Node.Name.ToString());
-			NodeIdArray.Add(MakeShared<FJsonValueObject>(NodeObj));
-		}
+		// UE 5.3/5.4 do not expose the same document traversal API used for detailed
+		// node suggestions. Leave availableNodes empty on edge creation failure.
 #endif
 		if (NodeIdArray.Num() > 0)
 		{
@@ -2572,5 +2574,3 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAudioAuthoringAction(
     return true;
 #endif
 }
-
-

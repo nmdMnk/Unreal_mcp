@@ -38,7 +38,12 @@
 #include "GameplayDebuggerCategory.h"
 #include "GameplayDebuggerCategoryReplicator.h"
 #include "GameplayDebuggerConfig.h"
+#if __has_include("GameplayDebuggerModule.h")
 #include "GameplayDebuggerModule.h"
+#define MCP_HAS_GAMEPLAY_DEBUGGER_MODULE_HEADER 1
+#else
+#define MCP_HAS_GAMEPLAY_DEBUGGER_MODULE_HEADER 0
+#endif
 #include "Modules/ModuleManager.h"
 
 #if WITH_EDITOR
@@ -127,8 +132,12 @@ bool UMcpAutomationBridgeSubsystem::HandleDebugAction(
         bool bEnabled = true;
         Payload->TryGetBoolField(TEXT("enabled"), bEnabled);
 
+#if MCP_HAS_GAMEPLAY_DEBUGGER_MODULE_HEADER
         FGameplayDebuggerModule* GameplayDebuggerModule =
             FModuleManager::LoadModulePtr<FGameplayDebuggerModule>(TEXT("GameplayDebugger"));
+#else
+        const bool bGameplayDebuggerModuleLoaded = FModuleManager::Get().LoadModule(TEXT("GameplayDebugger")) != nullptr;
+#endif
 
         bool bConfigUpdated = false;
         bool bReplicatorUpdated = false;
@@ -157,10 +166,12 @@ bool UMcpAutomationBridgeSubsystem::HandleDebugAction(
             bConfigUpdated = true;
         }
 
+#if MCP_HAS_GAMEPLAY_DEBUGGER_MODULE_HEADER
         if (GameplayDebuggerModule)
         {
             GameplayDebuggerModule->NotifyCategoriesChanged();
         }
+#endif
 
         UWorld* World = nullptr;
 #if WITH_EDITOR
@@ -209,7 +220,11 @@ bool UMcpAutomationBridgeSubsystem::HandleDebugAction(
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("categoryName"), CategoryName);
         Result->SetBoolField(TEXT("enabled"), bEnabled);
+#if MCP_HAS_GAMEPLAY_DEBUGGER_MODULE_HEADER
         Result->SetBoolField(TEXT("moduleLoaded"), GameplayDebuggerModule != nullptr);
+#else
+        Result->SetBoolField(TEXT("moduleLoaded"), bGameplayDebuggerModuleLoaded);
+#endif
         Result->SetBoolField(TEXT("configUpdated"), bConfigUpdated);
         Result->SetBoolField(TEXT("replicatorUpdated"), bReplicatorUpdated);
         Result->SetNumberField(TEXT("updatedReplicatorCount"), UpdatedReplicatorCount);

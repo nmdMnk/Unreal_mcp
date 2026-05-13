@@ -58,7 +58,11 @@
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMeshActor.h"
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
 #include "MeshMerge/MeshMergingSettings.h"
+#else
+#include "Engine/MeshMerging.h"
+#endif
 #include "MeshMergeModule.h"
 #include "IMeshMergeUtilities.h"
 #include "Misc/PackageName.h"

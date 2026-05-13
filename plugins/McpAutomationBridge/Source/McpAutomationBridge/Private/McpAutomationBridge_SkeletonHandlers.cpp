@@ -62,7 +62,9 @@
 // Skeleton & Animation
 #include "Animation/Skeleton.h"
 #include "Animation/MorphTarget.h"
+#if __has_include("Animation/SkinWeightProfile.h")
 #include "Animation/SkinWeightProfile.h"
+#endif
 #include "ReferenceSkeleton.h"
 
 // Skeletal Mesh
