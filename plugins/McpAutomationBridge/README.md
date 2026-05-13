@@ -1,7 +1,7 @@
 # MCP Automation Bridge
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.0--5.7-orange)](https://www.unrealengine.com/)
+[![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.0--5.8-orange)](https://www.unrealengine.com/)
 [![GitHub](https://img.shields.io/badge/GitHub-ChiR24/Unreal__mcp-blueviolet?logo=github)](https://github.com/ChiR24/Unreal_mcp)
 
 An Unreal Engine editor plugin that enables AI assistants (Claude, Cursor, Windsurf, etc.) to control Unreal Engine through the Model Context Protocol (MCP).
@@ -29,7 +29,7 @@ An Unreal Engine editor plugin that enables AI assistants (Claude, Cursor, Winds
 
 ## Requirements
 
-- **Unreal Engine**: 5.0 - 5.7
+- **Unreal Engine**: 5.0 - 5.8 (5.8 preview validated)
 - **Platforms**: Win64, Mac, Linux
 - **Node.js**: 18+ (only for TypeScript bridge transport — not needed for Native MCP)
 
