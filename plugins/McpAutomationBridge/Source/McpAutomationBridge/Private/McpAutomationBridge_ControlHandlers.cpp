@@ -1131,19 +1131,20 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorAddComponent(
   if (Payload->TryGetObjectField(TEXT("properties"), PropertiesPtr) &&
       PropertiesPtr && (*PropertiesPtr).IsValid()) {
     for (const auto &Pair : (*PropertiesPtr)->Values) {
-      FProperty *Property = ComponentClass->FindPropertyByName(*Pair.Key);
+      const FString PropertyName(*Pair.Key);
+      FProperty *Property = ComponentClass->FindPropertyByName(*PropertyName);
       if (!Property) {
         PropertyWarnings.Add(
-            FString::Printf(TEXT("Property not found: %s"), *Pair.Key));
+            FString::Printf(TEXT("Property not found: %s"), *PropertyName));
         continue;
       }
       FString ApplyError;
       if (ApplyJsonValueToProperty(NewComponent, Property, Pair.Value,
                                    ApplyError))
-        AppliedProperties.Add(Pair.Key);
+        AppliedProperties.Add(PropertyName);
       else
         PropertyWarnings.Add(FString::Printf(TEXT("Failed to set %s: %s"),
-                                             *Pair.Key, *ApplyError));
+                                             *PropertyName, *ApplyError));
     }
   }
 
@@ -1247,9 +1248,10 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
   const TSharedPtr<FJsonValue> *MobilityVal = nullptr;
   FString MobilityKey;
   for (const auto &Pair : PropertiesObject->Values) {
-    if (Pair.Key.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase)) {
+    const FString PropertyName(*Pair.Key);
+    if (PropertyName.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase)) {
       MobilityVal = &Pair.Value;
-      MobilityKey = Pair.Key;
+      MobilityKey = PropertyName;
       break;
     }
   }
@@ -1277,37 +1279,38 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
   }
 
   for (const auto &Pair : PropertiesObject->Values) {
+    const FString PropertyName(*Pair.Key);
     // Skip Mobility as we already handled it
-    if (Pair.Key.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase))
+    if (PropertyName.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase))
       continue;
 
     // Special handling for SimulatePhysics
-    if (Pair.Key.Equals(TEXT("SimulatePhysics"), ESearchCase::IgnoreCase) ||
-        Pair.Key.Equals(TEXT("bSimulatePhysics"), ESearchCase::IgnoreCase)) {
+    if (PropertyName.Equals(TEXT("SimulatePhysics"), ESearchCase::IgnoreCase) ||
+        PropertyName.Equals(TEXT("bSimulatePhysics"), ESearchCase::IgnoreCase)) {
       if (UPrimitiveComponent *Prim =
               Cast<UPrimitiveComponent>(TargetComponent)) {
         bool bVal = false;
         if (Pair.Value->TryGetBool(bVal)) {
 			Prim->SetSimulatePhysics(bVal);
-				AppliedProperties.Add(Pair.Key);
+				AppliedProperties.Add(PropertyName);
 				continue;
         }
       }
     }
 
-    FProperty *Property = ComponentClass->FindPropertyByName(*Pair.Key);
+    FProperty *Property = ComponentClass->FindPropertyByName(*PropertyName);
     if (!Property) {
       PropertyWarnings.Add(
-          FString::Printf(TEXT("Property not found: %s"), *Pair.Key));
+          FString::Printf(TEXT("Property not found: %s"), *PropertyName));
       continue;
     }
     FString ApplyError;
     if (ApplyJsonValueToProperty(TargetComponent, Property, Pair.Value,
                                  ApplyError))
-      AppliedProperties.Add(Pair.Key);
+      AppliedProperties.Add(PropertyName);
     else
       PropertyWarnings.Add(FString::Printf(TEXT("Failed to set %s: %s"),
-                                           *Pair.Key, *ApplyError));
+                                           *PropertyName, *ApplyError));
   }
 
   if (USceneComponent *SceneComponent =
@@ -1880,17 +1883,18 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetBlueprintVariables(
   TArray<FString> Warnings;
 
   for (const auto &Pair : (*VariablesPtr)->Values) {
-    FProperty *Property = ActorClass->FindPropertyByName(*Pair.Key);
+    const FString VariableName(*Pair.Key);
+    FProperty *Property = ActorClass->FindPropertyByName(*VariableName);
     if (!Property) {
-      Warnings.Add(FString::Printf(TEXT("Property not found: %s"), *Pair.Key));
+      Warnings.Add(FString::Printf(TEXT("Property not found: %s"), *VariableName));
       continue;
     }
 
     FString ApplyError;
     if (ApplyJsonValueToProperty(Found, Property, Pair.Value, ApplyError))
-      Applied.Add(Pair.Key);
+      Applied.Add(VariableName);
     else
-      Warnings.Add(FString::Printf(TEXT("Failed to set %s: %s"), *Pair.Key,
+      Warnings.Add(FString::Printf(TEXT("Failed to set %s: %s"), *VariableName,
                                    *ApplyError));
   }
 
@@ -3580,38 +3584,39 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetPreferences(
   const TSharedPtr<FJsonObject>* PrefsPtr = nullptr;
   if (Payload->TryGetObjectField(TEXT("preferences"), PrefsPtr) && PrefsPtr && (*PrefsPtr).IsValid()) {
     for (const auto& Pair : (*PrefsPtr)->Values) {
+      const FString PreferenceName(*Pair.Key);
       // Try to set via console variable first
-      IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(*Pair.Key);
+      IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(*PreferenceName);
       if (CVar) {
         FString Value;
         if (Pair.Value->TryGetString(Value)) {
           CVar->Set(*Value);
-          AppliedSettings.Add(Pair.Key);
+          AppliedSettings.Add(PreferenceName);
         } else {
           double NumVal;
           if (Pair.Value->TryGetNumber(NumVal)) {
             CVar->Set((float)NumVal);
-            AppliedSettings.Add(Pair.Key);
+            AppliedSettings.Add(PreferenceName);
           } else {
             bool BoolVal;
             if (Pair.Value->TryGetBool(BoolVal)) {
               CVar->Set(BoolVal ? 1 : 0);
-              AppliedSettings.Add(Pair.Key);
+              AppliedSettings.Add(PreferenceName);
             } else {
-              FailedSettings.Add(Pair.Key);
+              FailedSettings.Add(PreferenceName);
             }
           }
         }
-      } else if (Category.Equals(TEXT("LevelEditor"), ESearchCase::IgnoreCase) && Pair.Key.Equals(TEXT("RealtimeAudio"), ESearchCase::IgnoreCase)) {
+      } else if (Category.Equals(TEXT("LevelEditor"), ESearchCase::IgnoreCase) && PreferenceName.Equals(TEXT("RealtimeAudio"), ESearchCase::IgnoreCase)) {
         bool BoolVal;
         if (Pair.Value->TryGetBool(BoolVal)) {
           GEditor->MuteRealTimeAudio(!BoolVal);
-          AppliedSettings.Add(Pair.Key);
+          AppliedSettings.Add(PreferenceName);
         } else {
-          FailedSettings.Add(Pair.Key);
+          FailedSettings.Add(PreferenceName);
         }
       } else {
-        FailedSettings.Add(Pair.Key);
+        FailedSettings.Add(PreferenceName);
       }
     }
   }
