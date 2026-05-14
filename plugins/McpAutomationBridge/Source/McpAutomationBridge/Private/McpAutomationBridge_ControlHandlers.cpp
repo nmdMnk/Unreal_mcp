@@ -2098,6 +2098,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorGetBoundingBox(
       BoxExtent = LandscapeBox.GetExtent();
     }
 
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5)
     if (BoxExtent.IsNearlyZero()) {
       const FBox ProxyBounds = Landscape->GetProxyBounds();
       if (ProxyBounds.IsValid) {
@@ -2105,6 +2106,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorGetBoundingBox(
         BoxExtent = ProxyBounds.GetExtent();
       }
     }
+#endif
 
     if (BoxExtent.IsNearlyZero()) {
       FMcpLandscapeMetadata Metadata;

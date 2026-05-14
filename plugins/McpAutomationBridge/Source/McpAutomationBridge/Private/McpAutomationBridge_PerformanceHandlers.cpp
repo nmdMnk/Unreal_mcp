@@ -58,7 +58,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMeshActor.h"
-#if __has_include("MeshMerge/MeshMergingSettings.h") && __has_include("MeshMergeModule.h") && __has_include("IMeshMergeUtilities.h")
+#if __has_include("MeshMergeModule.h") && __has_include("IMeshMergeUtilities.h")
+#if __has_include("MeshMerge/MeshMergingSettings.h")
 #include "MeshMerge/MeshMergingSettings.h"
 #else
 #include "Engine/MeshMerging.h"
