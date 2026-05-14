@@ -2427,7 +2427,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
         continue;
       }
 
-      const FString KeyStr = Pair.Key;
+      const FString KeyStr(*Pair.Key);
       const FString ValueStr =
           FMcpAutomationBridge_JsonValueToString(Pair.Value);
       const FName MetaKey = FMcpAutomationBridge_ResolveMetadataKey(KeyStr);
@@ -4590,29 +4590,31 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
           const TSharedPtr<FJsonObject> RegistryDefaults =
               RegistryEntry->GetObjectField(TEXT("defaults"));
           if (RegistryDefaults.IsValid()) {
-            for (const TPair<FString, TSharedPtr<FJsonValue>> &Pair :
+            for (const auto &Pair :
                  RegistryDefaults->Values) {
+              const FString PairKey(*Pair.Key);
               // Only merge if this variable still exists in the live blueprint
-              if (!LiveVariableNames.Contains(Pair.Key)) {
+              if (!LiveVariableNames.Contains(PairKey)) {
                 continue;
               }
-              if (EntryDefaults->HasField(Pair.Key)) {
+              if (EntryDefaults->HasField(PairKey)) {
                 // Key exists - deep merge if both are JSON objects
                 const TSharedPtr<FJsonObject> *ExistingObj = nullptr;
                 if (Pair.Value->Type == EJson::Object) {
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
-                  ExistingObj = EntryDefaults->TryGetObjectField(Pair.Key);
+                  ExistingObj = EntryDefaults->TryGetObjectField(PairKey);
 #else
-                  EntryDefaults->TryGetObjectField(Pair.Key, ExistingObj);
+                  EntryDefaults->TryGetObjectField(PairKey, ExistingObj);
 #endif
                 }
-                if (ExistingObj && Pair.Value->AsObject().IsValid()) {
+                if (ExistingObj && (*ExistingObj).IsValid() && Pair.Value->AsObject().IsValid()) {
                   // Both are objects - deep merge sub-keys from registry
                   const TSharedPtr<FJsonObject> RegistryObj = Pair.Value->AsObject();
-                  for (const TPair<FString, TSharedPtr<FJsonValue>> &SubPair :
+                  for (const auto &SubPair :
                        RegistryObj->Values) {
-                    if (!(*ExistingObj)->HasField(SubPair.Key)) {
-                      (*ExistingObj)->SetField(SubPair.Key, SubPair.Value);
+                    const FString SubKey(*SubPair.Key);
+                    if (!(*ExistingObj)->HasField(SubKey)) {
+                      (*ExistingObj)->SetField(SubKey, SubPair.Value);
                     }
                   }
                 }
@@ -4631,29 +4633,31 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
           const TSharedPtr<FJsonObject> RegistryMetadata =
               RegistryEntry->GetObjectField(TEXT("metadata"));
           if (RegistryMetadata.IsValid()) {
-            for (const TPair<FString, TSharedPtr<FJsonValue>> &Pair :
+            for (const auto &Pair :
                  RegistryMetadata->Values) {
+              const FString PairKey(*Pair.Key);
               // Only merge if this variable still exists in the live blueprint
-              if (!LiveVariableNames.Contains(Pair.Key)) {
+              if (!LiveVariableNames.Contains(PairKey)) {
                 continue;
               }
-              if (EntryMetadata->HasField(Pair.Key)) {
+              if (EntryMetadata->HasField(PairKey)) {
                 // Key exists - deep merge if both are JSON objects
                 const TSharedPtr<FJsonObject> *ExistingObj = nullptr;
                 if (Pair.Value->Type == EJson::Object) {
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
-                  ExistingObj = EntryMetadata->TryGetObjectField(Pair.Key);
+                  ExistingObj = EntryMetadata->TryGetObjectField(PairKey);
 #else
-                  EntryMetadata->TryGetObjectField(Pair.Key, ExistingObj);
+                  EntryMetadata->TryGetObjectField(PairKey, ExistingObj);
 #endif
                 }
-                if (ExistingObj && Pair.Value->AsObject().IsValid()) {
+                if (ExistingObj && (*ExistingObj).IsValid() && Pair.Value->AsObject().IsValid()) {
                   // Both are objects - deep merge sub-keys from registry
                   const TSharedPtr<FJsonObject> RegistryObj = Pair.Value->AsObject();
-                  for (const TPair<FString, TSharedPtr<FJsonValue>> &SubPair :
+                  for (const auto &SubPair :
                        RegistryObj->Values) {
-                    if (!(*ExistingObj)->HasField(SubPair.Key)) {
-                      (*ExistingObj)->SetField(SubPair.Key, SubPair.Value);
+                    const FString SubKey(*SubPair.Key);
+                    if (!(*ExistingObj)->HasField(SubKey)) {
+                      (*ExistingObj)->SetField(SubKey, SubPair.Value);
                     }
                   }
                 }
@@ -5454,12 +5458,13 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
 
     // Set metadata on the blueprint package or asset
     TArray<FString> MetadataSet;
-    for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair :
+    for (const auto& Pair :
          (*MetadataObj)->Values) {
+      const FString MetadataKey(*Pair.Key);
       if (!Pair.Value.IsValid()) {
         continue;
       }
-      const FName MetaKey = FMcpAutomationBridge_ResolveMetadataKey(Pair.Key);
+      const FName MetaKey = FMcpAutomationBridge_ResolveMetadataKey(MetadataKey);
       FString MetaValue;
       if (Pair.Value->Type == EJson::String) {
         MetaValue = Pair.Value->AsString();
@@ -5477,7 +5482,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
       }
       // Note: UBlueprint itself doesn't have SetMetaData in UE 5.7+
       // Metadata is stored on the GeneratedClass
-      MetadataSet.Add(Pair.Key);
+      MetadataSet.Add(MetadataKey);
     }
 
     FBlueprintEditorUtils::MarkBlueprintAsModified(BP);

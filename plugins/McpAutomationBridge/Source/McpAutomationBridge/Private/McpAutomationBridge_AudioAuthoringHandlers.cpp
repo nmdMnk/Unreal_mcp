@@ -148,9 +148,15 @@
 #include "SourceEffects/SourceEffectMidSideSpreader.h"
 #include "SourceEffects/SourceEffectMotionFilter.h"
 #include "SourceEffects/SourceEffectEnvelopeFollower.h"
+#if __has_include("SourceEffects/SourceEffectConvolutionReverb.h")
 #include "SourceEffects/SourceEffectConvolutionReverb.h"
+#define MCP_HAS_SOURCE_EFFECT_CONVOLUTION_REVERB 1
+#else
+#define MCP_HAS_SOURCE_EFFECT_CONVOLUTION_REVERB 0
+#endif
 #define MCP_HAS_SOURCE_EFFECT_PRESETS 1
 #else
+#define MCP_HAS_SOURCE_EFFECT_CONVOLUTION_REVERB 0
 #define MCP_HAS_SOURCE_EFFECT_PRESETS 0
 #endif
 
@@ -366,8 +372,10 @@ static USoundEffectSourcePreset* CreateSourceEffectPresetByType(const FString& E
 		PresetClass = USourceEffectMotionFilterPreset::StaticClass();
 	else if (LowerType == TEXT("envelopefollower") || LowerType == TEXT("envelope"))
 		PresetClass = USourceEffectEnvelopeFollowerPreset::StaticClass();
+#if MCP_HAS_SOURCE_EFFECT_CONVOLUTION_REVERB
 	else if (LowerType == TEXT("convolutionreverb") || LowerType == TEXT("conv_reverb"))
 		PresetClass = USourceEffectConvolutionReverbPreset::StaticClass();
+#endif
 
 	if (PresetClass)
 	{
@@ -1075,7 +1083,7 @@ if (SubAction == TEXT("create_metasound"))
 			}
 		});
 #else
-		// UE 5.4 and earlier: GetConstDocument()/RootGraph.Nodes not available on FMetaSoundFrontendDocumentBuilder
+		// UE 5.4 and earlier: document traversal API not available
 		UE_LOG(LogTemp, Verbose, TEXT("MetaSound node enumeration requires UE 5.5+ FrontendDocumentBuilder API"));
 #endif
 		if (NodeIdArray.Num() > 0)
@@ -2566,5 +2574,3 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAudioAuthoringAction(
     return true;
 #endif
 }
-
-

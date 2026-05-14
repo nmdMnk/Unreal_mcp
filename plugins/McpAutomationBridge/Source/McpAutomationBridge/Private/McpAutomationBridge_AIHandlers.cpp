@@ -1339,9 +1339,10 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
         const TSharedPtr<FJsonObject>* PropertiesObject = nullptr;
         if (Payload->TryGetObjectField(TEXT("properties"), PropertiesObject) && PropertiesObject && PropertiesObject->IsValid())
         {
-            for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*PropertiesObject)->Values)
+            for (const auto& Pair : (*PropertiesObject)->Values)
             {
-                FProperty* Property = TargetNode->GetClass()->FindPropertyByName(FName(*Pair.Key));
+                const FString PropertyName(*Pair.Key);
+                FProperty* Property = TargetNode->GetClass()->FindPropertyByName(FName(*PropertyName));
                 if (!Property || !Pair.Value.IsValid())
                 {
                     continue;
@@ -1426,7 +1427,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
                 }
 
                 ++ConfiguredPropertyCount;
-                ConfiguredProperties.Add(Pair.Key);
+                ConfiguredProperties.Add(PropertyName);
             }
         }
 
@@ -1700,7 +1701,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
 
         if (NewTest)
         {
-            TArray<TObjectPtr<UEnvQueryOption>>& Options = Query->GetOptionsMutable();
+            auto& Options = Query->GetOptionsMutable();
             if (Options.Num() == 0 || !Options[0])
             {
                 UEnvQueryOption* NewOption = NewObject<UEnvQueryOption>(Query);
@@ -1761,7 +1762,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageAIAction(
         int32 ResolvedOptionIndex = INDEX_NONE;
         int32 ResolvedTestIndex = INDEX_NONE;
         int32 FlatIndex = 0;
-        TArray<TObjectPtr<UEnvQueryOption>>& Options = Query->GetOptionsMutable();
+        auto& Options = Query->GetOptionsMutable();
         for (int32 OptionIndex = 0; OptionIndex < Options.Num(); ++OptionIndex)
         {
             UEnvQueryOption* Option = Options[OptionIndex];

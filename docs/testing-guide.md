@@ -111,7 +111,7 @@ Runs in GitHub Actions on every push/PR. Uses mock mode to validate server start
 ## Prerequisites
 
 ### Unreal Engine Setup
-1. **Unreal Engine 5.0–5.7** must be running
+1. **Unreal Engine 5.0–5.8 Preview** must be running
 2. **MCP Automation Bridge plugin** enabled and listening on port 8091
 
 ### Environment Variables (optional)

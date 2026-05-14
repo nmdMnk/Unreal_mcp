@@ -56,6 +56,8 @@
 #include "McpAutomationBridgeHelpers.h"
 #include "McpHandlerUtils.h"
 #include "McpAutomationBridgeSubsystem.h"
+#include "McpLandscapeMetadataTags.h"
+#include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/DateTime.h"
 #include "Misc/Paths.h"
@@ -68,6 +70,8 @@
 // -----------------------------------------------------------------------------
 #include "EditorAssetLibrary.h"
 #include "EngineUtils.h"
+#include "Landscape.h"
+#include "LandscapeInfo.h"
 
 // -----------------------------------------------------------------------------
 // Editor-only Includes: Editor Subsystems (paths vary by UE version)
@@ -1130,19 +1134,20 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorAddComponent(
   if (Payload->TryGetObjectField(TEXT("properties"), PropertiesPtr) &&
       PropertiesPtr && (*PropertiesPtr).IsValid()) {
     for (const auto &Pair : (*PropertiesPtr)->Values) {
-      FProperty *Property = ComponentClass->FindPropertyByName(*Pair.Key);
+      const FString PropertyName(*Pair.Key);
+      FProperty *Property = ComponentClass->FindPropertyByName(*PropertyName);
       if (!Property) {
         PropertyWarnings.Add(
-            FString::Printf(TEXT("Property not found: %s"), *Pair.Key));
+            FString::Printf(TEXT("Property not found: %s"), *PropertyName));
         continue;
       }
       FString ApplyError;
       if (ApplyJsonValueToProperty(NewComponent, Property, Pair.Value,
                                    ApplyError))
-        AppliedProperties.Add(Pair.Key);
+        AppliedProperties.Add(PropertyName);
       else
         PropertyWarnings.Add(FString::Printf(TEXT("Failed to set %s: %s"),
-                                             *Pair.Key, *ApplyError));
+                                             *PropertyName, *ApplyError));
     }
   }
 
@@ -1246,9 +1251,10 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
   const TSharedPtr<FJsonValue> *MobilityVal = nullptr;
   FString MobilityKey;
   for (const auto &Pair : PropertiesObject->Values) {
-    if (Pair.Key.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase)) {
+    const FString PropertyName(*Pair.Key);
+    if (PropertyName.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase)) {
       MobilityVal = &Pair.Value;
-      MobilityKey = Pair.Key;
+      MobilityKey = PropertyName;
       break;
     }
   }
@@ -1276,37 +1282,38 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
   }
 
   for (const auto &Pair : PropertiesObject->Values) {
+    const FString PropertyName(*Pair.Key);
     // Skip Mobility as we already handled it
-    if (Pair.Key.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase))
+    if (PropertyName.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase))
       continue;
 
     // Special handling for SimulatePhysics
-    if (Pair.Key.Equals(TEXT("SimulatePhysics"), ESearchCase::IgnoreCase) ||
-        Pair.Key.Equals(TEXT("bSimulatePhysics"), ESearchCase::IgnoreCase)) {
+    if (PropertyName.Equals(TEXT("SimulatePhysics"), ESearchCase::IgnoreCase) ||
+        PropertyName.Equals(TEXT("bSimulatePhysics"), ESearchCase::IgnoreCase)) {
       if (UPrimitiveComponent *Prim =
               Cast<UPrimitiveComponent>(TargetComponent)) {
         bool bVal = false;
         if (Pair.Value->TryGetBool(bVal)) {
 			Prim->SetSimulatePhysics(bVal);
-				AppliedProperties.Add(Pair.Key);
+				AppliedProperties.Add(PropertyName);
 				continue;
         }
       }
     }
 
-    FProperty *Property = ComponentClass->FindPropertyByName(*Pair.Key);
+    FProperty *Property = ComponentClass->FindPropertyByName(*PropertyName);
     if (!Property) {
       PropertyWarnings.Add(
-          FString::Printf(TEXT("Property not found: %s"), *Pair.Key));
+          FString::Printf(TEXT("Property not found: %s"), *PropertyName));
       continue;
     }
     FString ApplyError;
     if (ApplyJsonValueToProperty(TargetComponent, Property, Pair.Value,
                                  ApplyError))
-      AppliedProperties.Add(Pair.Key);
+      AppliedProperties.Add(PropertyName);
     else
       PropertyWarnings.Add(FString::Printf(TEXT("Failed to set %s: %s"),
-                                           *Pair.Key, *ApplyError));
+                                           *PropertyName, *ApplyError));
   }
 
   if (USceneComponent *SceneComponent =
@@ -1879,17 +1886,18 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetBlueprintVariables(
   TArray<FString> Warnings;
 
   for (const auto &Pair : (*VariablesPtr)->Values) {
-    FProperty *Property = ActorClass->FindPropertyByName(*Pair.Key);
+    const FString VariableName(*Pair.Key);
+    FProperty *Property = ActorClass->FindPropertyByName(*VariableName);
     if (!Property) {
-      Warnings.Add(FString::Printf(TEXT("Property not found: %s"), *Pair.Key));
+      Warnings.Add(FString::Printf(TEXT("Property not found: %s"), *VariableName));
       continue;
     }
 
     FString ApplyError;
     if (ApplyJsonValueToProperty(Found, Property, Pair.Value, ApplyError))
-      Applied.Add(Pair.Key);
+      Applied.Add(VariableName);
     else
-      Warnings.Add(FString::Printf(TEXT("Failed to set %s: %s"), *Pair.Key,
+      Warnings.Add(FString::Printf(TEXT("Failed to set %s: %s"), *VariableName,
                                    *ApplyError));
   }
 
@@ -2062,6 +2070,55 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorGetBoundingBox(
 
   FVector Origin, BoxExtent;
   Found->GetActorBounds(false, Origin, BoxExtent);
+
+  auto BuildLandscapeBox = [](const FTransform& Transform, double MinX,
+                              double MinY, double MaxX, double MaxY,
+                              double MinZ, double MaxZ) {
+    FBox LandscapeBox(EForceInit::ForceInit);
+    const FVector Corners[] = {
+        FVector(MinX, MinY, MinZ), FVector(MinX, MaxY, MinZ),
+        FVector(MaxX, MinY, MinZ), FVector(MaxX, MaxY, MinZ),
+        FVector(MinX, MinY, MaxZ), FVector(MinX, MaxY, MaxZ),
+        FVector(MaxX, MinY, MaxZ), FVector(MaxX, MaxY, MaxZ),
+    };
+    for (const FVector& Corner : Corners) {
+      LandscapeBox += Transform.TransformPosition(Corner);
+    }
+    return LandscapeBox;
+  };
+
+  if (ALandscape* Landscape = Cast<ALandscape>(Found);
+      Landscape && BoxExtent.IsNearlyZero()) {
+    ULandscapeInfo* LandscapeInfo = Landscape->GetLandscapeInfo();
+    int32 MinX = 0, MinY = 0, MaxX = 0, MaxY = 0;
+    if (LandscapeInfo && LandscapeInfo->GetLandscapeExtent(MinX, MinY, MaxX, MaxY)) {
+      const FBox LandscapeBox = BuildLandscapeBox(
+          Landscape->GetTransform(), MinX, MinY, MaxX, MaxY, -256.0, 256.0);
+      Origin = LandscapeBox.GetCenter();
+      BoxExtent = LandscapeBox.GetExtent();
+    }
+
+    if (BoxExtent.IsNearlyZero()) {
+      const FBox ProxyBounds = Landscape->GetProxyBounds();
+      if (ProxyBounds.IsValid) {
+        Origin = ProxyBounds.GetCenter();
+        BoxExtent = ProxyBounds.GetExtent();
+      }
+    }
+
+    if (BoxExtent.IsNearlyZero()) {
+      FMcpLandscapeMetadata Metadata;
+      if (McpLandscapeMetadataTags::DecodeLandscapeMetadata(Landscape, Metadata)) {
+        const double MaxXFromMetadata = Metadata.ComponentsX * Metadata.QuadsPerComponent;
+        const double MaxYFromMetadata = Metadata.ComponentsY * Metadata.QuadsPerComponent;
+        const FBox LandscapeBox = BuildLandscapeBox(
+            Landscape->GetTransform(), 0.0, 0.0, MaxXFromMetadata,
+            MaxYFromMetadata, -256.0, 256.0);
+        Origin = LandscapeBox.GetCenter();
+        BoxExtent = LandscapeBox.GetExtent();
+      }
+    }
+  }
 
   TSharedPtr<FJsonObject> Data = McpHandlerUtils::CreateResultObject();
 
@@ -3572,41 +3629,54 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetPreferences(
 
   TArray<FString> AppliedSettings;
   TArray<FString> FailedSettings;
+  FString Category;
+  Payload->TryGetStringField(TEXT("category"), Category);
 
   // Get preferences object from payload
   const TSharedPtr<FJsonObject>* PrefsPtr = nullptr;
   if (Payload->TryGetObjectField(TEXT("preferences"), PrefsPtr) && PrefsPtr && (*PrefsPtr).IsValid()) {
     for (const auto& Pair : (*PrefsPtr)->Values) {
+      const FString PreferenceName(*Pair.Key);
       // Try to set via console variable first
-      IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(*Pair.Key);
+      IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(*PreferenceName);
       if (CVar) {
         FString Value;
         if (Pair.Value->TryGetString(Value)) {
           CVar->Set(*Value);
-          AppliedSettings.Add(Pair.Key);
+          AppliedSettings.Add(PreferenceName);
         } else {
           double NumVal;
           if (Pair.Value->TryGetNumber(NumVal)) {
             CVar->Set((float)NumVal);
-            AppliedSettings.Add(Pair.Key);
+            AppliedSettings.Add(PreferenceName);
           } else {
             bool BoolVal;
             if (Pair.Value->TryGetBool(BoolVal)) {
               CVar->Set(BoolVal ? 1 : 0);
-              AppliedSettings.Add(Pair.Key);
+              AppliedSettings.Add(PreferenceName);
             } else {
-              FailedSettings.Add(Pair.Key);
+              FailedSettings.Add(PreferenceName);
             }
           }
         }
+      } else if (Category.Equals(TEXT("LevelEditor"), ESearchCase::IgnoreCase) && PreferenceName.Equals(TEXT("RealtimeAudio"), ESearchCase::IgnoreCase)) {
+        bool BoolVal;
+        if (Pair.Value->TryGetBool(BoolVal)) {
+          GEditor->MuteRealTimeAudio(!BoolVal);
+          AppliedSettings.Add(PreferenceName);
+        } else {
+          FailedSettings.Add(PreferenceName);
+        }
       } else {
-        FailedSettings.Add(Pair.Key);
+        FailedSettings.Add(PreferenceName);
       }
     }
   }
 
   TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
-  Resp->SetBoolField(TEXT("success"), FailedSettings.Num() == 0);
+  const bool bAnyPreferenceApplied = AppliedSettings.Num() > 0;
+  const bool bPreferencesUpdated = bAnyPreferenceApplied && FailedSettings.Num() == 0;
+  Resp->SetBoolField(TEXT("success"), bPreferencesUpdated);
   Resp->SetNumberField(TEXT("appliedCount"), AppliedSettings.Num());
 
   if (AppliedSettings.Num() > 0) {
@@ -3623,8 +3693,14 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetPreferences(
     Resp->SetArrayField(TEXT("failed"), FailedArray);
   }
 
-  SendAutomationResponse(Socket, RequestId, true,
-                         TEXT("Preferences updated"), Resp, FString());
+  const FString ResponseMessage = bPreferencesUpdated
+      ? TEXT("Preferences updated")
+      : (bAnyPreferenceApplied ? TEXT("Preferences partially updated") : TEXT("No preferences updated"));
+  const FString ResponseErrorCode = bPreferencesUpdated
+      ? FString()
+      : (bAnyPreferenceApplied ? FString(TEXT("PREFERENCES_PARTIALLY_APPLIED")) : FString(TEXT("PREFERENCES_NOT_APPLIED")));
+  SendAutomationResponse(Socket, RequestId, bPreferencesUpdated,
+                         ResponseMessage, Resp, ResponseErrorCode);
   return true;
 #else
   SendStandardErrorResponse(this, Socket, RequestId, TEXT("NOT_IMPLEMENTED"),
@@ -3899,53 +3975,106 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSaveAll(
     const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
     TSharedPtr<FMcpBridgeWebSocket> Socket) {
 #if WITH_EDITOR
-  // Save all dirty packages using FEditorFileUtils
-  TArray<UPackage*> DirtyPackages;
-  FEditorFileUtils::GetDirtyWorldPackages(DirtyPackages);
-  FEditorFileUtils::GetDirtyContentPackages(DirtyPackages);
+  TArray<UPackage*> DirtyWorldPackages;
+  TArray<UPackage*> DirtyContentPackages;
+  FEditorFileUtils::GetDirtyWorldPackages(DirtyWorldPackages);
+  FEditorFileUtils::GetDirtyContentPackages(DirtyContentPackages);
 
   bool bSuccess = true;
-  int32 SavedCount = 0;
+  int32 SavedWorldCount = 0;
+  int32 SavedContentCount = 0;
   int32 SkippedCount = 0;
-  
-  for (UPackage* Package : DirtyPackages) {
-    if (Package) {
-      FString PackagePath = Package->GetPathName();
-      
-      // Skip transient/temporary packages that cannot be saved
-      // These include /Temp/ paths and packages with RF_Transient flag
-      if (PackagePath.StartsWith(TEXT("/Temp/")) || 
-          PackagePath.StartsWith(TEXT("/Transient/")) ||
-          Package->HasAnyFlags(RF_Transient)) {
-        SkippedCount++;
-        UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
-               TEXT("HandleControlEditorSaveAll: Skipping transient package: %s"), *PackagePath);
-        continue;
-      }
-      
-      if (McpSafeAssetSave(Package)) {
-        SavedCount++;
+  int32 TotalDirty = 0;
+  TArray<FString> SkippedPackages;
+  TArray<FString> FailedPackages;
+  TSet<UPackage*> ProcessedPackages;
+
+  auto ShouldSkipPackage = [](UPackage* Package) -> bool {
+    if (!Package || Package->HasAnyFlags(RF_Transient)) {
+      return true;
+    }
+    const FString PackagePath = Package->GetPathName();
+    return PackagePath.StartsWith(TEXT("/Temp/")) ||
+           PackagePath.StartsWith(TEXT("/Transient/")) ||
+           PackagePath.StartsWith(TEXT("/Engine/Transient"));
+  };
+
+  auto ProcessPackage = [&](UPackage* Package) {
+    if (!Package || ProcessedPackages.Contains(Package)) {
+      return;
+    }
+    ProcessedPackages.Add(Package);
+    TotalDirty++;
+
+    FString PackagePath = Package->GetPathName();
+    if (ShouldSkipPackage(Package)) {
+      SkippedCount++;
+      SkippedPackages.Add(PackagePath);
+      UE_LOG(LogMcpAutomationBridgeSubsystem, Verbose,
+             TEXT("HandleControlEditorSaveAll: Skipping transient/temp package: %s"), *PackagePath);
+      return;
+    }
+
+    UWorld* PackageWorld = UWorld::FindWorldInPackage(Package);
+    if (PackageWorld) {
+      if (PackageWorld->PersistentLevel && McpSafeLevelSave(PackageWorld->PersistentLevel, PackagePath)) {
+        SavedWorldCount++;
       } else {
         bSuccess = false;
+        FailedPackages.Add(PackagePath);
+        UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+               TEXT("HandleControlEditorSaveAll: Failed to save world package: %s"), *PackagePath);
       }
+      return;
     }
+
+    if (McpSafeAssetSave(Package)) {
+      SavedContentCount++;
+    } else {
+      bSuccess = false;
+      FailedPackages.Add(PackagePath);
+      UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
+             TEXT("HandleControlEditorSaveAll: Failed to save content package: %s"), *PackagePath);
+    }
+  };
+
+  for (UPackage* Package : DirtyWorldPackages) {
+    ProcessPackage(Package);
   }
+
+  for (UPackage* Package : DirtyContentPackages) {
+    ProcessPackage(Package);
+  }
+
+  auto MakeStringArray = [](const TArray<FString>& Values) {
+    TArray<TSharedPtr<FJsonValue>> Result;
+    for (const FString& Value : Values) {
+      Result.Add(MakeShared<FJsonValueString>(Value));
+    }
+    return Result;
+  };
 
   TSharedPtr<FJsonObject> Resp = McpHandlerUtils::CreateResultObject();
   Resp->SetBoolField(TEXT("success"), bSuccess);
-  Resp->SetNumberField(TEXT("savedCount"), SavedCount);
+  Resp->SetNumberField(TEXT("savedCount"), SavedWorldCount + SavedContentCount);
+  Resp->SetNumberField(TEXT("savedWorldCount"), SavedWorldCount);
+  Resp->SetNumberField(TEXT("savedContentCount"), SavedContentCount);
   Resp->SetNumberField(TEXT("skippedCount"), SkippedCount);
-  Resp->SetNumberField(TEXT("totalDirty"), DirtyPackages.Num());
+  Resp->SetNumberField(TEXT("failedCount"), FailedPackages.Num());
+  Resp->SetNumberField(TEXT("totalDirty"), TotalDirty);
+  Resp->SetArrayField(TEXT("skippedPackages"), MakeStringArray(SkippedPackages));
+  Resp->SetArrayField(TEXT("failedPackages"), MakeStringArray(FailedPackages));
   
   // Only report outer success if the operation actually succeeded
-  if (bSuccess || DirtyPackages.Num() == 0) {
-    SendAutomationResponse(Socket, RequestId, true, 
-                           FString::Printf(TEXT("Saved %d of %d dirty assets (skipped %d transient)"), SavedCount, DirtyPackages.Num() - SkippedCount, SkippedCount), 
+  if (bSuccess || TotalDirty == 0) {
+    SendAutomationResponse(Socket, RequestId, true,
+                           FString::Printf(TEXT("Saved %d world and %d content packages (skipped %d transient/temp)"), SavedWorldCount, SavedContentCount, SkippedCount),
                            Resp, FString());
   } else {
     SendStandardErrorResponse(this, Socket, RequestId, TEXT("SAVE_FAILED"),
-                              FString::Printf(TEXT("Failed to save all assets. Saved %d of %d dirty assets."), 
-                                              SavedCount, DirtyPackages.Num() - SkippedCount), 
+                              FString::Printf(TEXT("Failed to save all packages. Saved %d of %d dirty packages."),
+                                               SavedWorldCount + SavedContentCount,
+                                               TotalDirty - SkippedCount),
                               Resp);
   }
   return true;
@@ -4271,6 +4400,44 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorOpenLevel(
                                             *FullFolderMapPath, *FullFlatMapPath), 
                               ErrorDetails);
     return true;
+  }
+
+  if (FApp::IsUnattended() || IsRunningCommandlet() || FParse::Param(FCommandLine::Get(), TEXT("nullrhi"))) {
+    TArray<UPackage*> DirtyWorldPackages;
+    TArray<UPackage*> DirtyContentPackages;
+    FEditorFileUtils::GetDirtyWorldPackages(DirtyWorldPackages);
+    FEditorFileUtils::GetDirtyContentPackages(DirtyContentPackages);
+    auto IsBlockingDirtyPackage = [](UPackage* Package) -> bool {
+      if (!Package || Package->HasAnyFlags(RF_Transient)) {
+        return false;
+      }
+      const FString PackagePath = Package->GetPathName();
+      return !PackagePath.StartsWith(TEXT("/Temp/")) &&
+             !PackagePath.StartsWith(TEXT("/Transient/")) &&
+             !PackagePath.StartsWith(TEXT("/Engine/Transient"));
+    };
+    int32 BlockingWorldPackages = 0;
+    int32 BlockingContentPackages = 0;
+    for (UPackage* Package : DirtyWorldPackages) {
+      if (IsBlockingDirtyPackage(Package)) {
+        BlockingWorldPackages++;
+      }
+    }
+    for (UPackage* Package : DirtyContentPackages) {
+      if (IsBlockingDirtyPackage(Package)) {
+        BlockingContentPackages++;
+      }
+    }
+    if (BlockingWorldPackages + BlockingContentPackages > 0) {
+      TSharedPtr<FJsonObject> Details = McpHandlerUtils::CreateResultObject();
+      Details->SetNumberField(TEXT("dirtyWorldPackages"), BlockingWorldPackages);
+      Details->SetNumberField(TEXT("dirtyContentPackages"), BlockingContentPackages);
+      Details->SetStringField(TEXT("levelPath"), LevelPath);
+      SendStandardErrorResponse(this, Socket, RequestId, TEXT("DIRTY_PACKAGES"),
+                                TEXT("Cannot open a level in unattended/headless mode while packages are dirty. Save or discard changes first."),
+                                Details);
+      return true;
+    }
   }
   
   TWeakObjectPtr<UMcpAutomationBridgeSubsystem> WeakThis(this);

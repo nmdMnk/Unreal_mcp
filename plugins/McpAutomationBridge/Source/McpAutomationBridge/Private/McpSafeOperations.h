@@ -51,6 +51,7 @@
 #include "AssetViewUtils.h"
 #include "Materials/MaterialInterface.h"
 #include "Editor/EditorEngine.h"
+#include "UObject/UObjectHash.h"
 #include "UObject/UObjectIterator.h"
 #include "ObjectTools.h"
 
@@ -143,8 +144,22 @@ inline bool McpSafeAssetSave(UObject* Asset)
         return false;
     }
 
+    UObject* AssetToSave = Asset;
     UPackage* Package = Cast<UPackage>(Asset);
-    if (!Package)
+    if (Package)
+    {
+        AssetToSave = nullptr;
+        ForEachObjectWithPackage(Package, [&AssetToSave](UObject* Object) -> bool
+        {
+            if (Object && !Object->IsA<UPackage>() && Object->HasAnyFlags(RF_Public | RF_Standalone))
+            {
+                AssetToSave = Object;
+                return false;
+            }
+            return true;
+        }, false);
+    }
+    else
     {
         Package = Asset->GetOutermost();
     }
@@ -163,10 +178,10 @@ inline bool McpSafeAssetSave(UObject* Asset)
     }
 
     Package->SetDirtyFlag(true);
-    if (Asset != Package)
+    if (AssetToSave && AssetToSave != Package)
     {
-        Asset->MarkPackageDirty();
-        FAssetRegistryModule::AssetCreated(Asset);
+        AssetToSave->MarkPackageDirty();
+        FAssetRegistryModule::AssetCreated(AssetToSave);
     }
 
     auto ScanSavedPackage = [&PackageName]()
@@ -193,10 +208,10 @@ inline bool McpSafeAssetSave(UObject* Asset)
     };
 
 #if MCP_HAS_PACKAGE_TOOLS
-    if (Asset != Package)
+    if (AssetToSave && AssetToSave != Package)
     {
         TArray<UObject*> ObjectsToSave;
-        ObjectsToSave.Add(Asset);
+        ObjectsToSave.Add(AssetToSave);
 
         FlushRenderingCommands();
 
@@ -221,9 +236,11 @@ inline bool McpSafeAssetSave(UObject* Asset)
         FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
     const bool bPromptSaveSucceeded =
         PromptSaveResult == FEditorFileUtils::PR_Success;
+    const bool bEditorSaveSucceeded =
+        !bPromptSaveSucceeded && UEditorLoadingAndSavingUtils::SavePackages(PackagesToSave, false);
     const bool bExistsOnDisk = PackageExistsOnDisk();
 
-    if (bPromptSaveSucceeded || bExistsOnDisk)
+    if (bPromptSaveSucceeded || bEditorSaveSucceeded || bExistsOnDisk)
     {
         ScanSavedPackage();
         return true;

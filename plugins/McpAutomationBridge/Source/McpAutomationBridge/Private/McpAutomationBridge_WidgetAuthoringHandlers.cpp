@@ -4748,6 +4748,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageWidgetAuthoringAction(
             // Create a canvas panel as root if none exists
             Parent = WidgetBP->WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
             WidgetBP->WidgetTree->RootWidget = Parent;
+            RegisterWidgetGuid(WidgetBP, Parent);
         }
 
         // Map component type to UWidget class
@@ -4879,6 +4880,7 @@ bool UMcpAutomationBridgeSubsystem::HandleManageWidgetAuthoringAction(
             SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to construct widget"), TEXT("CREATION_FAILED"));
             return true;
         }
+        RegisterWidgetGuid(WidgetBP, NewWidget);
 
         // Add to parent
         Parent->AddChild(NewWidget);

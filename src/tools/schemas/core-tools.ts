@@ -6,12 +6,12 @@
  * - manage_asset: Asset creation, import, manipulation
  * - control_actor: Actor spawn, transform, physics, components
  * - control_editor: PIE, camera, console commands, screenshots
- * - manage_level: Level load/save, streaming, World Partition
+ * - manage_level: Level load/save, streaming, lighting
  * - system_control: Profiling, CVars, UBT, tests
  * - inspect: Object introspection
  */
 
-import { commonSchemas } from '../tool-definition-utils.js';
+import { addActionParamsSchema, commonSchemas } from '../tool-definition-utils.js';
 
 /** MCP Tool Definition type for explicit annotation to avoid TS7056 */
 export interface ToolDefinition {
@@ -333,34 +333,38 @@ export const coreToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_level',
     category: 'core',
-    description: 'Load/save levels, configure streaming, manage World Partition cells, and build lighting.',
+    description: 'Load/save levels, configure streaming, and build lighting.',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
           enum: [
-            'load', 'save', 'save_as', 'save_level_as', 'stream', 'unload', 'create_level', 'create_light', 'build_lighting',
-            'set_metadata', 'load_cells', 'set_datalayer', 'create_datalayer',
+            'load', 'load_level', 'save', 'save_level', 'save_as', 'save_level_as', 'stream', 'unload', 'unload_level', 'create_level', 'create_light', 'build_lighting',
+            'set_metadata',
             'export_level', 'import_level', 'list_levels', 'get_summary', 'delete', 'delete_level', 'validate_level',
-            'cleanup_invalid_datalayers', 'add_sublevel', 'rename_level', 'duplicate_level', 'get_current_level'
+            'add_sublevel', 'rename_level', 'duplicate_level', 'get_current_level'
           ],
           description: 'Action'
         },
         // Level path parameters
         levelPath: commonSchemas.levelPath,
+        assetPath: commonSchemas.assetPath,
         levelPaths: commonSchemas.arrayOfStrings,
         levelName: commonSchemas.stringProp,
+        name: commonSchemas.name,
         path: commonSchemas.directoryPathForCreation,
         // Save/export/import paths
         savePath: commonSchemas.savePath,
         destinationPath: commonSchemas.destinationPath,
+        overwrite: commonSchemas.overwrite,
         targetPath: commonSchemas.directoryPath,
         exportPath: commonSchemas.exportPath,
         packagePath: commonSchemas.directoryPath,
         sourcePath: commonSchemas.sourcePath,
         // Sublevel parameters
         sublevelPath: commonSchemas.levelPath,
+        subLevelPath: commonSchemas.levelPath,
         parentLevel: commonSchemas.parentLevel,
         parentPath: commonSchemas.directoryPath,
         streamingMethod: commonSchemas.stringProp,
@@ -368,23 +372,14 @@ export const coreToolDefinitions: ToolDefinition[] = [
         streaming: commonSchemas.booleanProp,
         shouldBeLoaded: commonSchemas.booleanProp,
         shouldBeVisible: commonSchemas.booleanProp,
+        saveDirtyPackages: commonSchemas.booleanProp,
         // Light creation
         lightType: { type: 'string', enum: ['Directional', 'Point', 'Spot', 'Rect', 'DirectionalLight', 'PointLight', 'SpotLight', 'RectLight', 'directional', 'point', 'spot', 'rect'], description: 'Light type. Accepts short names (Point), class names (PointLight), or lowercase (point).' },
+        quality: commonSchemas.stringProp,
         intensity: commonSchemas.numberProp,
         color: commonSchemas.color,
         location: commonSchemas.location,
         rotation: commonSchemas.rotation,
-        // World Partition / Data Layers
-        cells: commonSchemas.arrayOfStrings,
-        dataLayerName: commonSchemas.dataLayerName,
-        dataLayerLabel: commonSchemas.stringProp,
-        dataLayerState: commonSchemas.stringProp,
-        actorPath: commonSchemas.actorPath,
-        // Cell bounds
-        min: commonSchemas.location,
-        max: commonSchemas.location,
-        origin: commonSchemas.location,
-        extent: commonSchemas.extent,
         // Level creation
         template: commonSchemas.stringProp,
         useWorldPartition: commonSchemas.booleanProp,
@@ -518,3 +513,5 @@ export const coreToolDefinitions: ToolDefinition[] = [
     }
   }
 ];
+
+addActionParamsSchema(coreToolDefinitions);

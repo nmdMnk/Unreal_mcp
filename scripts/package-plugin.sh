@@ -92,8 +92,15 @@ fi
 
 PLUGIN_VER=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['VersionName'])" "$PLUGIN_FILE" 2>/dev/null || echo "0.0.0")
 
-PACKAGE_DIR="$OUTPUT_DIR/McpAutomationBridge"
 ZIP_NAME="McpAutomationBridge-v${PLUGIN_VER}-UE${UE_VER}-${PLATFORM}.zip"
+ZIP_PATH="$OUTPUT_DIR/$ZIP_NAME"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/McpAutomationBridge-package.XXXXXX")"
+PACKAGE_DIR="$STAGING_DIR/McpAutomationBridge"
+
+cleanup_staging() {
+    rm -rf "$STAGING_DIR"
+}
+trap cleanup_staging EXIT
 
 echo "============================================"
 echo "  Package McpAutomationBridge Plugin"
@@ -102,13 +109,14 @@ echo "  Plugin version : $PLUGIN_VER"
 echo "  UE version     : $UE_VER"
 echo "  Platform        : $PLATFORM"
 echo "  Engine          : $ENGINE_DIR"
-echo "  Output          : $OUTPUT_DIR/$ZIP_NAME"
+echo "  Output          : $ZIP_PATH"
 echo "============================================"
 echo ""
 
 # ─── Build ──────────────────────────────────────────────────────────────────
 
 echo "Building plugin..."
+rm -f "$ZIP_PATH"
 "$RUN_UAT" BuildPlugin \
     -Plugin="$PLUGIN_FILE" \
     -Package="$PACKAGE_DIR" \
@@ -120,7 +128,16 @@ echo "Build complete."
 
 # ─── Post-process: set Installed=true ────────────────────────────────────────
 
-OUTPUT_UPLUGIN="$PACKAGE_DIR/McpAutomationBridge.uplugin"
+if [ -f "$PACKAGE_DIR/McpAutomationBridge.uplugin" ]; then
+    OUTPUT_PLUGIN_DIR="$PACKAGE_DIR"
+elif [ -f "$PACKAGE_DIR/HostProject/Plugins/McpAutomationBridge/McpAutomationBridge.uplugin" ]; then
+    OUTPUT_PLUGIN_DIR="$PACKAGE_DIR/HostProject/Plugins/McpAutomationBridge"
+else
+    echo "ERROR: Packaged plugin output not found under: $PACKAGE_DIR"
+    exit 1
+fi
+
+OUTPUT_UPLUGIN="$OUTPUT_PLUGIN_DIR/McpAutomationBridge.uplugin"
 if [ -f "$OUTPUT_UPLUGIN" ]; then
     echo "Setting Installed=true in output .uplugin..."
     python3 -c "
@@ -138,16 +155,16 @@ fi
 # ─── Zip ─────────────────────────────────────────────────────────────────────
 
 echo "Creating archive: $ZIP_NAME"
-cd "$OUTPUT_DIR"
-zip -r "$ZIP_NAME" McpAutomationBridge/ \
+cd "$(dirname "$OUTPUT_PLUGIN_DIR")"
+zip -r "$ZIP_PATH" McpAutomationBridge/ \
     -x "*.pdb" \
     -x "McpAutomationBridge/Intermediate/*"
 echo ""
 
-FINAL_SIZE=$(du -sh "$OUTPUT_DIR/$ZIP_NAME" | cut -f1)
+FINAL_SIZE=$(du -sh "$ZIP_PATH" | cut -f1)
 echo "============================================"
 echo "  Done!"
-echo "  Archive: $OUTPUT_DIR/$ZIP_NAME ($FINAL_SIZE)"
+echo "  Archive: $ZIP_PATH ($FINAL_SIZE)"
 echo "============================================"
 echo ""
 echo "To install: unzip into YourProject/Plugins/"

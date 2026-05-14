@@ -1,5 +1,6 @@
 #include "MCP/McpDynamicToolManager.h"
 #include "MCP/McpToolRegistry.h"
+#include "Misc/ScopeLock.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogMcpToolManager, Log, All);
 

@@ -60,6 +60,9 @@
 #include "Engine/StaticMeshActor.h"
 #if __has_include("MeshMerge/MeshMergingSettings.h") && __has_include("MeshMergeModule.h") && __has_include("IMeshMergeUtilities.h")
 #include "MeshMerge/MeshMergingSettings.h"
+#else
+#include "Engine/MeshMerging.h"
+#endif
 #include "MeshMergeModule.h"
 #include "IMeshMergeUtilities.h"
 #define MCP_HAS_MESH_MERGE 1

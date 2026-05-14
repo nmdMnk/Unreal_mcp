@@ -67,6 +67,7 @@
 #include "TextureResource.h"
 #include "Misc/PackageName.h"
 #include "HAL/PlatformFileManager.h"
+#include "UObject/SoftObjectPath.h"
 
 // Editor/Asset
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -146,6 +147,16 @@ static FString NormalizeTexturePath(const FString& Path)
     return Normalized;
 }
 
+static FAssetData GetTextureAssetDataByObjectPath(const FString& ObjectPath)
+{
+    IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
+    return AssetRegistry.GetAssetByObjectPath(FSoftObjectPath(ObjectPath));
+#else
+    return AssetRegistry.GetAssetByObjectPath(FName(*ObjectPath));
+#endif
+}
+
 // NOTE: Use McpSafeAssetSave(Asset) from McpAutomationBridgeHelpers.h for saving textures.
 // McpSafeAssetSave marks the package dirty and notifies the asset registry safely for UE 5.7+.
 
@@ -208,7 +219,7 @@ static UTexture2D* CreateEmptyTexture(const FString& PackagePath, const FString&
     FTexture2DMipMap* Mip = new FTexture2DMipMap();
     Mip->SizeX = Width;
     Mip->SizeY = Height;
-    Mip->SizeZ = 0;
+    Mip->SizeZ = 1;
     NewTexture->GetPlatformData()->Mips.Add(Mip);
     
     // Allocate and initialize pixel data
@@ -231,6 +242,7 @@ static UTexture2D* CreateEmptyTexture(const FString& PackagePath, const FString&
     NewTexture->LODGroup = TEXTUREGROUP_World;
     
     NewTexture->UpdateResource();
+    NewTexture->PostEditChange();
     Package->MarkPackageDirty();
     
     return NewTexture;
@@ -248,12 +260,14 @@ static bool UpdateTextureBGRA8(UTexture2D* Texture, int32 Width, int32 Height, c
     FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
     Mip.SizeX = Width;
     Mip.SizeY = Height;
+    Mip.SizeZ = 1;
     Mip.BulkData.Lock(LOCK_READ_WRITE);
     void* TextureData = Mip.BulkData.Realloc(Pixels.Num());
     FMemory::Memcpy(TextureData, Pixels.GetData(), Pixels.Num());
     Mip.BulkData.Unlock();
 
     Texture->UpdateResource();
+    Texture->PostEditChange();
     Texture->MarkPackageDirty();
     return true;
 }
@@ -264,6 +278,9 @@ static bool SaveTextureAsset(UTexture2D* Texture)
     {
         return false;
     }
+
+    Texture->PostEditChange();
+    FlushRenderingCommands();
 
     FAssetRegistryModule::AssetCreated(Texture);
     Texture->MarkPackageDirty();
@@ -287,12 +304,14 @@ static bool SaveTextureAsset(UTexture2D* Texture)
         FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
     const bool bPromptSaveSucceeded =
         PromptSaveResult == FEditorFileUtils::PR_Success;
+    const bool bEditorSaveSucceeded =
+        !bPromptSaveSucceeded && UEditorLoadingAndSavingUtils::SavePackages(PackagesToSave, false);
     FString PackageFilename;
     const bool bHasFilename = FPackageName::TryConvertLongPackageNameToFilename(
         Package->GetName(), PackageFilename, FPackageName::GetAssetPackageExtension());
     const bool bExistsOnDisk = bHasFilename &&
         IFileManager::Get().FileExists(*FPaths::ConvertRelativePathToFull(PackageFilename));
-    if (bPromptSaveSucceeded || bExistsOnDisk)
+    if (bPromptSaveSucceeded || bEditorSaveSucceeded || bExistsOnDisk)
     {
         if (bHasFilename)
         {
@@ -377,7 +396,7 @@ TSharedPtr<FJsonObject> UMcpAutomationBridgeSubsystem::HandleManageTextureAction
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -497,7 +516,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -651,7 +670,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -820,7 +839,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1048,7 +1067,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1118,7 +1137,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1188,7 +1207,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1244,7 +1263,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1305,7 +1324,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1360,7 +1379,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1435,7 +1454,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1676,7 +1695,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1798,7 +1817,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1918,7 +1937,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -2010,7 +2029,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -3087,12 +3106,13 @@ Response->SetBoolField(TEXT("success"), true);
         FString FullObjectPath = FString::Printf(TEXT("%s.%s"), *FullPath, *Name);
         
         // Check for existing assets without attempting to load a missing package.
-        // StaticLoadObject leaves a transient package behind on failed loads, and
-        // treating that package as a collision makes brand-new render targets fail.
+        // LoadAsset logs an error for absent assets, and per-request capture would
+        // convert an otherwise successful render-target creation into ENGINE_ERROR.
         UTextureRenderTarget2D* ExistingRenderTarget = FindObject<UTextureRenderTarget2D>(nullptr, *FullObjectPath);
-        if (!ExistingRenderTarget)
+        const FAssetData ExistingAssetData = GetTextureAssetDataByObjectPath(FullObjectPath);
+        if (!ExistingRenderTarget && ExistingAssetData.IsValid())
         {
-            ExistingRenderTarget = Cast<UTextureRenderTarget2D>(UEditorAssetLibrary::LoadAsset(FullPath));
+            ExistingRenderTarget = Cast<UTextureRenderTarget2D>(ExistingAssetData.GetAsset());
         }
         if (ExistingRenderTarget)
         {
@@ -3104,8 +3124,7 @@ Response->SetBoolField(TEXT("success"), true);
             return Response;
         }
 
-        UObject* ExistingAsset = UEditorAssetLibrary::LoadAsset(FullPath);
-        if (ExistingAsset)
+        if (ExistingAssetData.IsValid())
         {
             Response->SetBoolField(TEXT("success"), false);
             Response->SetStringField(TEXT("error"), FString::Printf(TEXT("Asset with this name already exists: %s"), *FullPath));

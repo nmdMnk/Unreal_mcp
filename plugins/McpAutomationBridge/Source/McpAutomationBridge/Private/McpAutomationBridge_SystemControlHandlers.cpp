@@ -40,6 +40,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSystemControlAction(
       !Lower.StartsWith(TEXT("test_progress")) &&
       !Lower.StartsWith(TEXT("test_stale")) &&
       Lower != TEXT("export_asset") &&
+      Lower != TEXT("start_session") &&
       Lower != TEXT("execute_python")) {
     return false; // Not handled by this function
   }
@@ -50,6 +51,10 @@ bool UMcpAutomationBridgeSubsystem::HandleSystemControlAction(
                         TEXT("System control payload missing"),
                         TEXT("INVALID_PAYLOAD"));
     return true;
+  }
+
+  if (Lower == TEXT("start_session")) {
+    return HandleInsightsAction(RequestId, TEXT("manage_insights"), Payload, RequestingSocket);
   }
 
   if (Lower == TEXT("run_ubt")) {
@@ -744,6 +749,8 @@ bool UMcpAutomationBridgeSubsystem::HandleSystemControlAction(
       World = GEngine->GetWorldContexts()[0].World();
     }
 
+    SendProgressUpdate(RequestId, 0.0f, TEXT("Executing Python script"), true, CurrentRequestOrigin);
+
     // Execute via py console command with execution time tracking
     static constexpr double MaxPythonExecutionSeconds = 60.0;
     FString PyCommand = FString::Printf(TEXT("py \"%s\""), *ScriptPath);
@@ -753,6 +760,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSystemControlAction(
       bExecHandled = GEngine->Exec(World, *PyCommand);
     }
     double ExecElapsed = FPlatformTime::Seconds() - ExecStartTime;
+    SendProgressUpdate(RequestId, 90.0f, TEXT("Collecting Python output"), true, CurrentRequestOrigin);
     if (ExecElapsed > MaxPythonExecutionSeconds) {
       UE_LOG(LogMcpAutomationBridgeSubsystem, Warning,
              TEXT("Python execution took %.1fs (exceeds %.1fs threshold). "

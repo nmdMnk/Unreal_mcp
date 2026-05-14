@@ -5,7 +5,7 @@
 **Branch:** dev
 
 ## OVERVIEW
-MCP tooling for Unreal Engine 5.0-5.7. Server package version `0.5.21`; plugin version `0.1.4`. The repo has two usable surfaces: a TypeScript stdio MCP server that talks to the Unreal plugin over WebSocket, and an optional native plugin MCP HTTP/SSE endpoint at `/mcp`. Both expose the same 22 canonical parent tools with action-based dispatch to Unreal-side handlers.
+MCP tooling for Unreal Engine 5.0-5.8 Preview. Server package version `0.5.21`; plugin version `0.1.4`. The repo has two usable surfaces: a TypeScript stdio MCP server that talks to the Unreal plugin over WebSocket, and an optional native plugin MCP HTTP/SSE endpoint at `/mcp`. Both expose the same 22 canonical parent tools with action-based dispatch to Unreal-side handlers.
 
 ## STRUCTURE
 ```

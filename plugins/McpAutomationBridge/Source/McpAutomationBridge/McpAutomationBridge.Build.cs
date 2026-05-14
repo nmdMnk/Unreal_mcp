@@ -135,7 +135,7 @@ public class McpAutomationBridge : ModuleRules
         PCHUsage = PCHUsageMode.NoPCHs;
         
         bUseUnity = true;
-        NumIncludedBytesPerUnityCPPOverride = 256 * 1024;
+        TrySetIntMember(this, "NumIncludedBytesPerUnityCPPOverride", 256 * 1024);
 
         PublicDependencyModuleNames.AddRange(new string[]
         {
@@ -205,6 +205,7 @@ public class McpAutomationBridge : ModuleRules
             AddOptionalDynamicModule(Target, EngineDir, "StateTreeEditorModule", "StateTreeEditorModule");
             AddOptionalDynamicModule(Target, EngineDir, "SmartObjectsModule", "SmartObjectsModule");
             AddOptionalDynamicModule(Target, EngineDir, "SmartObjectsEditorModule", "SmartObjectsEditorModule");
+            AddOptionalConditionalModule(Target, EngineDir, "StructUtils", "StructUtils");
             AddOptionalDynamicModule(Target, EngineDir, "MassEntity", "MassEntity");
             AddOptionalDynamicModule(Target, EngineDir, "MassSpawner", "MassSpawner");
             AddOptionalDynamicModule(Target, EngineDir, "MassActors", "MassActors");
@@ -365,6 +366,29 @@ public class McpAutomationBridge : ModuleRules
                 field.SetValue(target, value);
                 return true;
             }
+        }
+
+        return false;
+    }
+
+    private static bool TrySetIntMember(object target, string memberName, int value)
+    {
+        const System.Reflection.BindingFlags Flags = System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Instance;
+
+        var property = target.GetType().GetProperty(memberName, Flags);
+        if (property != null && property.PropertyType == typeof(int) && property.CanWrite)
+        {
+            property.SetValue(target, value);
+            return true;
+        }
+
+        var field = target.GetType().GetField(memberName, Flags);
+        if (field != null && field.FieldType == typeof(int))
+        {
+            field.SetValue(target, value);
+            return true;
         }
 
         return false;

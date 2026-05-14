@@ -16,6 +16,15 @@
 static constexpr int32 MaxCapturedRequestMessages = 32;
 static constexpr int32 MaxCapturedRequestMessageChars = 1024;
 
+static bool IsKnownBenignMcpCompilerWarning(const FString& Message)
+{
+    return Message.Contains(TEXT("CooldownGameplayEffectClass"), ESearchCase::IgnoreCase) &&
+        (Message.Contains(TEXT("no tags"), ESearchCase::IgnoreCase) ||
+         Message.Contains(TEXT("grant any tags"), ESearchCase::IgnoreCase) ||
+         Message.Contains(TEXT("grants no tag"), ESearchCase::IgnoreCase) ||
+         Message.Contains(TEXT("granting no tag"), ESearchCase::IgnoreCase));
+}
+
 /**
  * Custom output device that captures errors and warnings during request processing.
  * This is temporarily attached to GLog during handler execution to detect
@@ -57,7 +66,10 @@ public:
                 Message = Message.Left(MaxCapturedRequestMessageChars) + TEXT("[TRUNCATED]");
             }
 
-            if (Verbosity == ELogVerbosity::Error)
+            const bool bTreatAsWarning =
+                Verbosity == ELogVerbosity::Warning || IsKnownBenignMcpCompilerWarning(Message);
+
+            if (!bTreatAsWarning)
             {
                 ++Capture.ErrorCount;
                 if (Capture.ErrorMessages.Num() < MaxCapturedRequestMessages)
@@ -699,6 +711,14 @@ void UMcpAutomationBridgeSubsystem::SendAutomationResponse(
   // CurrentRequestOrigin from the active ProcessAutomationRequest call.
   ERequestOrigin EffectiveOrigin = (Origin == ERequestOrigin::WebSocket)
       ? CurrentRequestOrigin : Origin;
+  // Some handlers complete later via AsyncTask(GameThread) after the request
+  // scope has already reset CurrentRequestOrigin. A live native pending request
+  // is authoritative in that case and must receive the response over SSE.
+  if (Origin == ERequestOrigin::WebSocket && NativeTransport &&
+      NativeTransport->HasPendingRequest(RequestId))
+  {
+    EffectiveOrigin = ERequestOrigin::NativeHTTP;
+  }
   if (EffectiveOrigin == ERequestOrigin::NativeHTTP && NativeTransport)
   {
     if (!NativeTransport->CompletePendingRequest(RequestId, bEffectiveSuccess, EffectiveMessage, EffectiveResult, EffectiveErrorCode))

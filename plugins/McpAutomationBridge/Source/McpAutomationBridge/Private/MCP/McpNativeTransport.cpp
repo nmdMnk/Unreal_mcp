@@ -444,6 +444,32 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 		return;
 	}
 
+	// Browser access to the native MCP endpoint is only allowed when capability
+	// tokens are enabled; non-browser local clients do not require CORS.
+	if (HttpReq.Method == TEXT("OPTIONS"))
+	{
+		if (IsAllowedCorsOrigin(HttpReq.Origin))
+		{
+			SendHttpResponse(ClientSocket, 204, TEXT("text/plain"), FString(), {}, HttpReq.Origin);
+		}
+		else
+		{
+			SendHttpResponse(ClientSocket, 403, TEXT("text/plain"),
+				TEXT("CORS preflight requires capability-token protection"));
+		}
+		ClientSocket->Close();
+		SocketSub->DestroySocket(ClientSocket);
+		return;
+	}
+
+	if (!HttpReq.Origin.IsEmpty() && !IsAllowedCorsOrigin(HttpReq.Origin))
+	{
+		SendHttpResponse(ClientSocket, 403, TEXT("text/plain"), TEXT("Invalid Origin"));
+		ClientSocket->Close();
+		SocketSub->DestroySocket(ClientSocket);
+		return;
+	}
+
 	// Capability token validation (mirrors McpConnectionManager logic)
 	{
 		const UMcpAutomationBridgeSettings* Settings = GetDefault<UMcpAutomationBridgeSettings>();
@@ -455,7 +481,7 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 				FString ErrorBody = FMcpJsonRpc::BuildError(
 					MakeShared<FJsonValueNull>(), FMcpJsonRpc::ErrorInvalidRequest,
 					TEXT("Invalid capability token"));
-				SendHttpResponse(ClientSocket, 401, TEXT("application/json"), ErrorBody);
+				SendHttpResponse(ClientSocket, 401, TEXT("application/json"), ErrorBody, {}, HttpReq.Origin);
 				ClientSocket->Close();
 				SocketSub->DestroySocket(ClientSocket);
 				return;
@@ -466,6 +492,17 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 	// ── DELETE /mcp — session termination ──
 	if (HttpReq.Method == TEXT("DELETE"))
 	{
+		FString SessionError;
+		ESessionValidationResult SessionStatus = ValidateSession(HttpReq.SessionId, SessionError);
+		if (SessionStatus != ESessionValidationResult::Valid)
+		{
+			SendHttpResponse(ClientSocket, GetSessionValidationStatusCode(SessionStatus),
+				TEXT("text/plain"), SessionError, {}, HttpReq.Origin);
+			ClientSocket->Close();
+			SocketSub->DestroySocket(ClientSocket);
+			return;
+		}
+
 		if (!HttpReq.SessionId.IsEmpty())
 		{
 			{
@@ -502,7 +539,7 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 					TEXT("Closed notification stream %s (session terminated)"), *StreamId);
 			}
 		}
-		SendHttpResponse(ClientSocket, 200, TEXT("text/plain"), FString());
+		SendHttpResponse(ClientSocket, 200, TEXT("text/plain"), FString(), {}, HttpReq.Origin);
 		ClientSocket->Close();
 		SocketSub->DestroySocket(ClientSocket);
 		return;
@@ -514,27 +551,29 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 		if (!HttpReq.Accept.Contains(TEXT("text/event-stream")))
 		{
 			SendHttpResponse(ClientSocket, 406, TEXT("text/plain"),
-				TEXT("Not Acceptable: requires Accept: text/event-stream"));
+				TEXT("Not Acceptable: requires Accept: text/event-stream"), {}, HttpReq.Origin);
 			ClientSocket->Close();
 			SocketSub->DestroySocket(ClientSocket);
 			return;
 		}
 		FString SessionError;
-		if (!ValidateSession(HttpReq.SessionId, SessionError))
+		ESessionValidationResult SessionStatus = ValidateSession(HttpReq.SessionId, SessionError);
+		if (SessionStatus != ESessionValidationResult::Valid)
 		{
-			SendHttpResponse(ClientSocket, 400, TEXT("text/plain"), SessionError);
+			SendHttpResponse(ClientSocket, GetSessionValidationStatusCode(SessionStatus),
+				TEXT("text/plain"), SessionError, {}, HttpReq.Origin);
 			ClientSocket->Close();
 			SocketSub->DestroySocket(ClientSocket);
 			return;
 		}
-		HandleGetMcp(ClientSocket, HttpReq.SessionId);
+		HandleGetMcp(ClientSocket, HttpReq.SessionId, HttpReq.Origin);
 		return;  // Socket parked — no close here
 	}
 
 	// ── POST /mcp — JSON-RPC ──
 	if (HttpReq.Method != TEXT("POST"))
 	{
-		SendHttpResponse(ClientSocket, 405, TEXT("text/plain"), TEXT("Method Not Allowed"));
+		SendHttpResponse(ClientSocket, 405, TEXT("text/plain"), TEXT("Method Not Allowed"), {}, HttpReq.Origin);
 		ClientSocket->Close();
 		SocketSub->DestroySocket(ClientSocket);
 		return;
@@ -553,18 +592,18 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 		FString ErrorBody = FMcpJsonRpc::BuildError(ErrorId, ErrorCode,
 			(Rpc.ErrorType == EMcpJsonRpcError::ParseError)
 				? TEXT("Parse error") : TEXT("Invalid Request"));
-		SendHttpResponse(ClientSocket, 400, TEXT("application/json"), ErrorBody);
+		SendHttpResponse(ClientSocket, 400, TEXT("application/json"), ErrorBody, {}, HttpReq.Origin);
 		ClientSocket->Close();
 		SocketSub->DestroySocket(ClientSocket);
 		return;
 	}
 
-	// Notifications (no id) — 202 Accepted
-	if (Rpc.bIsNotification)
+	if (Rpc.bIsNotification && Rpc.Method == TEXT("initialize"))
 	{
-		UE_LOG(LogMcpNativeTransport, Log,
-			TEXT("Received notification: %s"), *Rpc.Method);
-		SendHttpResponse(ClientSocket, 202, TEXT("text/plain"), FString());
+		FString ErrorBody = FMcpJsonRpc::BuildError(
+			MakeShared<FJsonValueNull>(), FMcpJsonRpc::ErrorInvalidRequest,
+			TEXT("initialize must include an id"));
+		SendHttpResponse(ClientSocket, 400, TEXT("application/json"), ErrorBody, {}, HttpReq.Origin);
 		ClientSocket->Close();
 		SocketSub->DestroySocket(ClientSocket);
 		return;
@@ -574,15 +613,28 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 	if (Rpc.Method != TEXT("initialize"))
 	{
 		FString SessionError;
-		if (!ValidateSession(HttpReq.SessionId, SessionError))
+		ESessionValidationResult SessionStatus = ValidateSession(HttpReq.SessionId, SessionError);
+		if (SessionStatus != ESessionValidationResult::Valid)
 		{
 			FString ErrorBody = FMcpJsonRpc::BuildError(
 				Rpc.Id, FMcpJsonRpc::ErrorInvalidRequest, SessionError);
-			SendHttpResponse(ClientSocket, 400, TEXT("application/json"), ErrorBody);
+			SendHttpResponse(ClientSocket, GetSessionValidationStatusCode(SessionStatus),
+				TEXT("application/json"), ErrorBody, {}, HttpReq.Origin);
 			ClientSocket->Close();
 			SocketSub->DestroySocket(ClientSocket);
 			return;
 		}
+	}
+
+	// Notifications (no id) — 202 Accepted after session validation.
+	if (Rpc.bIsNotification)
+	{
+		UE_LOG(LogMcpNativeTransport, Log,
+			TEXT("Received notification: %s"), *Rpc.Method);
+		SendHttpResponse(ClientSocket, 202, TEXT("text/plain"), FString(), {}, HttpReq.Origin);
+		ClientSocket->Close();
+		SocketSub->DestroySocket(ClientSocket);
+		return;
 	}
 
 	// ── Method dispatch ──
@@ -593,7 +645,7 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 		FString ResponseBody = HandleInitialize(Rpc.Params, Rpc.Id, NewSessionId);
 		TMap<FString, FString> Headers;
 		Headers.Add(TEXT("Mcp-Session-Id"), NewSessionId);
-		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ResponseBody, Headers);
+		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ResponseBody, Headers, HttpReq.Origin);
 		ClientSocket->Close();
 		SocketSub->DestroySocket(ClientSocket);
 		return;
@@ -602,7 +654,7 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 	if (Rpc.Method == TEXT("tools/list"))
 	{
 		FString ResponseBody = HandleToolsList(Rpc.Id);
-		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ResponseBody);
+		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ResponseBody, {}, HttpReq.Origin);
 		ClientSocket->Close();
 		SocketSub->DestroySocket(ClientSocket);
 		return;
@@ -611,7 +663,7 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 	if (Rpc.Method == TEXT("tools/call"))
 	{
 		// HandleToolsCall takes ownership of the socket (SSE streaming)
-		HandleToolsCall(Rpc.Params, Rpc.Id, ClientSocket, HttpReq.SessionId);
+		HandleToolsCall(Rpc.Params, Rpc.Id, ClientSocket, HttpReq.SessionId, HttpReq.Origin);
 		return;  // Socket NOT closed here — parked for SSE
 	}
 
@@ -619,7 +671,7 @@ void FMcpNativeTransport::HandleConnection(FSocket* ClientSocket)
 	FString ErrorBody = FMcpJsonRpc::BuildError(
 		Rpc.Id, FMcpJsonRpc::ErrorMethodNotFound,
 		FString::Printf(TEXT("Unknown method: %s"), *Rpc.Method));
-	SendHttpResponse(ClientSocket, 400, TEXT("application/json"), ErrorBody);
+	SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ErrorBody, {}, HttpReq.Origin);
 	ClientSocket->Close();
 	SocketSub->DestroySocket(ClientSocket);
 }
@@ -741,6 +793,10 @@ bool FMcpNativeTransport::ReadHttpRequest(FSocket* Socket, FParsedHttpRequest& O
 			{
 				OutRequest.CapabilityToken = Value;
 			}
+			else if (Key.Equals(TEXT("Origin"), ESearchCase::IgnoreCase))
+			{
+				OutRequest.Origin = Value;
+			}
 		}
 	}
 
@@ -803,14 +859,17 @@ bool FMcpNativeTransport::ReadHttpRequest(FSocket* Socket, FParsedHttpRequest& O
 
 bool FMcpNativeTransport::SendHttpResponse(FSocket* Socket, int32 StatusCode,
 	const FString& ContentType, const FString& Body,
-	const TMap<FString, FString>& ExtraHeaders)
+	const TMap<FString, FString>& ExtraHeaders,
+	const FString& CorsOrigin)
 {
 	FString StatusText;
 	switch (StatusCode)
 	{
 	case 200: StatusText = TEXT("OK"); break;
 	case 202: StatusText = TEXT("Accepted"); break;
+	case 204: StatusText = TEXT("No Content"); break;
 	case 400: StatusText = TEXT("Bad Request"); break;
+	case 403: StatusText = TEXT("Forbidden"); break;
 	case 404: StatusText = TEXT("Not Found"); break;
 	case 405: StatusText = TEXT("Method Not Allowed"); break;
 	case 401: StatusText = TEXT("Unauthorized"); break;
@@ -827,6 +886,7 @@ bool FMcpNativeTransport::SendHttpResponse(FSocket* Socket, int32 StatusCode,
 	FString Response = FString::Printf(
 		TEXT("HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n"),
 		StatusCode, *StatusText, *ContentType, BodyLength);
+	AppendCorsHeaders(Response, CorsOrigin);
 
 	for (const auto& [Key, Value] : ExtraHeaders)
 	{
@@ -854,20 +914,149 @@ bool FMcpNativeTransport::SendHttpResponse(FSocket* Socket, int32 StatusCode,
 	return true;
 }
 
-bool FMcpNativeTransport::SendSSEHeaders(FSocket* Socket, const FString& SessionId)
+bool FMcpNativeTransport::SendSSEHeaders(FSocket* Socket, const FString& SessionId,
+	const FString& CorsOrigin)
 {
 	FString Headers = FString::Printf(
 		TEXT("HTTP/1.1 200 OK\r\n")
 		TEXT("Content-Type: text/event-stream\r\n")
 		TEXT("Cache-Control: no-cache\r\n")
 		TEXT("Connection: keep-alive\r\n")
-		TEXT("Mcp-Session-Id: %s\r\n")
-		TEXT("\r\n"),
+		TEXT("Mcp-Session-Id: %s\r\n"),
 		*SessionId);
+	AppendCorsHeaders(Headers, CorsOrigin);
+	Headers += TEXT("\r\n");
 
 	FTCHARToUTF8 Utf8(*Headers);
 	return SendAllBytes(Socket, reinterpret_cast<const uint8*>(Utf8.Get()),
 		Utf8.Length());
+}
+
+bool FMcpNativeTransport::IsCorsEnabled() const
+{
+	const UMcpAutomationBridgeSettings* Settings = GetDefault<UMcpAutomationBridgeSettings>();
+	return (ListenHost == TEXT("127.0.0.1") || ListenHost == TEXT("::1"))
+		&& Settings
+		&& Settings->bRequireCapabilityToken
+		&& !Settings->CapabilityToken.IsEmpty();
+}
+
+bool FMcpNativeTransport::IsAllowedCorsOrigin(const FString& Origin) const
+{
+	if (!IsCorsEnabled())
+	{
+		return false;
+	}
+
+	const FString TrimmedOrigin = Origin.TrimStartAndEnd();
+	if (TrimmedOrigin.IsEmpty() || TrimmedOrigin.Equals(TEXT("null"), ESearchCase::IgnoreCase) ||
+		TrimmedOrigin.Contains(TEXT("\r")) || TrimmedOrigin.Contains(TEXT("\n")))
+	{
+		return false;
+	}
+
+	FString Scheme;
+	FString Remainder;
+	if (!TrimmedOrigin.Split(TEXT("://"), &Scheme, &Remainder))
+	{
+		return false;
+	}
+	if (!Scheme.Equals(TEXT("http"), ESearchCase::IgnoreCase) &&
+		!Scheme.Equals(TEXT("https"), ESearchCase::IgnoreCase))
+	{
+		return false;
+	}
+	if (Remainder.IsEmpty() || Remainder.Contains(TEXT("/")))
+	{
+		return false;
+	}
+
+	auto IsDigitsOnly = [](const FString& Value) -> bool
+	{
+		if (Value.IsEmpty())
+		{
+			return false;
+		}
+		for (const TCHAR Character : Value)
+		{
+			if (Character < '0' || Character > '9')
+			{
+				return false;
+			}
+		}
+		return true;
+	};
+	auto IsValidPort = [&IsDigitsOnly](const FString& PortText) -> bool
+	{
+		if (!IsDigitsOnly(PortText))
+		{
+			return false;
+		}
+
+		int32 PortNumber = 0;
+		if (!LexTryParseString(PortNumber, *PortText))
+		{
+			return false;
+		}
+		return PortNumber > 0 && PortNumber <= 65535;
+	};
+
+	FString Host = Remainder;
+	if (Host.StartsWith(TEXT("[")))
+	{
+		int32 EndBracket = INDEX_NONE;
+		if (!Host.FindChar(TEXT(']'), EndBracket) || EndBracket <= 1)
+		{
+			return false;
+		}
+
+		const FString PortSuffix = Host.Mid(EndBracket + 1);
+		if (!PortSuffix.IsEmpty())
+		{
+			if (!PortSuffix.StartsWith(TEXT(":")) || !IsValidPort(PortSuffix.Mid(1)))
+			{
+				return false;
+			}
+		}
+
+		const FString BracketedHost = Host.Mid(1, EndBracket - 1);
+		if (BracketedHost != TEXT("::1"))
+		{
+			return false;
+		}
+		Host = BracketedHost;
+	}
+	else
+	{
+		FString HostOnly;
+		FString Port;
+		if (Host.Split(TEXT(":"), &HostOnly, &Port))
+		{
+			if (!IsValidPort(Port))
+			{
+				return false;
+			}
+			Host = HostOnly;
+		}
+	}
+
+	return Host.Equals(TEXT("localhost"), ESearchCase::IgnoreCase) ||
+		Host == TEXT("127.0.0.1") ||
+		Host == TEXT("::1");
+}
+
+void FMcpNativeTransport::AppendCorsHeaders(FString& Response, const FString& Origin) const
+{
+	if (!IsAllowedCorsOrigin(Origin))
+	{
+		return;
+	}
+
+	Response += FString::Printf(TEXT("Access-Control-Allow-Origin: %s\r\n"), *Origin.TrimStartAndEnd());
+	Response += TEXT("Vary: Origin\r\n");
+	Response += TEXT("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n");
+	Response += TEXT("Access-Control-Allow-Headers: Content-Type, Accept, Mcp-Session-Id, MCP-Protocol-Version, X-MCP-Capability-Token\r\n");
+	Response += TEXT("Access-Control-Expose-Headers: Mcp-Session-Id, MCP-Protocol-Version\r\n");
 }
 
 bool FMcpNativeTransport::WriteSSEEvent(FSSEConnection& Conn, const FString& EventData)
@@ -888,7 +1077,8 @@ bool FMcpNativeTransport::WriteSSEEvent(FSSEConnection& Conn, const FString& Eve
 
 // ─── Persistent Notification Streams (GET /mcp) ────────────────────────────
 
-void FMcpNativeTransport::HandleGetMcp(FSocket* ClientSocket, const FString& SessionId)
+void FMcpNativeTransport::HandleGetMcp(FSocket* ClientSocket, const FString& SessionId,
+	const FString& CorsOrigin)
 {
 	ISocketSubsystem* SocketSub = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
 
@@ -909,7 +1099,7 @@ void FMcpNativeTransport::HandleGetMcp(FSocket* ClientSocket, const FString& Ses
 			Lock.Unlock();
 			SendHttpResponse(ClientSocket, 429, TEXT("text/plain"),
 				FString::Printf(TEXT("Too Many Requests: max %d notification streams per session"),
-					MaxNotificationStreamsPerSession));
+					MaxNotificationStreamsPerSession), {}, CorsOrigin);
 			ClientSocket->Close();
 			SocketSub->DestroySocket(ClientSocket);
 			return;
@@ -917,7 +1107,7 @@ void FMcpNativeTransport::HandleGetMcp(FSocket* ClientSocket, const FString& Ses
 	}
 
 	// Send SSE headers
-	if (!SendSSEHeaders(ClientSocket, SessionId))
+	if (!SendSSEHeaders(ClientSocket, SessionId, CorsOrigin))
 	{
 		ClientSocket->Close();
 		SocketSub->DestroySocket(ClientSocket);
@@ -937,6 +1127,7 @@ void FMcpNativeTransport::HandleGetMcp(FSocket* ClientSocket, const FString& Ses
 		FScopeLock Lock(&NotificationStreamsMutex);
 		NotificationStreams.Add(Stream->StreamId, Stream);
 	}
+	TouchSession(SessionId);
 
 	UE_LOG(LogMcpNativeTransport, Log,
 		TEXT("GET /mcp: notification stream %s opened for session %s"),
@@ -1079,7 +1270,7 @@ int32 FMcpNativeTransport::GetTotalToolCount() const
 
 void FMcpNativeTransport::HandleToolsCall(
 	const TSharedPtr<FJsonObject>& Params, const TSharedPtr<FJsonValue>& Id,
-	FSocket* ClientSocket, const FString& SessionId)
+	FSocket* ClientSocket, const FString& SessionId, const FString& CorsOrigin)
 {
 	ISocketSubsystem* SocketSub = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
 
@@ -1087,7 +1278,7 @@ void FMcpNativeTransport::HandleToolsCall(
 	{
 		FString ErrorBody = FMcpJsonRpc::BuildError(
 			Id, FMcpJsonRpc::ErrorInvalidParams, TEXT("Missing params"));
-		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ErrorBody);
+		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ErrorBody, {}, CorsOrigin);
 		ClientSocket->Close();
 		if (SocketSub) SocketSub->DestroySocket(ClientSocket);
 		return;
@@ -1098,7 +1289,7 @@ void FMcpNativeTransport::HandleToolsCall(
 	{
 		FString ErrorBody = FMcpJsonRpc::BuildError(
 			Id, FMcpJsonRpc::ErrorInvalidParams, TEXT("Missing tool name"));
-		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ErrorBody);
+		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ErrorBody, {}, CorsOrigin);
 		ClientSocket->Close();
 		if (SocketSub) SocketSub->DestroySocket(ClientSocket);
 		return;
@@ -1114,7 +1305,7 @@ void FMcpNativeTransport::HandleToolsCall(
 			FString ErrorBody = FMcpJsonRpc::BuildError(
 				Id, FMcpJsonRpc::ErrorInvalidParams,
 				TEXT("'arguments' must be an object if provided"));
-			SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ErrorBody);
+			SendHttpResponse(ClientSocket, 200, TEXT("application/json"), ErrorBody, {}, CorsOrigin);
 			ClientSocket->Close();
 			if (SocketSub) SocketSub->DestroySocket(ClientSocket);
 			return;
@@ -1143,7 +1334,7 @@ void FMcpNativeTransport::HandleToolsCall(
 		TSharedPtr<FJsonObject> ToolResult = FMcpJsonRpc::BuildToolResult(
 			bActionSuccess, ActionMessage, Result);
 		FString Body = FMcpJsonRpc::BuildResponse(Id, ToolResult);
-		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), Body);
+		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), Body, {}, CorsOrigin);
 		ClientSocket->Close();
 		if (SocketSub) SocketSub->DestroySocket(ClientSocket);
 		return;
@@ -1157,14 +1348,14 @@ void FMcpNativeTransport::HandleToolsCall(
 			FString::Printf(TEXT("Tool '%s' is not enabled"), *ToolName),
 			nullptr, TEXT("TOOL_DISABLED"));
 		FString Body = FMcpJsonRpc::BuildResponse(Id, ToolResult);
-		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), Body);
+		SendHttpResponse(ClientSocket, 200, TEXT("application/json"), Body, {}, CorsOrigin);
 		ClientSocket->Close();
 		if (SocketSub) SocketSub->DestroySocket(ClientSocket);
 		return;
 	}
 
 	// Send SSE headers — begins the streaming response
-	if (!SendSSEHeaders(ClientSocket, SessionId))
+	if (!SendSSEHeaders(ClientSocket, SessionId, CorsOrigin))
 	{
 		UE_LOG(LogMcpNativeTransport, Warning,
 			TEXT("Failed to send SSE headers for tool %s"), *ToolName);
@@ -1275,13 +1466,15 @@ bool FMcpNativeTransport::CompletePendingRequest(
 	// Offload blocking write + close to thread pool so GameThread is not blocked
 	FString CapturedRequestId = RequestId;
 	FString CapturedToolName = Conn->ToolName;
+	FString CapturedSessionId = Conn->SessionId;
 	bool bCapturedSuccess = bSuccess;
 	PendingAsyncWrites.fetch_add(1);
 
 	Async(EAsyncExecution::ThreadPool,
 		[this, Conn, ResponseBody = MoveTemp(ResponseBody),
-		 CapturedRequestId, CapturedToolName, bCapturedSuccess]()
+		 CapturedRequestId, CapturedToolName, CapturedSessionId, bCapturedSuccess]()
 	{
+		bool bWroteResponse = false;
 		{
 			FScopeLock WriteLock(&Conn->WriteMutex);
 			if (!Conn->Socket)
@@ -1294,7 +1487,7 @@ bool FMcpNativeTransport::CompletePendingRequest(
 			FString Frame = FString::Printf(
 				TEXT("event: message\ndata: %s\n\n"), *ResponseBody);
 			FTCHARToUTF8 Utf8(*Frame);
-			SendAllBytes(Conn->Socket,
+			bWroteResponse = SendAllBytes(Conn->Socket,
 				reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());
 
 			Conn->Socket->Close();
@@ -1304,6 +1497,10 @@ bool FMcpNativeTransport::CompletePendingRequest(
 				SocketSub->DestroySocket(Conn->Socket);
 			}
 			Conn->Socket = nullptr;
+		}
+		if (bWroteResponse)
+		{
+			TouchSession(CapturedSessionId);
 		}
 
 		UE_LOG(LogMcpNativeTransport, Log,
@@ -1521,6 +1718,7 @@ void FMcpNativeTransport::CleanupStaleRequests()
 			else
 			{
 				Stream->LastKeepaliveTime = Now;
+				TouchSession(Stream->SessionId);
 			}
 		}
 	}
@@ -1528,13 +1726,13 @@ void FMcpNativeTransport::CleanupStaleRequests()
 
 // ─── Session Validation ─────────────────────────────────────────────────────
 
-bool FMcpNativeTransport::ValidateSession(
+FMcpNativeTransport::ESessionValidationResult FMcpNativeTransport::ValidateSession(
 	const FString& SessionId, FString& OutError)
 {
 	if (SessionId.IsEmpty())
 	{
 		OutError = TEXT("Missing Mcp-Session-Id header");
-		return false;
+		return ESessionValidationResult::Missing;
 	}
 
 	FScopeLock Lock(&SessionMutex);
@@ -1542,12 +1740,48 @@ bool FMcpNativeTransport::ValidateSession(
 	if (!LastActivity)
 	{
 		OutError = TEXT("Invalid or expired session ID");
-		return false;
+		return ESessionValidationResult::Invalid;
+	}
+
+	const double Now = FPlatformTime::Seconds();
+	if (Now - *LastActivity > SessionTimeoutSeconds)
+	{
+		ActiveSessions.Remove(SessionId);
+		OutError = TEXT("Invalid or expired session ID");
+		return ESessionValidationResult::Invalid;
 	}
 
 	// Touch session activity
-	*LastActivity = FPlatformTime::Seconds();
-	return true;
+	*LastActivity = Now;
+	return ESessionValidationResult::Valid;
+}
+
+int32 FMcpNativeTransport::GetSessionValidationStatusCode(ESessionValidationResult Result)
+{
+	switch (Result)
+	{
+	case ESessionValidationResult::Missing:
+		return 400;
+	case ESessionValidationResult::Invalid:
+		return 404;
+	case ESessionValidationResult::Valid:
+	default:
+		return 200;
+	}
+}
+
+void FMcpNativeTransport::TouchSession(const FString& SessionId)
+{
+	if (SessionId.IsEmpty())
+	{
+		return;
+	}
+	FScopeLock Lock(&SessionMutex);
+	double* LastActivity = ActiveSessions.Find(SessionId);
+	if (LastActivity)
+	{
+		*LastActivity = FPlatformTime::Seconds();
+	}
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -1564,32 +1798,8 @@ void FMcpNativeTransport::BroadcastToolsListChanged()
 	FString NotificationJson = FMcpJsonRpc::BuildNotification(
 		TEXT("notifications/tools/list_changed"));
 
-	// Snapshot under lock, I/O outside (same pattern as CompletePendingRequest)
-	TArray<TSharedPtr<FSSEConnection>> Snapshot;
-	{
-		FScopeLock Lock(&SSEConnectionsMutex);
-		Snapshot.Reserve(SSEConnections.Num());
-		for (auto& [ReqId, Conn] : SSEConnections)
-		{
-			if (Conn.IsValid() && !Conn->bMarkedForRemoval.load())
-			{
-				Snapshot.Add(Conn);
-			}
-		}
-	}
-
-	for (const auto& Conn : Snapshot)
-	{
-		if (!WriteSSEEvent(*Conn, NotificationJson))
-		{
-			Conn->bMarkedForRemoval.store(true);
-			UE_LOG(LogMcpNativeTransport, Warning,
-				TEXT("Failed to send list_changed to SSE connection (tool=%s) — marking for removal"),
-				*Conn->ToolName);
-		}
-	}
-
-	// Also broadcast to persistent notification streams (GET /mcp)
+	// Broadcast only to persistent notification streams (GET /mcp). Per-request
+	// tools/call streams must contain only progress and the final response.
 	TArray<TSharedPtr<FNotificationStream>> NotifSnapshot;
 	{
 		FScopeLock Lock(&NotificationStreamsMutex);
@@ -1612,11 +1822,15 @@ void FMcpNativeTransport::BroadcastToolsListChanged()
 				TEXT("Failed to send list_changed to notification stream %s — marking for removal"),
 				*Stream->StreamId);
 		}
+		else
+		{
+			TouchSession(Stream->SessionId);
+		}
 	}
 
 	UE_LOG(LogMcpNativeTransport, Log,
-		TEXT("Broadcast list_changed to %d SSE + %d notification stream(s)"),
-		Snapshot.Num(), NotifSnapshot.Num());
+		TEXT("Broadcast list_changed to %d notification stream(s)"),
+		NotifSnapshot.Num());
 }
 
 int32 FMcpNativeTransport::GetActiveSessionCount() const

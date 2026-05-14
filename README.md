@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![NPM Package](https://img.shields.io/npm/v/unreal-engine-mcp-server)](https://www.npmjs.com/package/unreal-engine-mcp-server)
 [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-TypeScript-blue)](https://github.com/modelcontextprotocol/sdk)
-[![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.0--5.7-orange)](https://www.unrealengine.com/)
+[![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.0--5.8-orange)](https://www.unrealengine.com/)
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-Published-green)](https://registry.modelcontextprotocol.io/)
 [![Project Board](https://img.shields.io/badge/Project-Roadmap-blueviolet?logo=github)](https://github.com/users/ChiR24/projects/3)
 [![Discussions](https://img.shields.io/badge/Discussions-Join-brightgreen?logo=github)](https://github.com/ChiR24/Unreal_mcp/discussions)
@@ -33,7 +33,7 @@ A comprehensive Model Context Protocol (MCP) server that enables AI assistants t
 | **Asset Management** | Browse, import, duplicate, rename, delete assets; create materials |
 | **Actor Control** | Spawn, delete, transform, physics, tags, components |
 | **Editor Control** | PIE sessions, camera, viewport, screenshots, bookmarks |
-| **Level Management** | Load/save levels, streaming, World Partition, data layers |
+| **Level Management** | Load/save levels, streaming, lighting |
 | **Animation & Physics** | Animation BPs, state machines, ragdolls, vehicles, constraints |
 | **Visual Effects** | Niagara particles, GPU simulations, procedural effects, debug shapes |
 | **Sequencer** | Cinematics, timeline control, camera animations, keyframes |
@@ -60,7 +60,7 @@ A comprehensive Model Context Protocol (MCP) server that enables AI assistants t
 
 ### Prerequisites
 
-- **Unreal Engine** 5.0–5.7
+- **Unreal Engine** 5.0–5.8 (5.8 preview validated)
 
 Choose your transport:
 - **Option A: Native MCP** (recommended) — no additional dependencies
@@ -128,11 +128,11 @@ Build the plugin once, then distribute the compiled binaries — no IDE or compi
 scripts\package-plugin.bat C:\Path\To\UE_5.6
 ```
 
-This produces a zip like `McpAutomationBridge-v0.6.0-UE5.6-Mac.zip`.
+This produces a zip like `McpAutomationBridge-v0.1.4-UE5.6-Mac.zip`.
 
 **2. Install:** unzip into `YourProject/Plugins/` and open the project. That's it — no compilation step.
 
-> Note: pre-built binaries are tied to a specific UE version. A build for 5.6 won't work with 5.5 or 5.7.
+> Note: pre-built binaries are tied to a specific UE version. A build for 5.6 won't work with 5.5, 5.7, or 5.8.
 
 ### Step 3: Enable Required Plugins
 
@@ -346,7 +346,7 @@ MCP_AUTOMATION_HOST=0.0.0.0
 | `manage_blueprint` | Blueprints, SCS components, graph editing, UMG widgets, layout, bindings, animations |
 | `control_actor` | Spawn, delete, transform, physics, tags |
 | `control_editor` | PIE, Camera, viewport, screenshots |
-| `manage_level` | Load/Save, World Partition, streaming |
+| `manage_level` | Load/save, streaming, lighting |
 | `system_control` | UBT, Tests, Logs, Project Settings, CVars, Python Execution |
 | `inspect` | Object Introspection |
 | `manage_tools` | Dynamic tool management (enable/disable at runtime) |

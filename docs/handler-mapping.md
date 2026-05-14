@@ -101,13 +101,30 @@ This document maps the TypeScript tool definitions to their corresponding C++ ha
 
 | Action | C++ Handler File | C++ Function | Notes |
 | :--- | :--- | :--- | :--- |
-| `load` | `McpAutomationBridge_EditorFunctionHandlers.cpp` | `HandleLevelAction` | |
-| `save` | `McpAutomationBridge_EditorFunctionHandlers.cpp` | `HandleLevelAction` | |
-| `create_level` | `McpAutomationBridge_EditorFunctionHandlers.cpp` | `HandleLevelAction` | |
+| `load` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Alias for `load_level` |
+| `load_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Opens a map package |
+| `save` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Alias for `save_level` |
+| `save_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Saves the current level |
+| `save_as` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Alias for `save_level_as` |
+| `save_level_as` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Saves current level to a new path |
+| `stream` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Loads/updates a streaming level |
+| `unload` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Alias for `unload_level` |
+| `unload_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Forces streaming unload |
+| `create_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Creates and opens a new level |
+| `create_light` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Spawns a level light |
+| `build_lighting` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Starts editor lighting build |
+| `set_metadata` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Delegates to asset metadata handling |
 | `export_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | |
 | `import_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | |
-| `load_cells` | `McpAutomationBridge_WorldPartitionHandlers.cpp` | `HandleWorldPartitionAction` | |
-| `set_datalayer` | `McpAutomationBridge_WorldPartitionHandlers.cpp` | `HandleWorldPartitionAction` | |
+| `list_levels` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Lists current world levels and map assets |
+| `get_summary` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Maps to level info summary |
+| `delete` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Alias for `delete_level` |
+| `delete_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Deletes map file, built data, and external sidecars |
+| `validate_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Checks package/file existence |
+| `add_sublevel` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Adds a streaming sublevel |
+| `rename_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Copies destination then deletes source and sidecars |
+| `duplicate_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Copies map, built data, and external sidecars |
+| `get_current_level` | `McpAutomationBridge_LevelHandlers.cpp` | `HandleLevelAction` | Returns current editor level identity |
 
 ## Lighting Manager (`build_environment`)
 

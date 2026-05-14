@@ -19,7 +19,7 @@ Please be respectful and constructive in all interactions. We're building someth
 ### Prerequisites
 
 - **Node.js** 18+ 
-- **Unreal Engine** 5.0-5.7 (for live testing)
+- **Unreal Engine** 5.0-5.8 Preview (for live testing)
 - **Git**
 
 ### Setup

@@ -1980,7 +1980,12 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
 #if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5)
         else if (StackDurationRefreshPolicyToken == TEXT("extendduration"))
         {
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 7
             EffectCDO->StackDurationRefreshPolicy = EGameplayEffectStackingDurationPolicy::ExtendDuration;
+#else
+            UE_LOG(LogTemp, Warning, TEXT("ExtendDuration stack duration refresh policy requires UE 5.7+. Using RefreshOnSuccessfulApplication instead."));
+            EffectCDO->StackDurationRefreshPolicy = EGameplayEffectStackingDurationPolicy::RefreshOnSuccessfulApplication;
+#endif
         }
 #endif
 
