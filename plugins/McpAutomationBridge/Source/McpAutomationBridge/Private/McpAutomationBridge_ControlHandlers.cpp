@@ -56,6 +56,7 @@
 #include "McpAutomationBridgeHelpers.h"
 #include "McpHandlerUtils.h"
 #include "McpAutomationBridgeSubsystem.h"
+#include "McpLandscapeMetadataTags.h"
 #include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/DateTime.h"
@@ -69,6 +70,8 @@
 // -----------------------------------------------------------------------------
 #include "EditorAssetLibrary.h"
 #include "EngineUtils.h"
+#include "Landscape.h"
+#include "LandscapeInfo.h"
 
 // -----------------------------------------------------------------------------
 // Editor-only Includes: Editor Subsystems (paths vary by UE version)
@@ -2067,6 +2070,55 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorGetBoundingBox(
 
   FVector Origin, BoxExtent;
   Found->GetActorBounds(false, Origin, BoxExtent);
+
+  auto BuildLandscapeBox = [](const FTransform& Transform, double MinX,
+                              double MinY, double MaxX, double MaxY,
+                              double MinZ, double MaxZ) {
+    FBox LandscapeBox(EForceInit::ForceInit);
+    const FVector Corners[] = {
+        FVector(MinX, MinY, MinZ), FVector(MinX, MaxY, MinZ),
+        FVector(MaxX, MinY, MinZ), FVector(MaxX, MaxY, MinZ),
+        FVector(MinX, MinY, MaxZ), FVector(MinX, MaxY, MaxZ),
+        FVector(MaxX, MinY, MaxZ), FVector(MaxX, MaxY, MaxZ),
+    };
+    for (const FVector& Corner : Corners) {
+      LandscapeBox += Transform.TransformPosition(Corner);
+    }
+    return LandscapeBox;
+  };
+
+  if (ALandscape* Landscape = Cast<ALandscape>(Found);
+      Landscape && BoxExtent.IsNearlyZero()) {
+    ULandscapeInfo* LandscapeInfo = Landscape->GetLandscapeInfo();
+    int32 MinX = 0, MinY = 0, MaxX = 0, MaxY = 0;
+    if (LandscapeInfo && LandscapeInfo->GetLandscapeExtent(MinX, MinY, MaxX, MaxY)) {
+      const FBox LandscapeBox = BuildLandscapeBox(
+          Landscape->GetTransform(), MinX, MinY, MaxX, MaxY, -256.0, 256.0);
+      Origin = LandscapeBox.GetCenter();
+      BoxExtent = LandscapeBox.GetExtent();
+    }
+
+    if (BoxExtent.IsNearlyZero()) {
+      const FBox ProxyBounds = Landscape->GetProxyBounds();
+      if (ProxyBounds.IsValid) {
+        Origin = ProxyBounds.GetCenter();
+        BoxExtent = ProxyBounds.GetExtent();
+      }
+    }
+
+    if (BoxExtent.IsNearlyZero()) {
+      FMcpLandscapeMetadata Metadata;
+      if (McpLandscapeMetadataTags::DecodeLandscapeMetadata(Landscape, Metadata)) {
+        const double MaxXFromMetadata = Metadata.ComponentsX * Metadata.QuadsPerComponent;
+        const double MaxYFromMetadata = Metadata.ComponentsY * Metadata.QuadsPerComponent;
+        const FBox LandscapeBox = BuildLandscapeBox(
+            Landscape->GetTransform(), 0.0, 0.0, MaxXFromMetadata,
+            MaxYFromMetadata, -256.0, 256.0);
+        Origin = LandscapeBox.GetCenter();
+        BoxExtent = LandscapeBox.GetExtent();
+      }
+    }
+  }
 
   TSharedPtr<FJsonObject> Data = McpHandlerUtils::CreateResultObject();
 
